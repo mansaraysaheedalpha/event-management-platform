@@ -24,6 +24,14 @@ export class ChatGateway {
 
   constructor(private readonly chatService: ChatService) {}
 
+  /**
+   * Handles incoming 'chat.message.send' events.
+   * Sends a message to the specified session and broadcasts it to all participants.
+   *
+   * @param dto - The message payload sent by the client.
+   * @param client - The connected WebSocket client (with authentication).
+   * @returns An object containing success status and message ID or error.
+   */
   @SubscribeMessage('chat.message.send')
   async handleSendMessage(
     @MessageBody() dto: SendMessageDto,
@@ -50,6 +58,14 @@ export class ChatGateway {
     }
   }
 
+  /**
+   * Handles 'chat.message.edit' events.
+   * Edits an existing message and emits the updated message to the session.
+   *
+   * @param dto - The edit payload including messageId and new content.
+   * @param client - The authenticated WebSocket client.
+   * @returns An object with success status and updated message ID or error.
+   */
   @SubscribeMessage('chat.message.edit')
   async handleEditMessage(
     @MessageBody() dto: EditMessageDto,
@@ -75,6 +91,14 @@ export class ChatGateway {
     }
   }
 
+  /**
+   * Handles 'chat.message.delete' events.
+   * Deletes a message (based on user permissions) and notifies the session participants.
+   *
+   * @param dto - Payload containing the messageId to be deleted.
+   * @param client - The authenticated client attempting deletion.
+   * @returns An object with deletion status and deleted message ID or error.
+   */
   @SubscribeMessage('chat.message.delete')
   async handleDeleteMessage(
     @MessageBody() dto: DeleteMessageDto,
