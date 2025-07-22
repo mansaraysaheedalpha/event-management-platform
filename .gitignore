@@ -1,0 +1,36 @@
+# IDE & System Files
+.vscode/
+.idea/
+*.suo
+*.user
+.DS_Store
+
+# Dependencies
+# These should be installed, not stored in Git
+node_modules/
+
+# Build artifacts
+# These are generated from your source code
+dist/
+build/
+coverage/
+
+# Log files
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+# VERY IMPORTANT: Never commit your secrets!
+.env
+.env.*
+!.env.example
+**/venv/
+
+
+# Prisma
+# The generated client in node_modules will be ignored
+# but keep the schema and migrations
+prisma/generated/

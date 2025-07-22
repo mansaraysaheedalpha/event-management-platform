@@ -1,0 +1,2133 @@
+asyncapi: 2.6.0
+info:
+  title: Real-Time Communication API (Global Event Platform)
+  version: 2.0.0
+  description: >
+    The complete specification for the real-time microservice, handling all interactive features
+    from live chat and Q&A to real-time analytics dashboards, security alerts, and monetization events.
+    This service is designed for multi-tenancy, scalability, and a world-class user experience with
+    comprehensive error handling, security, and operational monitoring.
+  contact:
+    name: Saheed Alpha Mansaray
+    url: 'https://www.linkedin.com/in/saheed-mansaray'
+  license:
+    name: Apache 2.0
+    url: 'https://www.apache.org/licenses/LICENSE-2.0.html'
+
+servers:
+  production:
+    url: 'wss://realtime.your-platform.com'
+    protocol: wss
+    description: Production WebSocket server cluster with Redis scaling.
+    security:
+      - userToken: []
+    variables:
+      region:
+        description: Server region for global deployment
+        enum: ['us-east', 'us-west', 'eu-west', 'ap-southeast']
+        default: 'us-east'
+  development:
+    url: 'ws://localhost:3002'
+    protocol: ws
+    description: Local development server.
+
+defaultContentType: application/json
+
+# ===================================================================
+# CHANNELS - The heart of the API, defining all communication paths.
+# ===================================================================
+
+channels:
+  # -------------------------------------------------------------------
+  # Connection Lifecycle & System Management
+  # -------------------------------------------------------------------
+
+  /system/connection:
+    description: System channel for connection lifecycle management.
+    subscribe:
+      summary: Receive connection lifecycle events.
+      operationId: receiveConnectionEvent
+      message:
+        oneOf:
+          - $ref: '#/components/messages/connectionAcknowledged'
+          - $ref: '#/components/messages/heartbeat'
+          - $ref: '#/components/messages/systemError'
+          - $ref: '#/components/messages/reconnectRequired'
+
+  /system/users/{userId}/sync:
+    parameters:
+      userId: { $ref: '#/components/parameters/userId' }
+    description: User-specific sync channel for offline-first support.
+    subscribe:
+      summary: Receive sync events for offline content.
+      operationId: receiveSyncEvent
+      message: { $ref: '#/components/messages/syncUpdate' }
+
+  # -------------------------------------------------------------------
+  # Namespace: /comm (Live Communication Features)
+  # -------------------------------------------------------------------
+
+  /comm/sessions/{sessionId}/chat:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Channel for live attendee chat within a specific session with moderation.
+    publish:
+      summary: Send a chat message.
+      operationId: sendChatMessage
+      message: { $ref: '#/components/messages/sendChatMessage' }
+    subscribe:
+      summary: Receive new chat messages and moderation events.
+      operationId: receiveChatMessage
+      message:
+        oneOf:
+          - $ref: '#/components/messages/chatMessage'
+          - $ref: '#/components/messages/chatMessageDeleted'
+          - $ref: '#/components/messages/chatTranslated'
+
+  /comm/sessions/{sessionId}/qna:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Channel for live Q&A, including questions, upvotes, and real-time updates.
+    publish:
+      summary: Ask a new question or upvote an existing one.
+      operationId: interactWithQA
+      message:
+        oneOf:
+          - $ref: '#/components/messages/askQuestion'
+          - $ref: '#/components/messages/upvoteQuestion'
+    subscribe:
+      summary: Receive new questions and updates to existing ones.
+      operationId: receiveQAUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/newQuestion'
+          - $ref: '#/components/messages/questionUpdate'
+          - $ref: '#/components/messages/questionRemoved'
+
+  /comm/sessions/{sessionId}/qna/moderation:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Admin-only channel for moderating Q&A questions with real-time alerts.
+    publish:
+      summary: Approve or dismiss a question.
+      operationId: moderateQuestion
+      message: { $ref: '#/components/messages/moderateQuestion' }
+    subscribe:
+      summary: Receive questions pending moderation and alerts.
+      operationId: receivePendingQuestion
+      message:
+        oneOf:
+          - $ref: '#/components/messages/newQuestion'
+          - $ref: '#/components/messages/moderationAlert'
+
+  /comm/sessions/{sessionId}/polls:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Channel for live polls and surveys with real-time results.
+    publish:
+      summary: Cast a vote in an active poll.
+      operationId: voteOnPoll
+      message: { $ref: '#/components/messages/submitPollVote' }
+    subscribe:
+      summary: Receive poll status updates and real-time results.
+      operationId: receivePollUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/pollOpened'
+          - $ref: '#/components/messages/pollResultsUpdated'
+          - $ref: '#/components/messages/pollClosed'
+
+  /comm/dms/{userId}:
+    parameters:
+      userId: { $ref: '#/components/parameters/userId' }
+    description: Private channel for direct messaging between attendees with encryption.
+    publish:
+      summary: Send a direct message to another user.
+      operationId: sendDirectMessage
+      message: { $ref: '#/components/messages/sendDirectMessage' }
+    subscribe:
+      summary: Receive direct messages and delivery confirmations.
+      operationId: receiveDirectMessage
+      message:
+        oneOf:
+          - $ref: '#/components/messages/directMessage'
+          - $ref: '#/components/messages/messageDelivered'
+          - $ref: '#/components/messages/messageRead'
+
+  # -------------------------------------------------------------------
+  # Namespace: /alerts (Notifications & Alerts)
+  # -------------------------------------------------------------------
+
+  /alerts/users/{userId}:
+    parameters:
+      userId: { $ref: '#/components/parameters/userId' }
+    description: Private channel for user-specific notifications and emergency alerts.
+    subscribe:
+      summary: Receive personal notifications and emergency alerts.
+      operationId: receiveUserNotification
+      message:
+        oneOf:
+          - $ref: '#/components/messages/personalNotification'
+          - $ref: '#/components/messages/emergencyAlert'
+          - $ref: '#/components/messages/sessionReminder'
+          - $ref: '#/components/messages/scheduleChange'
+
+  /alerts/organizations/{orgId}/admin:
+    parameters:
+      orgId: { $ref: '#/components/parameters/orgId' }
+    description: Admin-only channel for organization-level alerts and incidents.
+    subscribe:
+      summary: Receive admin-level alerts and incident reports.
+      operationId: receiveAdminAlert
+      message:
+        oneOf:
+          - $ref: '#/components/messages/capacityAlert'
+          - $ref: '#/components/messages/incidentReportAlert'
+          - $ref: '#/components/messages/systemHealthAlert'
+          - $ref: '#/components/messages/securityAlert'
+
+  /alerts/organizations/{orgId}/incidents:
+    parameters:
+      orgId: { $ref: '#/components/parameters/orgId' }
+    description: Channel for real-time incident reporting and management.
+    publish:
+      summary: Report an incident (harassment, medical, technical).
+      operationId: reportIncident
+      message: { $ref: '#/components/messages/reportIncident' }
+    subscribe:
+      summary: Receive incident status updates.
+      operationId: receiveIncidentUpdate
+      message: { $ref: '#/components/messages/incidentUpdate' }
+
+  # -------------------------------------------------------------------
+  # Namespace: /live (Live Dashboard & Event Experience)
+  # -------------------------------------------------------------------
+
+  /live/events/{eventId}/dashboard:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Admin-only channel for live event-wide analytics dashboard.
+    subscribe:
+      summary: Receive real-time dashboard updates and analytics.
+      operationId: receiveDashboardUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/attendeeCountUpdate'
+          - $ref: '#/components/messages/liveCheckInFeed'
+          - $ref: '#/components/messages/sessionAttendanceUpdate'
+          - $ref: '#/components/messages/capacityMonitoring'
+          - $ref: '#/components/messages/multitenantMetrics'
+
+  /live/sessions/{sessionId}/reactions:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Channel for emoji reactions and audience mood tracking.
+    publish:
+      summary: Send an emoji reaction.
+      operationId: sendReaction
+      message: { $ref: '#/components/messages/sendReaction' }
+    subscribe:
+      summary: Receive reaction bursts and mood analytics.
+      operationId: receiveReactionBurst
+      message:
+        oneOf:
+          - $ref: '#/components/messages/reactionBurst'
+          - $ref: '#/components/messages/moodAnalytics'
+
+  /live/events/{eventId}/agenda:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Public channel for real-time agenda and session updates.
+    subscribe:
+      summary: Receive agenda updates and countdown timers.
+      operationId: receiveAgendaUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/agendaUpdate'
+          - $ref: '#/components/messages/sessionCountdown'
+          - $ref: '#/components/messages/roomChangeAlert'
+
+  /live/sessions/{sessionId}/content:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Channel for real-time content sharing and slide synchronization.
+    subscribe:
+      summary: Receive live content drops and slide updates.
+      operationId: receiveContentUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/slideUpdate'
+          - $ref: '#/components/messages/contentDrop'
+          - $ref: '#/components/messages/speakerControl'
+
+  /live/events/{eventId}/validation:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for real-time ticket validation and access control.
+    publish:
+      summary: Validate ticket or access credentials.
+      operationId: validateTicket
+      message: { $ref: '#/components/messages/validateTicket' }
+    subscribe:
+      summary: Receive validation results and access updates.
+      operationId: receiveValidationResult
+      message:
+        oneOf:
+          - $ref: '#/components/messages/validationResult'
+          - $ref: '#/components/messages/accessUpdated'
+
+  # -------------------------------------------------------------------
+  # Namespace: /monetization (Real-Time Monetization)
+  # -------------------------------------------------------------------
+
+  /monetization/events/{eventId}/ads:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for real-time ad injection and sponsored content.
+    subscribe:
+      summary: Receive targeted ads and sponsored content.
+      operationId: receiveAdContent
+      message:
+        oneOf:
+          - $ref: '#/components/messages/adInjection'
+          - $ref: '#/components/messages/sponsoredContent'
+
+  /monetization/events/{eventId}/upsell:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for real-time upselling opportunities and pricing updates.
+    subscribe:
+      summary: Receive upsell notifications and pricing changes.
+      operationId: receiveUpsellOpportunity
+      message:
+        oneOf:
+          - $ref: '#/components/messages/upsellOpportunity'
+          - $ref: '#/components/messages/dynamicPricing'
+
+  /monetization/events/{eventId}/waitlist:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for real-time waitlist management and auto-promotion.
+    subscribe:
+      summary: Receive waitlist status updates and promotion notifications.
+      operationId: receiveWaitlistUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/waitlistPromotion'
+          - $ref: '#/components/messages/waitlistStatusUpdate'
+
+  # -------------------------------------------------------------------
+  # Namespace: /ops (Security, Operations & Monitoring)
+  # -------------------------------------------------------------------
+
+  /ops/organizations/{orgId}/audit:
+    parameters:
+      orgId: { $ref: '#/components/parameters/orgId' }
+    description: Real-time audit trail for organization activities.
+    subscribe:
+      summary: Receive audit log entries in real-time.
+      operationId: receiveAuditLog
+      message: { $ref: '#/components/messages/auditLogEntry' }
+
+  /ops/organizations/{orgId}/security:
+    parameters:
+      orgId: { $ref: '#/components/parameters/orgId' }
+    description: Channel for real-time security monitoring and access control.
+    subscribe:
+      summary: Receive security alerts and access control updates.
+      operationId: receiveSecurityEvent
+      message:
+        oneOf:
+          - $ref: '#/components/messages/securityAlert'
+          - $ref: '#/components/messages/accessControlUpdate'
+          - $ref: '#/components/messages/sessionConflictDetected'
+
+  /ops/system/health:
+    description: Global system health monitoring channel.
+    subscribe:
+      summary: Receive system health updates and failover alerts.
+      operationId: receiveSystemHealth
+      message:
+        oneOf:
+          - $ref: '#/components/messages/systemHealthAlert'
+          - $ref: '#/components/messages/failoverAlert'
+          - $ref: '#/components/messages/downtimeAlert'
+
+  # -------------------------------------------------------------------
+  # Namespace: /global (Global Real-Time Features)
+  # -------------------------------------------------------------------
+
+  /global/events/{eventId}/timezone:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for multi-timezone coordination and global synchronization.
+    subscribe:
+      summary: Receive timezone-aware event updates and global coordination.
+      operationId: receiveTimezoneUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/timezoneSync'
+          - $ref: '#/components/messages/globalEventSync'
+
+  /global/translation/{sessionId}:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Channel for real-time language translation and multi-language support.
+    subscribe:
+      summary: Receive real-time translations and subtitle streams.
+      operationId: receiveTranslation
+      message:
+        oneOf:
+          - $ref: '#/components/messages/liveTranslation'
+          - $ref: '#/components/messages/subtitleStream'
+
+# ===================================================================
+# COMPONENTS - Reusable building blocks for the API.
+# ===================================================================
+
+components:
+  # --- SECURITY SCHEMES ---
+  securitySchemes:
+    userToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT obtained from the User & Organization Management service. Must be provided
+        during the initial WebSocket connection for authentication with role-based permissions.
+
+  # --- PARAMETERS ---
+  parameters:
+    sessionId:
+      description: The unique identifier for an event session.
+      schema:
+        type: string
+        format: uuid
+    userId:
+      description: The unique identifier for a user.
+      schema:
+        type: string
+        format: uuid
+    orgId:
+      description: The unique identifier for an organization (tenant).
+      schema:
+        type: string
+        format: uuid
+    eventId:
+      description: The unique identifier for an event.
+      schema:
+        type: string
+        format: uuid
+    questionId:
+      description: The unique identifier for a Q&A question.
+      schema:
+        type: string
+        format: uuid
+    pollId:
+      description: The unique identifier for a poll.
+      schema:
+        type: string
+        format: uuid
+    incidentId:
+      description: The unique identifier for an incident report.
+      schema:
+        type: string
+        format: uuid
+
+  # --- MESSAGES ---
+  messages:
+    # System & Connection Management
+    connectionAcknowledged:
+      name: 'connectionAck'
+      payload: { $ref: '#/components/schemas/connectionAck' }
+    heartbeat:
+      name: 'heartbeat'
+      payload: { $ref: '#/components/schemas/heartbeat' }
+    systemError:
+      name: 'systemError'
+      payload: { $ref: '#/components/schemas/errorResponse' }
+    reconnectRequired:
+      name: 'reconnectRequired'
+      payload: { $ref: '#/components/schemas/reconnectInfo' }
+    syncUpdate:
+      name: 'syncUpdate'
+      payload: { $ref: '#/components/schemas/syncData' }
+
+    # Chat Messages
+    sendChatMessage:
+      name: 'sendMessage'
+      payload: { $ref: '#/components/schemas/sendMessagePayload' }
+    chatMessage:
+      name: 'newMessage'
+      payload: { $ref: '#/components/schemas/chatMessage' }
+    chatMessageDeleted:
+      name: 'messageDeleted'
+      payload: { $ref: '#/components/schemas/messageDeleted' }
+    chatTranslated:
+      name: 'messageTranslated'
+      payload: { $ref: '#/components/schemas/translatedMessage' }
+
+    # Q&A Messages
+    askQuestion:
+      name: 'askQuestion'
+      payload: { $ref: '#/components/schemas/askQuestionPayload' }
+    upvoteQuestion:
+      name: 'upvoteQuestion'
+      payload: { $ref: '#/components/schemas/upvoteQuestionPayload' }
+    moderateQuestion:
+      name: 'moderateQuestion'
+      payload: { $ref: '#/components/schemas/moderateQuestionPayload' }
+    newQuestion:
+      name: 'newQuestion'
+      payload: { $ref: '#/components/schemas/question' }
+    questionUpdate:
+      name: 'questionUpdated'
+      payload: { $ref: '#/components/schemas/question' }
+    questionRemoved:
+      name: 'questionRemoved'
+      payload: { $ref: '#/components/schemas/questionRemoved' }
+    moderationAlert:
+      name: 'moderationAlert'
+      payload: { $ref: '#/components/schemas/moderationAlert' }
+
+    # Poll Messages
+    submitPollVote:
+      name: 'submitVote'
+      payload: { $ref: '#/components/schemas/submitPollVotePayload' }
+    pollOpened:
+      name: 'pollOpened'
+      payload: { $ref: '#/components/schemas/poll' }
+    pollResultsUpdated:
+      name: 'pollResultsUpdated'
+      payload: { $ref: '#/components/schemas/poll' }
+    pollClosed:
+      name: 'pollClosed'
+      payload: { $ref: '#/components/schemas/pollClosed' }
+
+    # Direct Messages
+    sendDirectMessage:
+      name: 'sendDM'
+      payload: { $ref: '#/components/schemas/sendDirectMessagePayload' }
+    directMessage:
+      name: 'newDM'
+      payload: { $ref: '#/components/schemas/directMessage' }
+    messageDelivered:
+      name: 'messageDelivered'
+      payload: { $ref: '#/components/schemas/deliveryStatus' }
+    messageRead:
+      name: 'messageRead'
+      payload: { $ref: '#/components/schemas/readStatus' }
+
+    # Alert Messages
+    personalNotification:
+      name: 'notification'
+      payload: { $ref: '#/components/schemas/notification' }
+    emergencyAlert:
+      name: 'emergencyAlert'
+      payload: { $ref: '#/components/schemas/emergencyAlert' }
+    sessionReminder:
+      name: 'sessionReminder'
+      payload: { $ref: '#/components/schemas/sessionReminder' }
+    scheduleChange:
+      name: 'scheduleChange'
+      payload: { $ref: '#/components/schemas/scheduleChange' }
+    capacityAlert:
+      name: 'capacityAlert'
+      payload: { $ref: '#/components/schemas/capacityAlert' }
+    incidentReportAlert:
+      name: 'incidentReport'
+      payload: { $ref: '#/components/schemas/incidentReport' }
+    systemHealthAlert:
+      name: 'systemHealth'
+      payload: { $ref: '#/components/schemas/systemHealth' }
+    securityAlert:
+      name: 'securityAlert'
+      payload: { $ref: '#/components/schemas/securityAlert' }
+
+    # Incident Management
+    reportIncident:
+      name: 'reportIncident'
+      payload: { $ref: '#/components/schemas/reportIncidentPayload' }
+    incidentUpdate:
+      name: 'incidentUpdate'
+      payload: { $ref: '#/components/schemas/incidentUpdate' }
+
+    # Dashboard & Analytics
+    attendeeCountUpdate:
+      name: 'attendeeCount'
+      payload: { $ref: '#/components/schemas/attendeeCount' }
+    liveCheckInFeed:
+      name: 'newCheckIn'
+      payload: { $ref: '#/components/schemas/checkIn' }
+    sessionAttendanceUpdate:
+      name: 'sessionAttendance'
+      payload: { $ref: '#/components/schemas/sessionAttendance' }
+    capacityMonitoring:
+      name: 'capacityMonitoring'
+      payload: { $ref: '#/components/schemas/capacityMonitoring' }
+    multitenantMetrics:
+      name: 'multitenantMetrics'
+      payload: { $ref: '#/components/schemas/multitenantMetrics' }
+
+    # Live Experience
+    sendReaction:
+      name: 'sendReaction'
+      payload: { $ref: '#/components/schemas/sendReactionPayload' }
+    reactionBurst:
+      name: 'reactionBurst'
+      payload: { $ref: '#/components/schemas/reactionBurst' }
+    moodAnalytics:
+      name: 'moodAnalytics'
+      payload: { $ref: '#/components/schemas/moodAnalytics' }
+    agendaUpdate:
+      name: 'agendaUpdate'
+      payload: { $ref: '#/components/schemas/agendaUpdate' }
+    sessionCountdown:
+      name: 'sessionCountdown'
+      payload: { $ref: '#/components/schemas/sessionCountdown' }
+    roomChangeAlert:
+      name: 'roomChangeAlert'
+      payload: { $ref: '#/components/schemas/roomChangeAlert' }
+
+    # Content Management
+    slideUpdate:
+      name: 'slideUpdate'
+      payload: { $ref: '#/components/schemas/slideUpdate' }
+    contentDrop:
+      name: 'contentDrop'
+      payload: { $ref: '#/components/schemas/contentDrop' }
+    speakerControl:
+      name: 'speakerControl'
+      payload: { $ref: '#/components/schemas/speakerControl' }
+
+    # Validation & Access
+    validateTicket:
+      name: 'validateTicket'
+      payload: { $ref: '#/components/schemas/validateTicketPayload' }
+    validationResult:
+      name: 'validationResult'
+      payload: { $ref: '#/components/schemas/validationResult' }
+    accessUpdated:
+      name: 'accessUpdated'
+      payload: { $ref: '#/components/schemas/accessUpdate' }
+
+    # Monetization
+    adInjection:
+      name: 'adInjection'
+      payload: { $ref: '#/components/schemas/adContent' }
+    sponsoredContent:
+      name: 'sponsoredContent'
+      payload: { $ref: '#/components/schemas/sponsoredContent' }
+    upsellOpportunity:
+      name: 'upsellOpportunity'
+      payload: { $ref: '#/components/schemas/upsellOpportunity' }
+    dynamicPricing:
+      name: 'dynamicPricing'
+      payload: { $ref: '#/components/schemas/dynamicPricing' }
+    waitlistPromotion:
+      name: 'waitlistPromotion'
+      payload: { $ref: '#/components/schemas/waitlistPromotion' }
+    waitlistStatusUpdate:
+      name: 'waitlistStatusUpdate'
+      payload: { $ref: '#/components/schemas/waitlistStatus' }
+
+    # Operations & Security
+    auditLogEntry:
+      name: 'newAuditLog'
+      payload: { $ref: '#/components/schemas/auditLog' }
+    accessControlUpdate:
+      name: 'accessControlUpdate'
+      payload: { $ref: '#/components/schemas/accessControlUpdate' }
+    sessionConflictDetected:
+      name: 'sessionConflictDetected'
+      payload: { $ref: '#/components/schemas/sessionConflict' }
+    failoverAlert:
+      name: 'failoverAlert'
+      payload: { $ref: '#/components/schemas/failoverAlert' }
+    downtimeAlert:
+      name: 'downtimeAlert'
+      payload: { $ref: '#/components/schemas/downtimeAlert' }
+
+    # Global Features
+    timezoneSync:
+      name: 'timezoneSync'
+      payload: { $ref: '#/components/schemas/timezoneSync' }
+    globalEventSync:
+      name: 'globalEventSync'
+      payload: { $ref: '#/components/schemas/globalEventSync' }
+    liveTranslation:
+      name: 'liveTranslation'
+      payload: { $ref: '#/components/schemas/liveTranslation' }
+    subtitleStream:
+      name: 'subtitleStream'
+      payload: { $ref: '#/components/schemas/subtitleStream' }
+
+  # --- SCHEMAS ---
+  schemas:
+    # Base Models
+    messageMetadata:
+      type: object
+      required: [id, timestamp, correlationId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+          format: uuid
+          description: For tracking message delivery and acknowledgment
+        retryCount:
+          type: integer
+          minimum: 0
+          default: 0
+
+    userSummary:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: 'Saheed M.'
+        avatarUrl:
+          type: string
+          format: uri
+        timezone:
+          type: string
+          example: 'UTC'
+        preferredLanguage:
+          type: string
+          example: 'en'
+
+    session:
+      type: object
+      required: [id, title, startTime]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: 'Building Real-Time APIs'
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        capacity:
+          type: integer
+        currentAttendees:
+          type: integer
+        room:
+          type: string
+
+    errorResponse:
+      type: object
+      required: [code, message, timestamp]
+      properties:
+        code:
+          type: string
+          enum: [RATE_LIMIT_EXCEEDED, UNAUTHORIZED, FORBIDDEN, VALIDATION_ERROR, INTERNAL_ERROR]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+        retryAfter:
+          type: integer
+          description: Seconds to wait before retry for rate limiting
+
+    # System Messages
+    connectionAck:
+      type: object
+      required: [userId, sessionId, serverRegion]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        serverRegion:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        rateLimits:
+          type: object
+          properties:
+            messages:
+              type: integer
+            reactions:
+              type: integer
+            questions:
+              type: integer
+
+    heartbeat:
+      type: object
+      required: [timestamp]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        serverLoad:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    reconnectInfo:
+      type: object
+      required: [reason, retryAfter]
+      properties:
+        reason:
+          type: string
+          enum: [SERVER_RESTART, LOAD_BALANCING, MAINTENANCE, SECURITY_UPDATE]
+        retryAfter:
+          type: integer
+        newEndpoint:
+          type: string
+          format: uri
+
+    syncData:
+      type: object
+      required: [lastSyncTime, pendingMessages]
+      properties:
+        lastSyncTime:
+          type: string
+          format: date-time
+        pendingMessages:
+          type: array
+          items:
+            type: object
+        offlineActions:
+          type: array
+          items:
+            type: object
+
+    # Chat Schemas
+    sendMessagePayload:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 1000
+        language:
+          type: string
+          default: 'en'
+        encrypted:
+          type: boolean
+          default: false
+
+    chatMessage:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [text, user]
+          properties:
+            text:
+              type: string
+            user:
+              $ref: '#/components/schemas/userSummary'
+            translations:
+              type: object
+              additionalProperties:
+                type: string
+            isModerated:
+              type: boolean
+              default: false
+
+    messageDeleted:
+      type: object
+      required: [messageId, reason]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          enum: [INAPPROPRIATE_CONTENT, SPAM, USER_REQUEST, ADMIN_ACTION]
+        deletedBy:
+          $ref: '#/components/schemas/userSummary'
+
+    translatedMessage:
+      type: object
+      required: [messageId, originalText, translatedText, targetLanguage]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        originalText:
+          type: string
+        translatedText:
+          type: string
+        targetLanguage:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    # Q&A Schemas
+    askQuestionPayload:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 500
+        isAnonymous:
+          type: boolean
+          default: false
+        language:
+          type: string
+          default: 'en'
+
+    upvoteQuestionPayload:
+      type: object
+      required: [questionId]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+
+    moderateQuestionPayload:
+      type: object
+      required: [questionId, status]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [approved, dismissed, flagged]
+        moderatorNote:
+          type: string
+          maxLength: 200
+
+    question:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [text, upvotes, isAnswered, status]
+          properties:
+            text:
+              type: string
+            upvotes:
+              type: integer
+              minimum: 0
+            isAnswered:
+              type: boolean
+              default: false
+            status:
+              type: string
+              enum: [pending, approved, dismissed, flagged]
+            user:
+              $ref: '#/components/schemas/userSummary'
+            translations:
+              type: object
+              additionalProperties:
+                type: string
+            priority:
+              type: integer
+              minimum: 0
+              maximum: 10
+
+    questionRemoved:
+      type: object
+      required: [questionId, reason]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          enum: [INAPPROPRIATE, DUPLICATE, ANSWERED, ADMIN_REMOVAL]
+
+    moderationAlert:
+      type: object
+      required: [type, count, threshold]
+      properties:
+        type:
+          type: string
+          enum: [HIGH_VOLUME, INAPPROPRIATE_CONTENT, SPAM_DETECTION]
+        count:
+          type: integer
+        threshold:
+          type: integer
+        timeWindow:
+          type: integer
+          description: Time window in minutes
+
+    # Poll Schemas
+    submitPollVotePayload:
+      type: object
+      required: [pollId, optionId]
+      properties:
+        pollId:
+          type: string
+          format: uuid
+        optionId:
+          type: string
+          format: uuid
+        anonymous:
+          type: boolean
+          default: false
+
+    poll:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [question, options, isActive]
+          properties:
+            question:
+              type: string
+            options:
+              type: array
+              items:
+                type: object
+                required: [id, text, voteCount]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  text:
+                    type: string
+                  voteCount:
+                    type: integer
+                    minimum: 0
+            isActive:
+              type: boolean
+            totalVotes:
+              type: integer
+              minimum: 0
+            allowMultiple:
+              type: boolean
+              default: false
+            expiresAt:
+              type: string
+              format: date-time
+
+    pollClosed:
+      type: object
+      required: [pollId, finalResults]
+      properties:
+        pollId:
+          type: string
+          format: uuid
+        finalResults:
+          type: array
+          items:
+            type: object
+            properties:
+              optionId:
+                type: string
+                format: uuid
+              finalCount:
+                type: integer
+              percentage:
+                type: number
+
+    # Direct Message Schemas
+    sendDirectMessagePayload:
+      type: object
+      required: [recipientId, text]
+      properties:
+        recipientId:
+          type: string
+          format: uuid
+        text:
+          type: string
+          maxLength: 2000
+        encrypted:
+          type: boolean
+          default: true
+        priority:
+          type: string
+          enum: [low, normal, high]
+          default: normal
+
+    directMessage:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [text, sender, recipient]
+          properties:
+            text:
+              type: string
+            sender:
+              $ref: '#/components/schemas/userSummary'
+            recipient:
+              $ref: '#/components/schemas/userSummary'
+            encrypted:
+              type: boolean
+            priority:
+              type: string
+              enum: [low, normal, high]
+
+    deliveryStatus:
+      type: object
+      required: [messageId, status, timestamp]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [delivered, failed, pending]
+        timestamp:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+
+    readStatus:
+      type: object
+      required: [messageId, readAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        readAt:
+          type: string
+          format: date-time
+        reader:
+          $ref: '#/components/schemas/userSummary'
+
+    # Notification Schemas
+    notification:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [title, message, type]
+          properties:
+            title:
+              type: string
+            message:
+              type: string
+            type:
+              type: string
+              enum: [info, warning, alert, success]
+            priority:
+              type: string
+              enum: [low, normal, high, urgent]
+            actionUrl:
+              type: string
+              format: uri
+            expiresAt:
+              type: string
+              format: date-time
+
+    emergencyAlert:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [alertType, message, severity]
+          properties:
+            alertType:
+              type: string
+              enum: [MEDICAL, FIRE, SECURITY, EVACUATION, WEATHER]
+            message:
+              type: string
+            severity:
+              type: string
+              enum: [low, medium, high, critical]
+            location:
+              type: string
+            instructions:
+              type: string
+            contactInfo:
+              type: string
+
+    sessionReminder:
+      type: object
+      required: [sessionId, reminderType, minutesUntilStart]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        reminderType:
+          type: string
+          enum: [STARTING_SOON, ABOUT_TO_START, LAST_CHANCE]
+        minutesUntilStart:
+          type: integer
+        session:
+          $ref: '#/components/schemas/session'
+
+    scheduleChange:
+      type: object
+      required: [changeType, affectedSessions]
+      properties:
+        changeType:
+          type: string
+          enum: [TIME_CHANGE, ROOM_CHANGE, CANCELLATION, SPEAKER_CHANGE]
+        affectedSessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/session'
+        reason:
+          type: string
+        newSchedule:
+          type: object
+
+    # Alert Schemas
+    capacityAlert:
+      type: object
+      required: [resourceType, resourceId, capacity, currentLevel, status]
+      properties:
+        resourceType:
+          type: string
+          enum: [event, session, venue, parking]
+        resourceId:
+          type: string
+          format: uuid
+        capacity:
+          type: integer
+        currentLevel:
+          type: integer
+        status:
+          type: string
+          enum: [approaching_limit, limit_reached, over_capacity]
+        threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    incidentReport:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [type, message, reportedBy, severity]
+          properties:
+            type:
+              type: string
+              enum: [harassment, medical, technical, security, accessibility]
+            message:
+              type: string
+            reportedBy:
+              $ref: '#/components/schemas/userSummary'
+            severity:
+              type: string
+              enum: [low, medium, high, critical]
+            location:
+              type: string
+            witnesses:
+              type: array
+              items:
+                $ref: '#/components/schemas/userSummary'
+            attachments:
+              type: array
+              items:
+                type: string
+                format: uri
+
+    reportIncidentPayload:
+      type: object
+      required: [type, message, severity]
+      properties:
+        type:
+          type: string
+          enum: [harassment, medical, technical, security, accessibility]
+        message:
+          type: string
+          maxLength: 1000
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        location:
+          type: string
+        anonymous:
+          type: boolean
+          default: false
+        attachments:
+          type: array
+          items:
+            type: string
+            format: uri
+
+    incidentUpdate:
+      type: object
+      required: [incidentId, status, updatedBy]
+      properties:
+        incidentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [reported, acknowledged, investigating, resolved, escalated]
+        updatedBy:
+          $ref: '#/components/schemas/userSummary'
+        notes:
+          type: string
+        resolution:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    systemHealth:
+      type: object
+      required: [service, status, timestamp]
+      properties:
+        service:
+          type: string
+          example: 'Payment Gateway'
+        status:
+          type: string
+          enum: [operational, degraded, downtime, maintenance]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        metrics:
+          type: object
+          properties:
+            responseTime:
+              type: number
+            errorRate:
+              type: number
+            uptime:
+              type: number
+
+    securityAlert:
+      type: object
+      required: [alertType, severity, description]
+      properties:
+        alertType:
+          type: string
+          enum: [UNAUTHORIZED_ACCESS, SUSPICIOUS_ACTIVITY, BRUTE_FORCE, DATA_BREACH]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        description:
+          type: string
+        sourceIp:
+          type: string
+        userId:
+          type: string
+          format: uuid
+        affectedResources:
+          type: array
+          items:
+            type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    # Dashboard & Analytics Schemas
+    attendeeCount:
+      type: object
+      required: [total, online, checkedIn]
+      properties:
+        total:
+          type: integer
+        online:
+          type: integer
+        checkedIn:
+          type: integer
+        bySession:
+          type: object
+          additionalProperties:
+            type: integer
+        trend:
+          type: string
+          enum: [increasing, decreasing, stable]
+
+    checkIn:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [user, checkedInAt, method]
+          properties:
+            user:
+              $ref: '#/components/schemas/userSummary'
+            checkedInAt:
+              type: string
+              format: date-time
+            method:
+              type: string
+              enum: [QR_CODE, NFC, MANUAL, MOBILE_APP]
+            location:
+              type: string
+            sessionId:
+              type: string
+              format: uuid
+
+    sessionAttendance:
+      type: object
+      required: [sessionId, currentAttendees, capacity]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        currentAttendees:
+          type: integer
+        capacity:
+          type: integer
+        waitlistCount:
+          type: integer
+        averageStayDuration:
+          type: integer
+          description: Average duration in minutes
+        peakAttendance:
+          type: integer
+        attendanceRate:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    capacityMonitoring:
+      type: object
+      required: [resourceType, resourceId, status]
+      properties:
+        resourceType:
+          type: string
+          enum: [venue, session, parking, wifi, catering]
+        resourceId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [available, warning, full, overcapacity]
+        currentLevel:
+          type: integer
+        maxCapacity:
+          type: integer
+        utilizationRate:
+          type: number
+          minimum: 0
+          maximum: 1
+        projectedPeak:
+          type: string
+          format: date-time
+
+    multitenantMetrics:
+      type: object
+      required: [orgId, metrics]
+      properties:
+        orgId:
+          type: string
+          format: uuid
+        metrics:
+          type: object
+          properties:
+            activeConnections:
+              type: integer
+            messagesPerSecond:
+              type: number
+            averageLatency:
+              type: number
+            errorRate:
+              type: number
+            bandwidthUsage:
+              type: number
+            storageUsage:
+              type: number
+
+    # Live Experience Schemas
+    sendReactionPayload:
+      type: object
+      required: [emoji]
+      properties:
+        emoji:
+          type: string
+          example: '👍'
+        intensity:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 1
+
+    reactionBurst:
+      type: object
+      required: [reactions, timeWindow]
+      properties:
+        reactions:
+          type: object
+          additionalProperties:
+            type: integer
+          example: { '👍': 5, '❤️': 2, '🎉': 8 }
+        timeWindow:
+          type: integer
+          description: Time window in seconds
+        totalReactions:
+          type: integer
+        peakReaction:
+          type: string
+
+    moodAnalytics:
+      type: object
+      required: [overallMood, sentiment, engagement]
+      properties:
+        overallMood:
+          type: string
+          enum: [very_negative, negative, neutral, positive, very_positive]
+        sentiment:
+          type: number
+          minimum: -1
+          maximum: 1
+        engagement:
+          type: number
+          minimum: 0
+          maximum: 1
+        topEmojis:
+          type: array
+          items:
+            type: object
+            properties:
+              emoji:
+                type: string
+              count:
+                type: integer
+              percentage:
+                type: number
+
+    agendaUpdate:
+      type: object
+      required: [updateType, affectedSessions]
+      properties:
+        updateType:
+          type: string
+          enum: [SESSION_ADDED, SESSION_UPDATED, SESSION_CANCELLED, SPEAKER_CHANGED]
+        affectedSessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/session'
+        reason:
+          type: string
+        effectiveAt:
+          type: string
+          format: date-time
+
+    sessionCountdown:
+      type: object
+      required: [sessionId, secondsUntilStart]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        secondsUntilStart:
+          type: integer
+        session:
+          $ref: '#/components/schemas/session'
+        milestones:
+          type: array
+          items:
+            type: integer
+          description: Notification milestones in seconds
+
+    roomChangeAlert:
+      type: object
+      required: [sessionId, oldRoom, newRoom, reason]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        oldRoom:
+          type: string
+        newRoom:
+          type: string
+        reason:
+          type: string
+        effectiveAt:
+          type: string
+          format: date-time
+        directions:
+          type: string
+
+    # Content Management Schemas
+    slideUpdate:
+      type: object
+      required: [sessionId, slideNumber, slideUrl]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        slideNumber:
+          type: integer
+        slideUrl:
+          type: string
+          format: uri
+        thumbnailUrl:
+          type: string
+          format: uri
+        notes:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    contentDrop:
+      type: object
+      required: [sessionId, contentType, contentUrl]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        contentType:
+          type: string
+          enum: [SLIDE, DOCUMENT, LINK, VIDEO, AUDIO, IMAGE]
+        contentUrl:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        fileSize:
+          type: integer
+        downloadable:
+          type: boolean
+          default: true
+        expiresAt:
+          type: string
+          format: date-time
+
+    speakerControl:
+      type: object
+      required: [sessionId, action, controlType]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [NEXT_SLIDE, PREVIOUS_SLIDE, PAUSE, RESUME, HIGHLIGHT, LASER_POINTER]
+        controlType:
+          type: string
+          enum: [SLIDE_NAVIGATION, PRESENTATION_CONTROL, AUDIENCE_INTERACTION]
+        data:
+          type: object
+          description: Additional data for specific controls
+
+    # Validation & Access Schemas
+    validateTicketPayload:
+      type: object
+      required: [ticketCode, validationType]
+      properties:
+        ticketCode:
+          type: string
+        validationType:
+          type: string
+          enum: [QR_CODE, NFC, MANUAL, MOBILE]
+        location:
+          type: string
+        deviceId:
+          type: string
+
+    validationResult:
+      type: object
+      required: [isValid, ticketCode, validatedAt]
+      properties:
+        isValid:
+          type: boolean
+        ticketCode:
+          type: string
+        validatedAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/userSummary'
+        accessLevel:
+          type: string
+          enum: [GENERAL, VIP, SPEAKER, STAFF, ADMIN]
+        restrictions:
+          type: array
+          items:
+            type: string
+        errorReason:
+          type: string
+
+    accessUpdate:
+      type: object
+      required: [userId, accessLevel, permissions]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        accessLevel:
+          type: string
+          enum: [GENERAL, VIP, SPEAKER, STAFF, ADMIN]
+        permissions:
+          type: array
+          items:
+            type: string
+        effectiveAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+
+    # Monetization Schemas
+    adContent:
+      type: object
+      required: [adId, content, targetAudience]
+      properties:
+        adId:
+          type: string
+          format: uuid
+        content:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [BANNER, VIDEO, INTERACTIVE, SPONSORED_POST]
+            mediaUrl:
+              type: string
+              format: uri
+            clickUrl:
+              type: string
+              format: uri
+            duration:
+              type: integer
+            text:
+              type: string
+        targetAudience:
+          type: object
+          properties:
+            demographics:
+              type: array
+              items:
+                type: string
+            interests:
+              type: array
+              items:
+                type: string
+            location:
+              type: string
+        pricing:
+          type: object
+          properties:
+            model:
+              type: string
+              enum: [CPM, CPC, CPV, FLAT_RATE]
+            rate:
+              type: number
+
+    sponsoredContent:
+      type: object
+      required: [sponsorId, content, placement]
+      properties:
+        sponsorId:
+          type: string
+          format: uuid
+        content:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            mediaUrl:
+              type: string
+              format: uri
+            callToAction:
+              type: string
+        placement:
+          type: string
+          enum: [CHAT_INJECTION, SIDEBAR, OVERLAY, NOTIFICATION]
+        duration:
+          type: integer
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10
+
+    upsellOpportunity:
+      type: object
+      required: [opportunityType, offer, targetUser]
+      properties:
+        opportunityType:
+          type: string
+          enum: [VIP_UPGRADE, PREMIUM_CONTENT, NETWORKING_ACCESS, MERCHANDISE]
+        offer:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            originalPrice:
+              type: number
+            discountedPrice:
+              type: number
+            discount:
+              type: number
+            expiresAt:
+              type: string
+              format: date-time
+        targetUser:
+          $ref: '#/components/schemas/userSummary'
+        trigger:
+          type: string
+          enum: [SESSION_ATTENDANCE, ENGAGEMENT_LEVEL, TIME_BASED, LOCATION_BASED]
+
+    dynamicPricing:
+      type: object
+      required: [itemType, itemId, newPrice, pricingFactor]
+      properties:
+        itemType:
+          type: string
+          enum: [TICKET, UPGRADE, MERCHANDISE, FOOD, PARKING]
+        itemId:
+          type: string
+          format: uuid
+        newPrice:
+          type: number
+        originalPrice:
+          type: number
+        pricingFactor:
+          type: string
+          enum: [DEMAND, TIME_BASED, CAPACITY, WEATHER, POPULARITY]
+        factor:
+          type: number
+        effectiveAt:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date-time
+
+    waitlistPromotion:
+      type: object
+      required: [userId, promotionType, spotsAvailable]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        promotionType:
+          type: string
+          enum: [AUTOMATIC, MANUAL, BATCH_PROMOTION]
+        spotsAvailable:
+          type: integer
+        timeToRespond:
+          type: integer
+          description: Time in minutes to respond to promotion
+        newPosition:
+          type: integer
+        sessionId:
+          type: string
+          format: uuid
+        upgradeOptions:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              price:
+                type: number
+
+    waitlistStatus:
+      type: object
+      required: [userId, position, estimatedWaitTime]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        estimatedWaitTime:
+          type: integer
+          description: Estimated wait time in minutes
+        totalWaitlist:
+          type: integer
+        movementRate:
+          type: number
+          description: Average positions moved per hour
+        sessionId:
+          type: string
+          format: uuid
+
+    # Operations & Security Schemas
+    auditLog:
+      allOf:
+        - $ref: '#/components/schemas/messageMetadata'
+        - type: object
+          required: [actor, action, resource]
+          properties:
+            actor:
+              $ref: '#/components/schemas/userSummary'
+            action:
+              type: string
+              example: 'question.approved'
+            resource:
+              type: object
+              properties:
+                type:
+                  type: string
+                id:
+                  type: string
+                  format: uuid
+            details:
+              type: object
+            ipAddress:
+              type: string
+            userAgent:
+              type: string
+            outcome:
+              type: string
+              enum: [SUCCESS, FAILURE, PARTIAL]
+
+    accessControlUpdate:
+      type: object
+      required: [userId, permissions, action]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        permissions:
+          type: array
+          items:
+            type: string
+        action:
+          type: string
+          enum: [GRANTED, REVOKED, UPDATED]
+        reason:
+          type: string
+        effectiveAt:
+          type: string
+          format: date-time
+        grantedBy:
+          $ref: '#/components/schemas/userSummary'
+
+    sessionConflict:
+      type: object
+      required: [conflictType, affectedSessions, severity]
+      properties:
+        conflictType:
+          type: string
+          enum: [DOUBLE_BOOKING, SPEAKER_CONFLICT, VENUE_CONFLICT, RESOURCE_CONFLICT]
+        affectedSessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/session'
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        autoResolved:
+          type: boolean
+        resolution:
+          type: string
+        detectedAt:
+          type: string
+          format: date-time
+
+    failoverAlert:
+      type: object
+      required: [serviceType, reason, newEndpoint]
+      properties:
+        serviceType:
+          type: string
+          enum: [WEBSOCKET, DATABASE, CACHE, MEDIA_SERVER]
+        reason:
+          type: string
+          enum: [HIGH_LOAD, SERVICE_FAILURE, PLANNED_MAINTENANCE, SECURITY_INCIDENT]
+        newEndpoint:
+          type: string
+          format: uri
+        estimatedDowntime:
+          type: integer
+          description: Estimated downtime in minutes
+        affectedFeatures:
+          type: array
+          items:
+            type: string
+
+    downtimeAlert:
+      type: object
+      required: [serviceType, startTime, severity]
+      properties:
+        serviceType:
+          type: string
+          enum: [WEBSOCKET, DATABASE, CACHE, MEDIA_SERVER, PAYMENT, NOTIFICATION]
+        startTime:
+          type: string
+          format: date-time
+        estimatedDuration:
+          type: integer
+          description: Estimated duration in minutes
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        cause:
+          type: string
+        workaround:
+          type: string
+        affectedUsers:
+          type: integer
+
+    # Global Features Schemas
+    timezoneSync:
+      type: object
+      required: [eventId, timezone, utcOffset]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        timezone:
+          type: string
+          example: 'America/New_York'
+        utcOffset:
+          type: integer
+          description: UTC offset in minutes
+        isDaylightSaving:
+          type: boolean
+        nextTimeChange:
+          type: string
+          format: date-time
+
+    globalEventSync:
+      type: object
+      required: [eventId, syncType, timestamp]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        syncType:
+          type: string
+          enum: [START_TIME, END_TIME, BREAK_TIME, EMERGENCY_SYNC]
+        timestamp:
+          type: string
+          format: date-time
+        allTimezones:
+          type: array
+          items:
+            type: object
+            properties:
+              timezone:
+                type: string
+              localTime:
+                type: string
+                format: date-time
+
+    liveTranslation:
+      type: object
+      required: [originalText, translatedText, sourceLanguage, targetLanguage]
+      properties:
+        originalText:
+          type: string
+        translatedText:
+          type: string
+        sourceLanguage:
+          type: string
+        targetLanguage:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        translationService:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    subtitleStream:
+      type: object
+      required: [sessionId, text, language, timestamp]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        text:
+          type: string
+        language:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        duration:
+          type: integer
+          description: Duration in milliseconds
+        speaker:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+
+# --- SECURITY ---
+security:
+  - userToken: []
+
+# --- OPERATIONAL CONSIDERATIONS ---
+x-rate-limits:
+  default:
+    messages: 100
+    reactions: 300
+    questions: 20
+    polls: 10
+  vip:
+    messages: 500
+    reactions: 1000
+    questions: 50
+    polls: 25
+
+x-message-retention:
+  chat: '7 days'
+  directMessages: '30 days'
+  auditLogs: '1 year'
+  analytics: '90 days'
+
+x-scaling:
+  maxConnectionsPerServer: 50000
+  redisClusterNodes: 3
+  loadBalancingStrategy: 'round-robin'
+  autoScaling: true
+
+x-monitoring:
+  healthCheckInterval: 30
+  metricsCollection: true
+  alertingThresholds:
+    errorRate: 0.01
+    responseTime: 100
+    connectionFailures: 0.05
+x-integrations:
+  description: Describes the service-to-service communication with other microservices.
+  
+  downstream-publishing:
+    description: Events this service publishes to a message broker (e.g., Kafka) for other services to consume.
+    topics:
+      - name: 'platform.events.chat.message.v1'
+        description: 'Published whenever a new chat message is processed.'
+        payloadSchema: '#/components/schemas/chatMessage'
+        consumers: ['Oracle (AI)', 'Archiving Service']
+        
+      - name: 'platform.events.live.reaction.v1'
+        description: 'Published when a user sends a live reaction.'
+        payloadSchema: '#/components/schemas/sendReactionPayload'
+        consumers: ['Oracle (AI)']
+        
+      - name: 'platform.analytics.live.attendance.v1'
+        description: 'Published periodically with session attendance metrics.'
+        payloadSchema: '#/components/schemas/sessionAttendance'
+        consumers: ['Oracle (AI)', 'Analytics Service']
+
+  upstream-subscriptions:
+    description: Events this service consumes from a message broker, published by other services.
+    topics:
+      - name: 'oracle.predictions.sentiment.v1'
+        description: 'Consumes real-time sentiment scores to update live dashboards.'
+        action: 'Constructs a `moodAnalytics` message and sends to `/live/sessions/{sessionId}/reactions` channel.'
+        
+      - name: 'oracle.predictions.capacity.v1'
+        description: 'Consumes capacity forecasts and overflow warnings.'
+        action: 'Constructs a `capacityAlert` message and sends to `/alerts/organizations/{orgId}/admin` channel.'
+
+      - name: 'oracle.predictions.matchmaking.v1'
+        description: 'Consumes personalized networking suggestions for users.'
+        action: 'Constructs a `personalNotification` message and sends to the relevant `/alerts/users/{userId}` channel.'

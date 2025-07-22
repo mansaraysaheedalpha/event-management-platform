@@ -1,0 +1,229 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IncidentType {
+  HARASSMENT
+  MEDICAL
+  TECHNICAL
+  SECURITY
+  ACCESSIBILITY
+}
+
+enum IncidentStatus {
+  REPORTED
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model SyncLog {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+
+  // The user this change is relevant for
+  userId    String
+  user      UserReference @relation(fields: [userId], references: [id])
+  
+  resource  String // e.g., 'MESSAGE', 'POLL'
+  action    String // e.g., 'CREATED', 'UPDATED'
+  payload   Json   // The actual data payload
+
+  @@index([userId, timestamp])
+  @@map("sync_logs")
+}
+
+model UserReference {
+  id        String @id
+  email     String @unique
+  firstName String?
+  lastName  String?
+
+  messages           Message[]
+  questions          Question[]
+  questionUpvotes    QuestionUpvote[]
+  createdPolls       Poll[]
+  pollVotes          PollVote[]
+  // This now correctly points to the Conversation model
+  conversations      Conversation[]
+  sentDirectMessages DirectMessage[]  @relation("SentMessages")
+  reportedIncidents Incident[]
+  assignedIncidents Incident[] @relation("AssignedIncidents")
+  syncLogs          SyncLog[]
+  @@map("user_references")
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // This now correctly points to the UserReference model
+  participants UserReference[]
+  messages     DirectMessage[]
+
+  @@map("conversations")
+}
+
+// NOTE: The incorrect '_ConversationParticipants' model has been completely removed.
+// Prisma will now generate the required join table in the background.
+
+model ChatSession {
+  id           String @id @default(cuid())
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  participants String[]
+  eventId        String
+  organizationId String
+  messages     Message[]
+  questions    Question[]
+  polls        Poll[]
+  presentation Presentation? // Add the one-to-one relation
+  incidents    Incident[]
+  @@map("chat_sessions")
+}
+
+// Add the new Incident model
+model Incident {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  type      IncidentType
+  severity  IncidentSeverity
+  status    IncidentStatus @default(REPORTED)
+  details   String         @db.Text
+
+  reporterId String
+  reporter   UserReference @relation(fields: [reporterId], references: [id])
+  
+  // To associate with the event and org
+  organizationId String
+  eventId        String
+  sessionId      String
+  session        ChatSession   @relation(fields: [sessionId], references: [id])
+
+  // To track which admin is handling the incident
+  assigneeId String?
+  assignee   UserReference? @relation("AssignedIncidents", fields: [assigneeId], references: [id])
+
+  resolutionNotes String?
+
+  @@map("incidents")
+}
+
+
+model Message {
+  id        String   @id @default(cuid())
+  text      String
+  timestamp DateTime @default(now())
+  metadata  Json?
+  authorId  String
+  author    UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([sessionId, timestamp])
+  @@map("messages")
+}
+
+model DirectMessage {
+  id             String   @id @default(cuid())
+  text           String   @db.Text
+  timestamp      DateTime @default(now())
+  isDelivered    Boolean  @default(false)
+  deliveredAt    DateTime?
+  isRead         Boolean  @default(false)
+  readAt         DateTime?
+  senderId       String
+  sender         UserReference @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  @@map("direct_messages")
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  text        String   @db.VarChar(500)
+  isAnonymous Boolean  @default(false)
+  isAnswered  Boolean  @default(false)
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  authorId    String
+  author      UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  sessionId   String
+  session     ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  upvotes     QuestionUpvote[]
+  @@map("questions")
+}
+
+model QuestionUpvote {
+  userId     String
+  user       UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+  @@id([userId, questionId])
+  @@map("question_upvotes")
+}
+
+model Poll {
+  id        String   @id @default(cuid())
+  question  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+  creatorId String
+  creator   UserReference @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  options   PollOption[]
+  votes     PollVote[]
+  @@map("polls")
+}
+
+model PollOption {
+  id     String     @id @default(cuid())
+  text   String
+  pollId String
+  poll   Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes  PollVote[]
+  @@map("poll_options")
+}
+
+model PollVote {
+  userId   String
+  user     UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pollId   String
+  poll     Poll          @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionId String
+  option   PollOption    @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  @@id([userId, pollId])
+  @@map("poll_votes")
+}
+
+model Presentation {
+  id        String   @id @default(cuid())
+  sessionId String   @unique // Each session has one presentation
+  session   ChatSession @relation(fields: [sessionId], references: [id])
+  
+  // This will store the ordered list of URLs from S3/CDN
+  slideUrls String[]
+
+  @@map("presentations")
+}

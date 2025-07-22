@@ -1,0 +1,140 @@
+import {
+  ConnectedSocket,
+  MessageBody,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets';
+import { Server } from 'socket.io';
+import { ForbiddenException, Inject, Logger, forwardRef } from '@nestjs/common';
+import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
+import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
+import { getErrorMessage } from 'src/common/utils/error.utils';
+import { IncidentsService } from './incidents.service';
+import { ReportIncidentDto } from './dto/report-incident.dto';
+import { IncidentDto } from './dto/incident.dto';
+import { UpdateIncidentDto } from './dto/update-incidents.dto';
+
+@WebSocketGateway({
+  cors: { origin: '*', credentials: true },
+  namespace: '/events',
+})
+export class IncidentsGateway {
+  private readonly logger = new Logger(IncidentsGateway.name);
+  @WebSocketServer() server: Server;
+
+  constructor(
+    @Inject(forwardRef(() => IncidentsService))
+    private readonly incidentsService: IncidentsService,
+  ) {}
+
+  /**
+   * Handles a user submitting a new incident report.
+   */
+  @SubscribeMessage('incident.report')
+  async handleReportIncident(
+    @MessageBody() dto: ReportIncidentDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      const newIncident = await this.incidentsService.reportIncident(
+        user.sub,
+        sessionId,
+        dto,
+      );
+      return {
+        success: true,
+        message: 'Your report has been submitted.',
+        incidentId: newIncident.id,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to report incident for user ${user.sub}`,
+        error,
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * An admin client sends this event to start receiving incident updates.
+   */
+  @SubscribeMessage('incidents.join')
+  handleJoinIncidentsStream(@ConnectedSocket() client: AuthenticatedSocket) {
+    const user = getAuthenticatedUser(client);
+    // This permission would be for viewing all incidents in an organization
+    const requiredPermission = 'ops:incident:read';
+
+    if (!user.permissions?.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        'You do not have permission to view incidents.',
+      );
+    }
+
+    const incidentsRoom = `incidents:${user.orgId}`;
+    void client.join(incidentsRoom);
+    this.logger.log(
+      `Admin ${user.sub} joined incidents stream for org ${user.orgId}`,
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * Called by the IncidentsService to broadcast a new incident to subscribed admins.
+   */
+  public broadcastNewIncident(incident: IncidentDto) {
+    const incidentsRoom = `incidents:${incident.organizationId}`;
+    this.server.to(incidentsRoom).emit('incident.new', incident);
+    this.logger.log(
+      `Broadcasted new incident ${incident.id} to room: ${incidentsRoom}`,
+    );
+  }
+
+  /**
+   * Handles an admin updating the status of an incident.
+   */
+  @SubscribeMessage('incident.update_status')
+  async handleUpdateIncidentStatus(
+    @MessageBody() dto: UpdateIncidentDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const requiredPermission = 'ops:incident:manage';
+
+    if (!user.permissions?.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        'You do not have permission to manage incidents.',
+      );
+    }
+
+    try {
+      const updatedIncident = await this.incidentsService.updateIncidentStatus(
+        user.sub,
+        user.orgId,
+        dto,
+      );
+      return { success: true, incidentId: updatedIncident.id };
+    } catch (error) {
+      this.logger.error(
+        `Failed to update incident for admin ${user.sub}`,
+        error,
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Called by the IncidentsService to broadcast an updated incident to subscribed admins.
+   */
+  public broadcastIncidentUpdate(incident: IncidentDto) {
+    const incidentsRoom = `incidents:${incident.organizationId}`;
+    this.server.to(incidentsRoom).emit('incident.updated', incident);
+    this.logger.log(
+      `Broadcasted incident update ${incident.id} to room: ${incidentsRoom}`,
+    );
+  }
+}

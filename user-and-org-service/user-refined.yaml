@@ -1,0 +1,786 @@
+openapi: 3.0.3
+info:
+  title: User & Organization Management API
+  description: >
+    A microservice that manages user accounts, multi-tenant organizations, roles, and permissions. 
+    It provides core endpoints for authentication, registration, and profile management.
+  version: 1.1.0
+  contact: 
+    name: Support Team
+    email: support@example.com
+    url: https://docs.example.com/support
+  license: 
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: http://localhost:3001/api/identity/v1 # Port updated for clarity
+    description: Local development server for Identity Service
+tags:
+  - name: Authentication
+    description: Endpoints for user login, token management, and invitations.
+  - name: User & Profile
+    description: Operations related to creating and managing user accounts and profiles.
+  - name: Organization
+    description: Operations for managing tenant organizations and their members.
+  - name: Roles & Permissions
+    description: Operations for managing roles and their associated permissions (Future).
+
+paths:
+  /internal/audit-logs:
+  post:
+    tags: [Internal]
+    summary: Create a new audit log entry
+    operationId: createAuditLog
+    description: >
+      An internal endpoint called by other microservices to record an audit-worthy event.
+      Protected by a shared secret API key.
+    security:
+      - InternalApiKey: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AuditLogPayload"
+    responses:
+      "201":
+        description: "Audit log created successfully."
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuditLog"
+      "401":
+        description: "Unauthorized. The internal API key is missing or invalid."
+
+  # --- Authentication Endpoints ---
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Logs a user in
+      operationId: loginUser
+      description: Authenticates a user with email and password, returning a JWT scoped to their default or last-used organization.
+      requestBody:
+        $ref: "#/components/requestBodies/LoginUserRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LoginUserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/token/switch:
+    post:
+      tags: [Authentication]
+      summary: Switch active organization
+      operationId: switchTenant
+      description: Allows an authenticated user to switch their active context to another organization they are a member of, returning a new JWT.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        description: The ID of the organization to switch to.
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [organization_id]
+              properties:
+                organization_id:
+                  type: string
+                  description: The unique identifier of the target organization.
+                  example: "org_abc456"
+      responses:
+        "200":
+          $ref: "#/components/responses/LoginUserResponse" # Same response as login, but with a new token
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+          
+  /auth/invitations/{invitationToken}/accept:
+    post:
+      tags: [Authentication]
+      summary: Accepts an organization invitation
+      operationId: acceptOrganizationInvitation
+      description: >
+        Allows a user to accept an invitation using a unique token. 
+        If the user's email doesn't exist, they must provide registration details. 
+        If the user is already logged in, they can accept directly.
+      parameters:
+        - name: invitationToken
+          in: path
+          required: true
+          description: The unique token from the invitation link.
+          schema: { type: string }
+      requestBody:
+        $ref: "#/components/requestBodies/AcceptInvitationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/AcceptInvitationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # --- User & Profile Endpoints ---
+  /users:
+    post:
+      tags: [User & Profile]
+      summary: Register a new user and organization
+      operationId: registerUser
+      description: Creates a new user account and their first tenant organization in a single step. Returns the user profile and a valid access token.
+      requestBody:
+        $ref: "#/components/requestBodies/RegisterUserRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/LoginUserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /users/me:
+    get:
+      tags: [User & Profile]
+      summary: Get current user's profile
+      operationId: getMyProfile
+      description: Returns the profile data of the currently authenticated user based on their JWT.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User profile information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags: [User & Profile]
+      summary: Update current user's profile
+      operationId: updateMyProfile
+      description: Allows an authenticated user to update their own profile information (e.g., name, image).
+      security:
+        - BearerAuth: []
+      requestBody:
+        $ref: "#/components/requestBodies/UpdateUserProfileRequest"
+      responses:
+        "200":
+          description: User profile updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  
+  /users/me/password:
+    put:
+      tags: [User & Profile]
+      summary: Change authenticated user's password
+      operationId: changeMyPassword
+      description: Allows an authenticated user to change their password by providing their current and new password.
+      security:
+        - BearerAuth: []
+      requestBody:
+        $ref: "#/components/requestBodies/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed successfully. No content.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /users/password-reset-request:
+    post:
+      tags: [User & Profile]
+      summary: Request a password reset
+      operationId: requestPasswordReset
+      description: Initiates a password reset flow by sending a reset link/token to the user's registered email.
+      requestBody:
+        $ref: "#/components/requestBodies/PasswordResetRequest"
+      responses:
+        "204":
+          description: If a user with the email exists, the request is accepted. No content is returned to prevent email enumeration.
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /users/password-reset:
+    post:
+      tags: [User & Profile]
+      summary: Reset password using a token
+      operationId: performPasswordReset
+      description: Sets a new password using a valid token received from the password reset request flow.
+      requestBody:
+        $ref: "#/components/requestBodies/PerformPasswordResetRequest"
+      responses:
+        "204":
+          description: Password has been reset successfully. No content.
+        "400":
+          $ref: "#/components/responses/BadRequest" # e.g., invalid token, weak password
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # --- Organization Endpoints ---
+  /organizations:
+    get:
+      tags: [Organization]
+      summary: List organizations for current user
+      operationId: listMyOrganizations
+      description: Retrieves a list of all organizations the currently authenticated user is a member of.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: A list of organizations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Organization"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Organization]
+      summary: Create a new organization
+      operationId: createOrganization
+      description: Creates a new organization and adds the authenticated user as its owner.
+      security:
+        - BearerAuth: []
+      requestBody:
+        $ref: "#/components/requestBodies/OrganizationCreateRequest"
+      responses:
+        "201":
+          description: Organization created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /organizations/{orgId}:
+    get:
+      tags: [Organization]
+      summary: Get organization details
+      operationId: getOrganizationById
+      description: Retrieves details for a specific organization. The user must be a member of the organization.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      responses:
+        "200":
+          description: Organization details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags: [Organization]
+      summary: Update organization details
+      operationId: updateOrganization
+      description: Updates the details of an organization. Requires admin privileges for that organization.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/OrganizationUpdateRequest"
+      responses:
+        "200":
+          description: Organization updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Organization]
+      summary: Delete an organization
+      operationId: deleteOrganization
+      description: Soft-deletes an organization. This is a permanent action and requires ownership of the organization.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      responses:
+        "204":
+          description: Organization deleted successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /organizations/{orgId}/members:
+    get:
+      tags: [Organization]
+      summary: List organization members
+      operationId: listOrganizationMembers
+      description: Retrieves a list of users who are members of the specified organization.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: A paginated list of members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedMembersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /organizations/{orgId}/invitations:
+    post:
+      tags: [Organization]
+      summary: Invite a user to the organization
+      operationId: inviteUserToOrganization
+      description: Sends an email invitation to a user to join the organization with a specific role.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/InvitationRequest"
+      responses:
+        "201":
+          description: Invitation sent successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict" # e.g., user is already a member
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /organizations/{orgId}/members/{userId}:
+    delete:
+      tags: [Organization]
+      summary: Remove a member from the organization
+      operationId: removeOrganizationMember
+      description: Removes a user from an organization. Requires admin privileges.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "204":
+          description: Member removed successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /organizations/{orgId}/members/{userId}/role:
+    put:
+      tags: [Organization]
+      summary: Update a member's role
+      operationId: updateMemberRole
+      description: Changes the role of a member within an organization. Requires admin privileges.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/UpdateMemberRoleRequest"
+      responses:
+        "200":
+          description: Role updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationMember"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  
+  # --- Roles & Permissions Endpoints (Future-proofing) ---
+  /roles:
+    get:
+      tags: [Roles & Permissions]
+      summary: List available roles
+      operationId: listRoles
+      description: "TODO: Retrieves a list of all available roles in the system."
+      security: [BearerAuth: []]
+      responses:
+        "501":
+          description: "Not Implemented"
+  
+  /roles/{roleId}/permissions:
+    get:
+      tags: [Roles & Permissions]
+      summary: List permissions for a role
+      operationId: listRolePermissions
+      description: "TODO: Retrieves the permissions associated with a specific role."
+      security: [BearerAuth: []]
+      responses:
+        "501":
+          description: "Not Implemented"
+
+# --- Reusable Components ---
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained upon login or registration. The payload should contain `user_id`, `org_id`, and `role`.
+
+  parameters:
+    OrgIdPath:
+      name: orgId
+      in: path
+      required: true
+      description: The unique identifier of the organization.
+      schema: { type: string, example: "org_2a5s3d4f2g1h" }
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      description: The unique identifier of the user.
+      schema: { type: string, example: "user_9z8x7c6v5b4n" }
+    PageQueryParam:
+      name: page
+      in: query
+      required: false
+      description: The page number for paginated results.
+      schema: { type: integer, default: 1, minimum: 1 }
+    LimitQueryParam:
+      name: limit
+      in: query
+      required: false
+      description: The number of items to return per page.
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+
+  requestBodies:
+    LoginUserRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/LoginUserRequest" } }
+    RegisterUserRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/RegisterUserRequest" } }
+    UpdateUserProfileRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/UpdateUserProfileRequest" } }
+    ChangePasswordRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/ChangePasswordRequest" } }
+    PasswordResetRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/PasswordResetRequest" } }
+    PerformPasswordResetRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/PerformPasswordResetRequest" } }
+    OrganizationCreateRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/OrganizationCreateRequest" } }
+    OrganizationUpdateRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/OrganizationUpdateRequest" } }
+    InvitationRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/InvitationRequest" } }
+    AcceptInvitationRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/AcceptInvitationRequest" } }
+    UpdateMemberRoleRequest:
+      required: true
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/UpdateMemberRoleRequest" } }
+
+  responses:
+    LoginUserResponse:
+      description: Authentication successful.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              token:
+                type: string
+                description: JWT access token.
+              user:
+                $ref: "#/components/schemas/User"
+              organization:
+                $ref: "#/components/schemas/Organization"
+    AcceptInvitationResponse:
+      description: Invitation accepted successfully.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string, example: "Welcome to the organization!" }
+              token:
+                type: string
+                description: A new JWT access token for the session.
+    BadRequest:
+      description: "400 Bad Request: The request was malformed or had invalid data."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Unauthorized:
+      description: "401 Unauthorized: Authentication credentials are required and are missing or invalid."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: "403 Forbidden: The authenticated user does not have permission to perform this action."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: "404 Not Found: The requested resource could not be found."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Conflict:
+      description: "409 Conflict: The request could not be completed due to a conflict with the current state of the resource (e.g., duplicate email)."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    InternalServerError:
+      description: "500 Internal Server Error: An unexpected error occurred on the server."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  schemas:
+    AuditLogPayload:
+      type: object
+      required: [action, actingUserId]
+      properties:
+        action:
+          type: string
+          example: "POLL_CLOSED"
+        actingUserId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        details:
+          type: object
+          additionalProperties: true
+    # --- Primary Data Models ---
+    User:
+      type: object
+      required: [id, email, first_name, last_name]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        first_name: { type: string, example: "Saheed" }
+        last_name: { type: string, example: "Mansaray" }
+        email: { type: string, format: email, example: "saheed@example.com" }
+        imageUrl: { type: string, format: url, nullable: true }
+        createdAt: { type: string, format: "date-time", readOnly: true }
+    Organization:
+      type: object
+      required: [id, name, owner_id]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        name: { type: string, example: "Global Events Inc." }
+        owner_id: { type: string, format: uuid, readOnly: true }
+        createdAt: { type: string, format: "date-time", readOnly: true }
+    OrganizationMember:
+      type: object
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        role: { type: string, example: "admin" }
+        joinedAt: { type: string, format: "date-time" }
+    Invitation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string }
+        status: { type: string, enum: [pending, accepted, expired] }
+        expiresAt: { type: string, format: "date-time" }
+    
+    # --- Request/Response Payloads ---
+    LoginUserRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    RegisterUserRequest:
+      type: object
+      required: [first_name, last_name, email, password, organization_name]
+      properties:
+        first_name: { type: string, example: "Saheed" }
+        last_name: { type: string, example: "Mansaray" }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        organization_name: { type: string, example: "My First Event Company" }
+    UpdateUserProfileRequest:
+      type: object
+      properties:
+        first_name: { type: string }
+        last_name: { type: string }
+        imageUrl: { type: string, format: url, nullable: true }
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string, format: password }
+        new_password: { type: string, format: password, minLength: 8 }
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    PerformPasswordResetRequest:
+      type: object
+      required: [reset_token, new_password]
+      properties:
+        reset_token: { type: string }
+        new_password: { type: string, format: password, minLength: 8 }
+    OrganizationCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, example: "My New Organization" }
+    OrganizationUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, example: "My Renamed Organization" }
+    InvitationRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email }
+        role: { type: string, enum: [admin, member], example: "member" }
+    AcceptInvitationRequest:
+      type: object
+      properties:
+        first_name: { type: string, description: "Required if the email is new to the system." }
+        last_name: { type: string, description: "Required if the email is new to the system." }
+        password: { type: string, format: password, minLength: 8, description: "Required if the email is new to the system." }
+    UpdateMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [admin, member], example: "admin" }
+    
+    # --- Helper Schemas ---
+    ErrorResponse:
+      type: object
+      required: [message, code]
+      properties:
+        message: { type: string, example: "The requested resource was not found." }
+        code: { type: string, example: "RESOURCE_NOT_FOUND" }
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string, example: "email" }
+              message: { type: string, example: "Must be a valid email address." }
+    Pagination:
+      type: object
+      properties:
+        totalItems: { type: integer, example: 150 }
+        totalPages: { type: integer, example: 8 }
+        currentPage: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+    PaginatedMembersResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationMember"
+        pagination:
+          $ref: "#/components/schemas/Pagination"

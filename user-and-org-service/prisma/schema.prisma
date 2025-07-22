@@ -1,0 +1,124 @@
+// In user-and-org-service/prisma/schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// NEW: Stores a master list of all possible permissions in the system.
+model Permission {
+  id          String @id @default(cuid())
+  name        String @unique // e.g., "poll:create", "qna:moderate"
+  description String
+
+  roles Role[]
+
+  @@map("permissions")
+}
+
+// NEW: Stores the roles. Can be system-wide or organization-specific.
+model Role {
+  id             String @id @default(cuid())
+  name           String // e.g., "OWNER", "ADMIN", "Event Moderator"
+  isSystemRole   Boolean      @default(false) // True for default roles
+  organizationId String?      // Null for system roles, set for custom org roles
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  permissions Permission[]
+  memberships Membership[]
+  invitations Invitation[]
+
+
+  // A role name must be unique within an organization, or unique for system roles.
+  @@unique([name, organizationId])
+  @@map("roles")
+}
+
+model User {
+  id                        String                 @id @default(cuid())
+  email                     String                 @unique
+  first_name                String
+  last_name                 String
+  password                  String
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  
+  hashedRefreshToken        String?
+  
+  // Fields for 2FA
+  twoFactorSecret           String?
+  isTwoFactorEnabled        Boolean                @default(false)
+  
+  // Fields for secure email change
+  newEmail                  String?
+  emailChangeToken          String?                @unique
+  emailChangeTokenExpiresAt DateTime?
+
+  // Relations
+  memberships               Membership[]
+  sentInvitations           Invitation[]           @relation("SentInvitations")
+  passwordResetTokens       PasswordResetToken[]
+  preferredLanguage         String?                 @default("en")
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  members     Membership[]
+  invitations Invitation[]
+  roles       Role[] // An organization can have custom roles
+}
+
+model Membership {
+  roleId         String
+  role           Role @relation(fields: [roleId], references: [id])
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  @@id([userId, organizationId])
+}
+
+model Invitation {
+  id             String    @id @default(cuid())
+  email          String
+  token          String    @unique
+  roleId         String
+  role           Role     @relation(fields: [roleId], references: [id])
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  invitedBy      User         @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
+  invitedById    String
+}
+
+model PasswordResetToken {
+  id               String   @id @default(cuid())
+  hashedResetToken String
+  expiresAt        DateTime
+  
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+}
+
+model AuditLog {
+  id             String    @id @default(cuid())
+  action         String
+  actingUserId   String
+  organizationId String?
+  targetUserId   String?
+  details        Json?
+  createdAt      DateTime  @default(now())
+}
