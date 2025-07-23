@@ -24,6 +24,13 @@ export class DmGateway {
 
   constructor(private readonly dmService: DmService) {}
 
+  /**
+   * Handles incoming direct message sending requests.
+   * Sends the message to both sender's and recipient's private rooms.
+   * @param dto - Data transfer object containing DM details.
+   * @param client - The connected authenticated socket client.
+   * @returns An object indicating success and the new message's ID and timestamp.
+   */
   @SubscribeMessage('dm.send')
   async handleSendMessage(
     @MessageBody() dto: SendDmDto,
@@ -64,6 +71,13 @@ export class DmGateway {
     }
   }
 
+  /**
+   * Handles delivery receipt notifications from the message recipient.
+   * Updates delivery status and notifies the original sender.
+   * @param dto - Delivery receipt details including messageId.
+   * @param client - The connected authenticated socket client (recipient).
+   * @returns An object indicating success or failure reason.
+   */
   @SubscribeMessage('dm.delivered')
   async handleDeliveryReceipt(
     @MessageBody() dto: DeliveryReceiptDto,
@@ -102,6 +116,13 @@ export class DmGateway {
     return { success: true };
   }
 
+  /**
+   * Handles read receipt notifications when the recipient reads the message.
+   * Updates read status and notifies the original sender.
+   * @param dto - Read receipt details including messageId.
+   * @param client - The connected authenticated socket client (reader).
+   * @returns An object indicating success or failure reason.
+   */
   @SubscribeMessage('dm.read')
   async handleReadReceipt(
     @MessageBody() dto: ReadReceiptDto,

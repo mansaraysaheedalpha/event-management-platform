@@ -1,6 +1,12 @@
-import { IsUUID } from 'class-validator';
+import { IsNotEmpty, IsUUID } from 'class-validator';
 
+/**
+ * Data Transfer Object for marking a direct message as delivered.
+ * Contains the ID of the message to mark as delivered.
+ */
 export class DeliveryReceiptDto {
-  @IsUUID(4)
+  /** UUID v4 of the direct message. */
+  @IsNotEmpty()
+  @IsUUID('4')
   messageId: string;
 }
