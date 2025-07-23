@@ -1,8 +1,10 @@
 // src/common/utils/error.utils.ts
 
 /**
- * Extracts a string message from an unknown error type.
- * @param error - The error object, which can be of any type.
+ * Extracts a human-readable error message from any unknown error object.
+ * Handles Error instances, objects with message property, strings, and fallback serialization.
+ *
+ * @param error - The unknown error object.
  * @returns A string representing the error message.
  */
 export function getErrorMessage(error: unknown): string {

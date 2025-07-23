@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from 'src/prisma.service';
 import { SyncGateway } from './sync.gateway';
+import { SyncLogDto } from './dto/sync-log.dto';
 
 interface SyncEventPayload {
   resource: 'MESSAGE' | 'POLL' | 'QUESTION';
@@ -38,6 +39,7 @@ export class SyncService {
    * and dispatches updates to all participants of the session.
    *
    * @param event - Sync event payload containing resource, action, and session info
+   * @see SyncEventPayload
    * @returns Promise<void>
    */
   @OnEvent('sync-events')
@@ -62,9 +64,9 @@ export class SyncService {
    *
    * @param userId - The ID of the user requesting changes
    * @param since - ISO string timestamp to filter changes after
-   * @returns Promise<any[]> - Array of sync log entries
+   * @returns Promise<SyncLogEntry[]> - Array of sync log entries
    */
-  async getChangesSince(userId: string, since: string): Promise<any[]> {
+  async getChangesSince(userId: string, since: string): Promise<SyncLogDto[]> {
     const sinceDate = new Date(since);
 
     const changes = await this.prisma.syncLog.findMany({
@@ -79,6 +81,13 @@ export class SyncService {
       },
     });
 
-    return changes;
+    // Map the raw database result to our clean DTO
+    return changes.map((log) => ({
+      id: log.id,
+      timestamp: log.timestamp,
+      resource: log.resource,
+      action: log.action,
+      payload: log.payload,
+    }));
   }
 }

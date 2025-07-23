@@ -38,7 +38,10 @@ export class SyncGateway {
    * @param payload - The data payload to emit with the `sync.update` event
    * @returns void
    */
-  public sendSyncUpdate(targetUserId: string, payload: any): void {
+  public sendSyncUpdate<TPayload>(
+    targetUserId: string,
+    payload: TPayload,
+  ): void {
     const userRoom = `user:${targetUserId}`;
     const eventName = 'sync.update';
 
