@@ -7,7 +7,8 @@ export class EditMessageDto {
   /**
    * The ID of the message to be edited (UUID v4).
    */
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   messageId: string;
 
   /**
@@ -21,6 +22,7 @@ export class EditMessageDto {
   /**
    * A unique key to prevent duplicate edit requests (UUID v4).
    */
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   idempotencyKey: string;
 }
