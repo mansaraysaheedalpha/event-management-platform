@@ -21,6 +21,18 @@ type MonetizationEventPayload =
   | { type: 'UPSELL_OPPORTUNITY'; targetUserId: string; offerId: string }
   | { type: 'SPOT_AVAILABLE'; sessionId: string };
 
+/**
+ * The MonetizationService listens to monetization-related events such as ad injections,
+ * upsell triggers, and session waitlist updates. It interacts with the Event Lifecycle Service
+ * and sends real-time monetization content to the front end via MonetizationGateway.
+ *
+ * @see MonetizationGateway - Handles real-time event delivery to clients
+ * @see WaitlistService - Manages session waitlists and user queueing
+ *
+ * @example
+ * // Triggered when a session spot becomes available:
+ * eventEmitter.emit('monetization-events', { type: 'SPOT_AVAILABLE', sessionId: 'abc123' });
+ */
 @Injectable()
 export class MonetizationService {
   private readonly logger = new Logger(MonetizationService.name);
@@ -32,6 +44,18 @@ export class MonetizationService {
     private readonly waitlistService: WaitlistService,
   ) {}
 
+  /**
+   * Handles all monetization-related domain events.
+   * Can inject ads, send upsell offers to users, or notify waitlisted users when a spot is open.
+   *
+   * @param payload The event payload determining the monetization action.
+   *
+   * @returns {Promise<void>}
+   *
+   * @example
+   * // Correct usage: emit the event via the event bus
+   * eventEmitter.emit('monetization-events', { type: 'AD_INJECTION', eventId: 'e1', adId: 'ad101' });
+   */
   @OnEvent('monetization-events')
   async handleMonetizationEvent(payload: MonetizationEventPayload) {
     switch (payload.type) {
@@ -80,7 +104,15 @@ export class MonetizationService {
     }
   }
 
-  // NEW: Method to fetch the waitlist offer from the Event Lifecycle service
+  /**
+   * Fetches a waitlist offer for a specific session from the Event Lifecycle service.
+   *
+   * Returns `null` if the fetch operation fails (e.g., network error, not found).
+   * Callers should handle a `null` result appropriately.
+   *
+   * @param sessionId The ID of the session with the waitlist.
+   * @returns {Promise<WaitlistOfferDto | null>}
+   */
   private async _fetchWaitlistOffer(
     sessionId: string,
   ): Promise<WaitlistOfferDto | null> {
@@ -105,7 +137,15 @@ export class MonetizationService {
     }
   }
 
-
+  /**
+   * Fetches ad content data using its unique ad ID.
+   *
+   * Returns an `AdContent` object if found, or `null` if the fetch operation fails (e.g., not found, network error).
+   * Callers should handle a `null` result appropriately.
+   *
+   * @param adId The ID of the ad to retrieve.
+   * @returns {Promise<AdContent | null>}
+   */
   private async _fetchAdContent(adId: string): Promise<AdContent | null> {
     try {
       const eventServiceUrl =
@@ -128,7 +168,15 @@ export class MonetizationService {
     }
   }
 
-  // NEW: Method to fetch offer details from the Event Lifecycle service
+  /**
+   * Retrieves upsell offer content from the Event Lifecycle service.
+   *
+   * Returns an `OfferContent` object if found, or `null` if the fetch operation fails (e.g., not found, network error).
+   * Callers should handle a `null` result appropriately.
+   *
+   * @param offerId The ID of the offer to retrieve.
+   * @returns {Promise<OfferContent | null>} Resolves to an OfferContent object or null if not found.
+   */
   private async _fetchOfferContent(
     offerId: string,
   ): Promise<OfferContent | null> {
