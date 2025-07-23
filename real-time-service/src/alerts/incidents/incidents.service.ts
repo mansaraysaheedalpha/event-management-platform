@@ -35,6 +35,18 @@ export class IncidentsService {
     private readonly incidentsGateway: IncidentsGateway,
   ) {}
 
+  /**
+   * Reports a new incident for a session by a user.
+   * Uses idempotency to avoid duplicate submissions.
+   * Broadcasts the new incident to admins via the gateway.
+   *
+   * @param reporterId - ID of the user reporting the incident
+   * @param sessionId - ID of the session where the incident occurred
+   * @param dto - Payload containing incident details and idempotencyKey
+   * @returns The newly created incident with basic reporter info
+   * @throws ConflictException - If the same incident has already been submitted
+   */
+
   async reportIncident(
     reporterId: string,
     sessionId: string,
@@ -78,7 +90,17 @@ export class IncidentsService {
   }
 
   /**
-   * Updates the status of an existing incident.
+   * Updates the status and resolution of an existing incident.
+   * Enforces idempotency and org-based permission validation.
+   * Triggers audit logging and real-time broadcasting of the update.
+   *
+   * @param adminId - ID of the admin performing the update
+   * @param adminOrgId - Organization ID of the admin (used for authorization)
+   * @param dto - Payload with incident ID, new status, resolution, and idempotencyKey
+   * @returns The updated incident with reporter and assignee info
+   * @throws ConflictException - If this update has already been processed
+   * @throws NotFoundException - If the incident doesn't exist
+   * @throws ForbiddenException - If the admin is not allowed to update this incident
    */
   async updateIncidentStatus(
     adminId: string,
@@ -148,7 +170,14 @@ export class IncidentsService {
     return updatedIncident;
   }
 
-  // --- THIS IS THE FINAL, WORLD-CLASS IMPLEMENTATION ---
+  /**
+   * Fetches session metadata (eventId, organizationId) from Redis cache or DB fallback.
+   * Ensures structure is valid using a type guard and re-caches if pulled from DB.
+   *
+   * @param sessionId - ID of the session to get metadata for
+   * @returns Session metadata containing eventId and organizationId
+   * @throws NotFoundException - If session is not found in DB
+   */
   private async _getSessionMetadata(
     sessionId: string,
   ): Promise<SessionMetadata> {
@@ -191,6 +220,11 @@ export class IncidentsService {
     return session;
   }
 
+  /**
+   * Publishes an audit event to the Redis channel for system-wide logging.
+   *
+   * @param payload - Structured data for the audit event
+   */
   private async _publishAuditEvent(payload: AuditLogPayload) {
     try {
       await this.redis.publish('audit-events', JSON.stringify(payload));

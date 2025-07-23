@@ -22,18 +22,26 @@ enum IncidentSeverity {
   CRITICAL = 'CRITICAL',
 }
 
+/**
+ * Payload submitted by users to report a new incident during a session.
+ * Enforces classification by type and severity, plus full incident details.
+ */
 export class ReportIncidentDto {
+  /** Type/category of the incident (e.g., HARASSMENT, TECHNICAL) */
   @IsEnum(IncidentType)
   type: IncidentType;
 
+  /** Severity level of the incident (LOW to CRITICAL) */
   @IsEnum(IncidentSeverity)
   severity: IncidentSeverity;
 
+  /** Detailed description of the incident (max 2000 chars) */
   @IsString()
   @IsNotEmpty()
   @MaxLength(2000)
   details: string;
 
-  @IsUUID(4)
+  /** Idempotency key to ensure duplicate reports aren’t stored */
+  @IsUUID('4')
   idempotencyKey: string;
 }
