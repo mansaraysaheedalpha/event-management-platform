@@ -29,7 +29,9 @@ export class IncidentsGateway {
   ) {}
 
   /**
-   * Handles a user submitting a new incident report.
+   * Handles the WebSocket event 'incident.report'.
+   * Allows an authenticated user to report a new incident for a session.
+   * Returns a success message and the ID of the created incident.
    */
   @SubscribeMessage('incident.report')
   async handleReportIncident(
@@ -60,7 +62,9 @@ export class IncidentsGateway {
   }
 
   /**
-   * An admin client sends this event to start receiving incident updates.
+   * Handles the WebSocket event 'incidents.join'.
+   * Lets an authorized admin join a room to receive real-time incident updates.
+   * Checks for required 'ops:incident:read' permission before joining.
    */
   @SubscribeMessage('incidents.join')
   handleJoinIncidentsStream(@ConnectedSocket() client: AuthenticatedSocket) {
@@ -84,7 +88,8 @@ export class IncidentsGateway {
   }
 
   /**
-   * Called by the IncidentsService to broadcast a new incident to subscribed admins.
+   * Broadcasts a new incident to all admin clients subscribed to the organization's incident stream.
+   * This is triggered internally by the IncidentsService.
    */
   public broadcastNewIncident(incident: IncidentDto) {
     const incidentsRoom = `incidents:${incident.organizationId}`;
@@ -95,7 +100,9 @@ export class IncidentsGateway {
   }
 
   /**
-   * Handles an admin updating the status of an incident.
+   * Handles the WebSocket event 'incident.update_status'.
+   * Allows an authorized admin to update the status of an incident.
+   * Requires 'ops:incident:manage' permission.
    */
   @SubscribeMessage('incident.update_status')
   async handleUpdateIncidentStatus(
@@ -128,7 +135,8 @@ export class IncidentsGateway {
   }
 
   /**
-   * Called by the IncidentsService to broadcast an updated incident to subscribed admins.
+   * Broadcasts an updated incident to all subscribed admin clients in the organization.
+   * Triggered after status change or admin update to the incident.
    */
   public broadcastIncidentUpdate(incident: IncidentDto) {
     const incidentsRoom = `incidents:${incident.organizationId}`;

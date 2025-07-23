@@ -14,18 +14,26 @@ enum IncidentUpdateStatus {
   RESOLVED = 'RESOLVED',
 }
 
+/**
+ * Payload for updating the status and resolution notes of an existing incident.
+ * Used by admins/moderators during incident handling.
+ */
 export class UpdateIncidentDto {
-  @IsUUID(4)
+  /** UUID of the incident being updated */
+  @IsUUID('4')
   incidentId: string;
 
+  /** New status of the incident (ACKNOWLEDGED, INVESTIGATING, RESOLVED) */
   @IsEnum(IncidentUpdateStatus)
   status: IncidentUpdateStatus;
 
+  /** Optional notes describing how the incident was resolved */
   @IsString()
   @MaxLength(2000)
   @IsOptional()
   resolutionNotes?: string;
 
-  @IsUUID(4)
+  /** Idempotency key to prevent duplicate updates */
+  @IsUUID('4')
   idempotencyKey: string;
 }
