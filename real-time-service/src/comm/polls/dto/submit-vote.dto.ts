@@ -1,12 +1,19 @@
-import { IsUUID } from 'class-validator';
+import { IsNotEmpty, IsUUID } from 'class-validator';
 
+/**
+ * DTO for submitting a vote on a poll option.
+ * Includes poll ID, option ID, and idempotency key.
+ */
 export class SubmitVoteDto {
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   pollId: string;
 
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   optionId: string;
 
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   idempotencyKey: string;
 }

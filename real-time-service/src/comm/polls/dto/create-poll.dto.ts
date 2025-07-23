@@ -10,12 +10,20 @@ import {
 import { Type } from 'class-transformer';
 
 class PollOptionDto {
+  /**
+   * Represents a single poll option.
+   * Text must be a non-empty string up to 200 characters.
+   */
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   text: string;
 }
 
+/**
+ * DTO for creating a new poll with a question and options.
+ * Includes an idempotency key to prevent duplicate poll creation.
+ */
 export class CreatePollDto {
   @IsString()
   @IsNotEmpty()
@@ -24,10 +32,11 @@ export class CreatePollDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @MinLength(2) // A poll must have at least 2 options
+  @MinLength(2)
   @Type(() => PollOptionDto)
   options: PollOptionDto[];
 
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   idempotencyKey: string;
 }
