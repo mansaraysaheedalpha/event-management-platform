@@ -21,6 +21,15 @@ export class DmService {
     private readonly publisherService: PublisherService,
   ) {}
 
+  /**
+   * Sends a direct message from the sender to the recipient.
+   * Checks idempotency and creates a conversation if none exists.
+   * @param senderId - ID of the user sending the message.
+   * @param dto - DTO containing recipientId, text, and idempotencyKey.
+   * @throws BadRequestException if sender tries to message themselves.
+   * @throws ConflictException if duplicate message detected.
+   * @returns The created direct message object.
+   */
   async sendMessage(senderId: string, dto: SendDmDto) {
     const { recipientId, text, idempotencyKey } = dto;
 
@@ -63,6 +72,14 @@ export class DmService {
     return directMessage;
   }
 
+  /**
+   * Marks a direct message as delivered by the recipient.
+   * Ensures the recipient is a participant and not the sender.
+   * Publishes a sync event on successful update.
+   * @param recipientId - ID of the user marking the message delivered.
+   * @param dto - DTO containing the messageId.
+   * @returns The updated direct message or null if no update was needed.
+   */
   async markAsDelivered(recipientId: string, dto: DeliveryReceiptDto) {
     const { messageId } = dto;
 
@@ -116,6 +133,14 @@ export class DmService {
     return updatedMessage;
   }
 
+  /**
+   * Marks a direct message as read by the reader.
+   * Ensures the reader is a participant and not the sender.
+   * Publishes a sync event on successful update.
+   * @param readerId - ID of the user marking the message read.
+   * @param dto - DTO containing the messageId.
+   * @returns The updated direct message or null if no update was needed.
+   */
   async markAsRead(readerId: string, dto: ReadReceiptDto) {
     const { messageId } = dto;
 
@@ -166,6 +191,12 @@ export class DmService {
     return updatedMessage;
   }
 
+  /**
+   * Finds an existing conversation between two users or creates a new one.
+   * @param userId1 - ID of the first user.
+   * @param userId2 - ID of the second user.
+   * @returns The found or newly created conversation object.
+   */
   private async findOrCreateConversation(userId1: string, userId2: string) {
     let conversation = await this.prisma.conversation.findFirst({
       where: {

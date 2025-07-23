@@ -1,6 +1,12 @@
-import { IsUUID } from 'class-validator';
+import { IsNotEmpty, IsUUID } from 'class-validator';
 
+/**
+ * Data Transfer Object for marking a direct message as read.
+ * Contains the ID of the message to mark as read.
+ */
 export class ReadReceiptDto {
-  @IsUUID(4)
+  /** UUID v4 of the direct message. */
+  @IsNotEmpty()
+  @IsUUID('4')
   messageId: string;
 }
