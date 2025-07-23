@@ -21,7 +21,6 @@ export class AskQuestionDto {
   @IsOptional()
   isAnonymous?: boolean;
 
-  @IsNotEmpty()
   @IsUUID('4')
   idempotencyKey: string;
 }
