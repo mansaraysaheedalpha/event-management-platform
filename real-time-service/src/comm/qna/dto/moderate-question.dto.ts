@@ -1,12 +1,24 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
-// Based on the 'moderateQuestionPayload' schema in our spec
+/**
+ * DTO for moderating a submitted question.
+ * Typically used by moderators to approve or dismiss a question,
+ * with optional notes for context.
+ */
 export class ModerateQuestionDto {
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   questionId: string;
 
   @IsString()
-  @IsIn(['approved', 'dismissed']) // Enforces the allowed status values
+  @IsIn(['approved', 'dismissed'])
   status: 'approved' | 'dismissed';
 
   @IsString()
@@ -14,6 +26,7 @@ export class ModerateQuestionDto {
   @MaxLength(200)
   moderatorNote?: string;
 
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   idempotencyKey: string;
 }
