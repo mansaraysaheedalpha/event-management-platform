@@ -1,5 +1,4 @@
 import {
-  ConnectedSocket,
   MessageBody,
   SubscribeMessage,
   WebSocketGateway,
@@ -9,6 +8,9 @@ import { getErrorMessage } from 'src/common/utils/error.utils';
 import { TranslationService } from './translation.service';
 import { RequestTranslationDto } from '../dto/request-translation.dto';
 
+/**
+ * WebSocket Gateway for translation requests via '/events' namespace.
+ */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
@@ -18,6 +20,11 @@ export class TranslationGateway {
 
   constructor(private readonly translationService: TranslationService) {}
 
+  /**
+   * Handle incoming translation requests via WebSocket.
+   * @param dto - Request payload containing message ID and target language
+   * @returns Translated message data or error response
+   */
   @SubscribeMessage('translation.request')
   async handleTranslationRequest(@MessageBody() dto: RequestTranslationDto) {
     try {

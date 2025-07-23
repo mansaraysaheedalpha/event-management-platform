@@ -24,8 +24,16 @@ const SUPPORTED_LANGUAGES = [
   'ha', // Hausa
 ];
 
+/**
+ * Payload sent by client to request a translation of a specific message.
+ *
+ * - `messageId`: UUID of the message to be translated.
+ * - `targetLanguage`: ISO 639-1 language code the message should be translated into.
+ *   Only predefined supported languages are accepted.
+ */
+
 export class RequestTranslationDto {
-  @IsUUID(4)
+  @IsUUID('4')
   messageId: string;
 
   @IsString()
