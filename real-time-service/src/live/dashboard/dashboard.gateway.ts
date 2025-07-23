@@ -14,7 +14,8 @@ import { DashboardService } from './dashboard.service';
  * Gateway for real-time event dashboard updates.
  *
  * Usage:
- *  - Admin client sends 'dashboard.join' with eventId to start receiving live updates.
+ *  - Admin client sends 'dashboard.join' to start receiving live updates.
+ *  - The eventId is provided via the WebSocket handshake query parameters, not in the message payload.
  *  - Gateway manages periodic dashboard data pushes every 5 seconds.
  */
 @WebSocketGateway({
@@ -36,6 +37,8 @@ export class DashboardGateway {
    *
    * @param client - Connected WebSocket client socket.
    * @returns Object indicating success or error message.
+   * @throws ForbiddenException if the user does not have permission to view the dashboard.
+   * @throws Error if eventId is missing from the handshake query (returns error in response object).
    */
   @SubscribeMessage('dashboard.join')
   handleJoinDashboard(@ConnectedSocket() client: AuthenticatedSocket): {
@@ -78,7 +81,6 @@ export class DashboardGateway {
    * Schedule the next broadcast cycle for the event dashboard.
    *
    * @param eventId - ID of the event.
-   * @returns void
    */
   private scheduleNextBroadcast(eventId: string) {
     const timer = setTimeout(() => {

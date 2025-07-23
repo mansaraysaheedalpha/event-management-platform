@@ -32,6 +32,7 @@ export class ContentService {
   ) {}
 
   /**
+   * @internal
    * Generates Redis key for a given session.
    *
    * @param sessionId - The session identifier.
@@ -51,7 +52,15 @@ export class ContentService {
     sessionId: string,
   ): Promise<PresentationState | null> {
     const stateJson = await this.redis.get(this.getRedisKey(sessionId));
-    return stateJson ? (JSON.parse(stateJson) as PresentationState) : null;
+    if (!stateJson) return null;
+    try {
+      return JSON.parse(stateJson) as PresentationState;
+    } catch (err) {
+      this.logger.warn(
+        `Failed to parse presentation state for session ${sessionId}: ${err}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -61,6 +70,9 @@ export class ContentService {
    * @param sessionId - The session to control.
    * @param dto - Control action data.
    * @returns The updated presentation state.
+   * @throws ConflictException if a duplicate action request is detected.
+   * @throws NotFoundException if no presentation is found for the session.
+   * @throws BadRequestException if the presentation is not active or required parameters are missing.
    */
   async controlPresentation(sessionId: string, dto: ContentControlDto) {
     const canProceed = await this.idempotencyService.checkAndSet(

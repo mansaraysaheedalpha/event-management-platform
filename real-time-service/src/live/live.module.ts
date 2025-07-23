@@ -7,10 +7,10 @@ import { ValidationModule } from './validation/validation.module'; // <-- Import
 
 @Module({
   imports: [
-    ReactionsModule,
     AgendaModule,
     ContentModule,
     DashboardModule,
+    ReactionsModule,
     ValidationModule,
   ],
 })

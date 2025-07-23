@@ -48,7 +48,6 @@ export class ReactionsGateway {
    *
    * @param dto The payload containing the emoji reaction.
    * @param client The authenticated WebSocket client.
-   * @returns {Promise<void>}
    */
   @SubscribeMessage('reaction.send')
   async handleSendReaction(
@@ -79,7 +78,11 @@ export class ReactionsGateway {
    */
   private scheduleNextBroadcast(sessionId: string): void {
     const timer = setTimeout(() => {
-      void this.runBroadcastCycle(sessionId);
+      this.runBroadcastCycle(sessionId).catch((err) =>
+        this.logger.error(
+          `Unhandled error in broadcast cycle for session ${sessionId}: ${getErrorMessage(err)}`,
+        ),
+      );
     }, this.BROADCAST_INTERVAL);
     this.activeTimers.set(sessionId, timer);
   }
@@ -107,7 +110,16 @@ export class ReactionsGateway {
         return;
       }
 
-      const reactionCounts = results[0][1] as Record<string, string>;
+      // Detect command-level failures
+      const [hgetAllErr, rawCounts] = results[0];
+      if (hgetAllErr) {
+        this.logger.error(
+          `Redis hgetall error for session ${sessionId}: ${getErrorMessage(hgetAllErr)}`,
+        );
+        return;
+      }
+
+      const reactionCounts = rawCounts as Record<string, string>;
 
       if (!reactionCounts || Object.keys(reactionCounts).length === 0) {
         this.stopBroadcastingForSession(sessionId);

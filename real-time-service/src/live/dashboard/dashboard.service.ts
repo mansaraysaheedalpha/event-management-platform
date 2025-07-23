@@ -1,3 +1,11 @@
+export interface DashboardData {
+  totalMessages: number;
+  totalVotes: number;
+  totalQuestions: number;
+  totalUpvotes: number;
+  totalReactions: number;
+  liveCheckInFeed: CheckInFeedItem[];
+}
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';
@@ -17,7 +25,7 @@ interface AnalyticsEventPayload {
   eventId: string;
   organizationId: string;
   sessionId?: string;
-  checkInData?: any;
+  checkInData?: CheckInFeedItem;
 }
 
 interface CheckInFeedItem {
@@ -56,8 +64,18 @@ export class DashboardService {
   /**
    * Listens to analytics events and updates Redis stats accordingly.
    *
-   * @param payload - The analytics event payload.
-   * @returns Promise<void>
+   * @param payload - The analytics event payload. Should match the AnalyticsEventPayload type:
+   *   {
+   *     type: 'MESSAGE_SENT' | 'POLL_VOTE_CAST' | 'QUESTION_ASKED' | 'QUESTION_UPVOTED' | 'REACTION_SENT' | 'CHECK_IN_PROCESSED',
+   *     eventId: string,
+   *     organizationId: string,
+   *     sessionId?: string,
+   *     checkInData?: { id: string, name: string }
+   *   }
+   * If the payload is malformed, the event is ignored and a warning is logged.
+   * For valid events, increments counters in Redis and updates the live check-in feed for 'CHECK_IN_PROCESSED'.
+   *
+   * @returns Promise<void> Resolves when event handling and Redis updates are complete.
    */
   @OnEvent('analytics-events')
   @OnEvent('platform.analytics.check-in.v1')
@@ -86,7 +104,14 @@ export class DashboardService {
         await this.redis.hincrby(eventKey, 'totalReactions', 1);
         break;
       case 'CHECK_IN_PROCESSED':
-        await this.updateCheckInFeed(payload.eventId, payload.checkInData);
+        if (payload.checkInData) {
+          await this.updateCheckInFeed(payload.eventId, payload.checkInData);
+        } else {
+          this.logger.warn(
+            `CHECK_IN_PROCESSED event missing checkInData for eventId: ${payload.eventId}`,
+            payload,
+          );
+        }
         break;
     }
   }
@@ -100,7 +125,7 @@ export class DashboardService {
    */
   private async updateCheckInFeed(
     eventId: string,
-    checkInData: any,
+    checkInData: CheckInFeedItem,
   ): Promise<void> {
     const redisKey = `dashboard:feed:check-in:${eventId}`;
     await this.redis.lpush(redisKey, JSON.stringify(checkInData));
@@ -113,14 +138,7 @@ export class DashboardService {
    * @param eventId - The event ID.
    * @returns Promise<object> containing counts and live check-in feed.
    */
-  async getDashboardData(eventId: string): Promise<{
-    totalMessages: number;
-    totalVotes: number;
-    totalQuestions: number;
-    totalUpvotes: number;
-    totalReactions: number;
-    liveCheckInFeed: CheckInFeedItem[];
-  }> {
+  async getDashboardData(eventId: string): Promise<DashboardData> {
     const eventKey = `dashboard:analytics:${eventId}`;
     const feedKey = `dashboard:feed:check-in:${eventId}`;
 

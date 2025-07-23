@@ -1,15 +1,23 @@
+export enum AgendaUpdateType {
+  SESSION_UPDATED = 'SESSION_UPDATED',
+  SESSION_CANCELED = 'SESSION_CANCELED',
+  SESSION_ADDED = 'SESSION_ADDED',
+}
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AgendaGateway } from './agenda.gateway';
-
 
 /**
  * Describes the shape of an agenda update event payload.
  */
 export interface AgendaUpdatePayload {
   eventId: string;
-  updateType: 'SESSION_UPDATED' | 'SESSION_CANCELED' | 'SESSION_ADDED';
-  sessionData: Record<string, unknown>; // A generic object for session data // The full session object from the Event Lifecycle service
+  updateType: AgendaUpdateType;
+  /**
+   * The full session object from the Event Lifecycle service.
+   * This is a generic object containing all relevant session data for updates.
+   */
+  sessionData: Record<string, unknown>;
 }
 /**
  * Service that listens to agenda updates and dispatches them through WebSocket.

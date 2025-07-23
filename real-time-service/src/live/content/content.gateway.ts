@@ -1,3 +1,20 @@
+import { PresentationState } from 'src/common/interfaces/presentation-state.interface';
+export interface RequestStateResponse {
+  success: boolean;
+  state: PresentationState | null;
+  error?: string;
+}
+interface ContentControlState {
+  currentSlide: number;
+  totalSlides: number;
+  isActive: boolean;
+}
+
+interface ContentControlResponse {
+  success: boolean;
+  newState?: ContentControlState;
+  error?: string;
+}
 import {
   ConnectedSocket,
   MessageBody,
@@ -17,9 +34,13 @@ import { ContentControlDto } from './dto/content-control.dto';
  * Gateway handling WebSocket communication for live content control
  * such as navigating presentation slides.
  *
+ * WebSocket namespace: `/events`
+ * Main broadcast event: `slide.update`
+ *
  * Usage:
  *  - Presenter sends `content.control` with action like `NEXT_SLIDE`
  *  - Attendees send `content.request_state` to sync state on join
+ *  - Clients listen for `slide.update` events in the room `session:{sessionId}`
  */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -36,13 +57,14 @@ export class ContentGateway {
    *
    * @param dto - Data describing the control action.
    * @param client - The authenticated socket connection.
-   * @returns {Promise<{ success: boolean; newState?: unknown; error?: string }>} Success flag and the new state or error.
+   * @returns {Promise<ContentControlResponse>} Success flag and the new state or error.
+   * @throws ForbiddenException if the user lacks permission to control content.
    */
   @SubscribeMessage('content.control')
   async handleContentControl(
     @MessageBody() dto: ContentControlDto,
     @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
+  ): Promise<ContentControlResponse> {
     const user = getAuthenticatedUser(client);
     const { sessionId } = client.handshake.query as { sessionId: string };
 
@@ -90,10 +112,12 @@ export class ContentGateway {
    * Handles requests from new attendees to get the current presentation state.
    *
    * @param client - The authenticated socket connection.
-   * @returns {Promise<{ success: boolean; state?: unknown; error?: string }>} The full presentation state or error.
+   * @returns {Promise<RequestStateResponse>} The full presentation state or error. Returns state as null if no presentation is running.
    */
   @SubscribeMessage('content.request_state')
-  async handleRequestState(@ConnectedSocket() client: AuthenticatedSocket) {
+  async handleRequestState(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<RequestStateResponse> {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
@@ -110,7 +134,7 @@ export class ContentGateway {
         `Failed to get presentation state for session ${sessionId}:`,
         getErrorMessage(error),
       );
-      return { success: false, error: getErrorMessage(error) };
+      return { success: false, state: null, error: getErrorMessage(error) };
     }
   }
 }
