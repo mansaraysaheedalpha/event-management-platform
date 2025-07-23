@@ -2,16 +2,21 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AgendaGateway } from './agenda.gateway';
 
-// We can define a type for our payload for type safety
+
+/**
+ * Describes the shape of an agenda update event payload.
+ */
 export interface AgendaUpdatePayload {
   eventId: string;
   updateType: 'SESSION_UPDATED' | 'SESSION_CANCELED' | 'SESSION_ADDED';
   sessionData: Record<string, unknown>; // A generic object for session data // The full session object from the Event Lifecycle service
 }
-
 /**
- * Service responsible for handling internal agenda-related events.
- * Listens to internal application events and relays updates via WebSocket.
+ * Service that listens to agenda updates and dispatches them through WebSocket.
+ *
+ * Usage:
+ *  - Another microservice emits `agenda-updates`
+ *  - This service picks it up, logs, and passes it to `AgendaGateway`
  */
 @Injectable()
 export class AgendaService {

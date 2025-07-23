@@ -4,11 +4,13 @@ import { Logger } from '@nestjs/common';
 import { AgendaUpdatePayload } from './agenda.service';
 
 /**
- * WebSocket gateway for broadcasting agenda updates to connected clients.
+ * WebSocket Gateway that broadcasts agenda/session updates to event rooms.
  *
- * - Namespace: `/events`
- * - Room naming convention: `event:{eventId}`
- * - Events emitted: `agenda.update`
+ * Usage:
+ *  - AgendaService emits an `agenda-updates` event
+ *  - This gateway listens and emits `agenda.update` via socket
+ *
+ * Rooms are named: `event:{eventId}`
  */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },

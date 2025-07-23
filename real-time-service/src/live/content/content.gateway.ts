@@ -13,6 +13,14 @@ import { getErrorMessage } from 'src/common/utils/error.utils';
 import { ContentService } from './content.service';
 import { ContentControlDto } from './dto/content-control.dto';
 
+/**
+ * Gateway handling WebSocket communication for live content control
+ * such as navigating presentation slides.
+ *
+ * Usage:
+ *  - Presenter sends `content.control` with action like `NEXT_SLIDE`
+ *  - Attendees send `content.request_state` to sync state on join
+ */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
@@ -25,6 +33,10 @@ export class ContentGateway {
 
   /**
    * Handles control commands from a presenter (e.g., next slide).
+   *
+   * @param dto - Data describing the control action.
+   * @param client - The authenticated socket connection.
+   * @returns {Promise<{ success: boolean; newState?: unknown; error?: string }>} Success flag and the new state or error.
    */
   @SubscribeMessage('content.control')
   async handleContentControl(
@@ -76,6 +88,9 @@ export class ContentGateway {
 
   /**
    * Handles requests from new attendees to get the current presentation state.
+   *
+   * @param client - The authenticated socket connection.
+   * @returns {Promise<{ success: boolean; state?: unknown; error?: string }>} The full presentation state or error.
    */
   @SubscribeMessage('content.request_state')
   async handleRequestState(@ConnectedSocket() client: AuthenticatedSocket) {

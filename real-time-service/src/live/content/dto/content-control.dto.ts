@@ -7,6 +7,15 @@ import {
   Min,
 } from 'class-validator';
 
+/**
+ * DTO for controlling presentation content actions.
+ *
+ * Usage example:
+ *  const dto = new ContentControlDto();
+ *  dto.action = 'NEXT_SLIDE';
+ *  dto.idempotencyKey = 'uuid-v4-string';
+ *  // optionally dto.slideNumber for 'GO_TO_SLIDE' action
+ */
 const VALID_ACTIONS = [
   'START',
   'END',
@@ -26,6 +35,6 @@ export class ContentControlDto {
   // This is only required if the action is 'GO_TO_SLIDE'
   slideNumber?: number;
 
-  @IsUUID(4)
+  @IsUUID('4')
   idempotencyKey: string;
 }
