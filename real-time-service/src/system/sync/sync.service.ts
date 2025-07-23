@@ -9,6 +9,20 @@ interface SyncEventPayload {
   payload: { sessionId: string; [key: string]: any };
 }
 
+/**
+ * The `SyncService` listens to system-wide events and sends
+ * real-time updates to users involved in those events.
+ * It also provides an endpoint for clients to fetch updates
+ * since a specific time.
+ *
+ * @example
+ * // When a new message is created:
+ * eventEmitter.emit('sync-events', {
+ *   resource: 'MESSAGE',
+ *   action: 'CREATED',
+ *   payload: { sessionId: 'abc123', content: 'Hello' },
+ * });
+ */
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
@@ -19,12 +33,17 @@ export class SyncService {
     private readonly syncGateway: SyncGateway,
   ) {}
 
+  /**
+   * Handles sync-related events (message, poll, question)
+   * and dispatches updates to all participants of the session.
+   *
+   * @param event - Sync event payload containing resource, action, and session info
+   * @returns Promise<void>
+   */
   @OnEvent('sync-events')
-  async handleSyncEvent(event: SyncEventPayload) {
+  async handleSyncEvent(event: SyncEventPayload): Promise<void> {
     this.logger.log(`Processing sync event for resource: ${event.resource}`);
 
-    // Find all participants of the session where the change occurred
-    // In a production system, this list of participants would be heavily cached in Redis.
     const session = await this.prisma.chatSession.findUnique({
       where: { id: event.payload.sessionId },
       select: { participants: true },
@@ -32,23 +51,27 @@ export class SyncService {
 
     if (!session) return;
 
-    // Send a targeted sync update to each participant
     for (const userId of session.participants) {
       this.syncGateway.sendSyncUpdate(userId, event);
     }
   }
 
   /**
-   * Fetches all changes for a user since a given timestamp.
+   * Fetches all sync changes for a user since a given timestamp.
+   * Useful for clients doing a delta-sync after being offline.
+   *
+   * @param userId - The ID of the user requesting changes
+   * @param since - ISO string timestamp to filter changes after
+   * @returns Promise<any[]> - Array of sync log entries
    */
-  async getChangesSince(userId: string, since: string) {
+  async getChangesSince(userId: string, since: string): Promise<any[]> {
     const sinceDate = new Date(since);
 
     const changes = await this.prisma.syncLog.findMany({
       where: {
         userId: userId,
         timestamp: {
-          gt: sinceDate, // Get records greater than the 'since' date
+          gt: sinceDate,
         },
       },
       orderBy: {
