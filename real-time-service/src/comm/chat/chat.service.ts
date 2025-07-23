@@ -29,6 +29,16 @@ export class ChatService {
     private readonly publisherService: PublisherService,
   ) {}
 
+  /**
+   * Sends a chat message in a session after idempotency and session checks.
+   * Broadcasts sync and analytics events, and publishes to an external stream.
+   *
+   * @param authorId - ID of the user sending the message.
+   * @param sessionId - ID of the chat session.
+   * @param dto - DTO containing message content and idempotency key.
+   * @returns The newly created message.
+   * @throws ConflictException, NotFoundException
+   */
   async sendMessage(authorId: string, sessionId: string, dto: SendMessageDto) {
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
@@ -107,6 +117,15 @@ export class ChatService {
     return newMessage;
   }
 
+  /**
+   * Edits a message within a fixed time window and validates user ownership.
+   * Publishes sync update events to downstream consumers.
+   *
+   * @param userId - ID of the user requesting the edit.
+   * @param dto - DTO with messageId, new text, and idempotency key.
+   * @returns The updated message object.
+   * @throws ConflictException, ForbiddenException, NotFoundException
+   */
   async editMessage(userId: string, dto: EditMessageDto) {
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
@@ -156,6 +175,16 @@ export class ChatService {
     return updatedMessage;
   }
 
+  /**
+   * Deletes a message if the user has appropriate permissions (own or any).
+   * Emits sync and audit events for deletion tracking.
+   *
+   * @param deleterId - ID of the user requesting deletion.
+   * @param messageId - ID of the message to delete.
+   * @param permissions - User's permission strings for deletion.
+   * @returns Object containing deletedMessageId and sessionId.
+   * @throws NotFoundException, ForbiddenException
+   */
   async deleteMessage(
     deleterId: string,
     messageId: string,
@@ -213,6 +242,12 @@ export class ChatService {
     return { deletedMessageId: messageId, sessionId: message.sessionId };
   }
 
+  /**
+   * Publishes an audit log event to Redis.
+   *
+   * @param payload - Structured audit log payload.
+   * @private
+   */
   private async _publishAuditEvent(payload: AuditLogPayload) {
     try {
       await this.redis.publish('audit-events', JSON.stringify(payload));
@@ -221,6 +256,15 @@ export class ChatService {
     }
   }
 
+  /**
+   * Retrieves session metadata from Redis or falls back to database.
+   * Re-caches result on DB fetch.
+   *
+   * @param sessionId - Session ID to fetch metadata for.
+   * @returns Session metadata including eventId and organizationId.
+   * @throws NotFoundException
+   * @private
+   */
   private async _getSessionMetadata(
     sessionId: string,
   ): Promise<SessionMetadata> {
@@ -262,7 +306,14 @@ export class ChatService {
     return session;
   }
 
-  // --- NEW: Safe, private helper for publishing events ---
+  /**
+   * Publishes an analytics event to Redis with session metadata.
+   * Called in fire-and-forget style from public methods.
+   *
+   * @param type - Event type identifier.
+   * @param data - Payload with sessionId.
+   * @private
+   */
   private async _publishAnalyticsEvent(
     type: string,
     data: { sessionId: string },

@@ -26,18 +26,19 @@ export class PollsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotencyService: IdempotencyService,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis, // <-- INJECT REDIS
-    private readonly publisherService: PublisherService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis, // Redis client for caching and messaging
+    private readonly publisherService: PublisherService, // Publishes events to message bus
   ) {}
 
   /**
-   * Creates a new poll and its options within a session.
-   * This is a protected action for users with 'poll:create' permission.
+   * Creates a new poll with options inside a session.
+   * Uses idempotency key to avoid duplicate poll creation.
+   * Uses a database transaction so either all or nothing happens.
    *
-   * @param creatorId The ID of the user creating the poll.
-   * @param sessionId The ID of the session for the poll.
-   * @param dto The data for the new poll.
-   * @returns The newly created poll, including its options.
+   * @param creatorId - User ID who creates the poll.
+   * @param sessionId - Session ID where poll belongs.
+   * @param dto - Poll details including question and options.
+   * @returns The full poll with options and creator info.
    */
   async createPoll(creatorId: string, sessionId: string, dto: CreatePollDto) {
     const canProceed = await this.idempotencyService.checkAndSet(
@@ -88,11 +89,15 @@ export class PollsService {
   }
 
   /**
-   * Submits a user's vote for a specific poll option.
+   * Allows a user to submit a vote on a poll option.
+   * Checks for duplicates with idempotency key.
+   * Validates that poll exists and is active.
+   * Uses transaction for atomicity of vote creation and fetching results.
+   * Publishes analytics and event streams after voting.
    *
-   * @param userId The ID of the user submitting the vote.
-   * @param dto The data for the vote, including poll and option IDs.
-   * @returns The poll with its newly updated vote counts.
+   * @param userId - ID of the voting user.
+   * @param dto - Vote data including pollId, optionId, and idempotencyKey.
+   * @returns The poll with updated vote counts.
    */
   async submitVote(userId: string, dto: SubmitVoteDto) {
     const { pollId, optionId, idempotencyKey } = dto;
@@ -174,10 +179,12 @@ export class PollsService {
   }
 
   /**
-   * A private helper to fetch a poll and its aggregated results.
-   * Can be run within or outside a transaction.
-   * @param pollId The ID of the poll.
-   * @param tx A Prisma transaction client (optional).
+   * Helper method to fetch a poll with vote counts per option.
+   * Can run inside or outside a transaction.
+   *
+   * @param pollId - Poll to fetch.
+   * @param tx - Optional Prisma transaction client.
+   * @returns Poll data including options with voteCount and totalVotes.
    */
   private async getPollWithResults(
     pollId: string,
@@ -220,11 +227,14 @@ export class PollsService {
   }
 
   /**
-   * Manages a poll's state, such as closing it.
+   * Manages poll lifecycle actions such as closing a poll.
+   * Checks user permissions (only creator allowed).
+   * Uses idempotency key to avoid duplicate actions.
+   * Publishes audit and sync events.
    *
-   * @param hostId The ID of the user attempting the action.
-   * @param dto The management action data.
-   * @returns The final, updated poll with its results.
+   * @param hostId - ID of the user managing the poll.
+   * @param dto - Management data including pollId, action, and idempotencyKey.
+   * @returns Final poll results after management.
    */
   async managePoll(hostId: string, dto: ManagePollDto) {
     const { pollId, action } = dto;
@@ -302,7 +312,12 @@ export class PollsService {
     }
   }
 
-  // Add this new private helper to the PollsService
+  /**
+   * Publishes audit logs asynchronously to Redis.
+   * Catches and logs errors internally.
+   *
+   * @param payload - Audit log data.
+   */
   private async _publishAuditEvent(payload: AuditLogPayload) {
     try {
       await this.redis.publish('audit-events', JSON.stringify(payload));
@@ -311,7 +326,13 @@ export class PollsService {
     }
   }
 
-  // --- THIS IS THE FINAL, WORLD-CLASS IMPLEMENTATION ---
+  /**
+   * Retrieves session metadata from Redis cache or DB as fallback.
+   * Caches the metadata in Redis for 1 hour.
+   *
+   * @param sessionId - ID of the session.
+   * @returns Session metadata including eventId and organizationId.
+   */
   private async _getSessionMetadata(
     sessionId: string,
   ): Promise<SessionMetadata> {
@@ -354,7 +375,14 @@ export class PollsService {
     return session;
   }
 
-  // --- NEW: Safe, private helper for publishing events ---
+  /**
+   * Publishes analytics events safely.
+   * Fetches session metadata for full context.
+   * Logs error on failure but does not block main flow.
+   *
+   * @param type - Analytics event type string.
+   * @param data - Event data containing sessionId and optionally pollId.
+   */
   private async _publishAnalyticsEvent(
     type: string,
     data: { sessionId: string; pollId?: string },

@@ -7,7 +7,10 @@ import {
   MaxLength,
 } from 'class-validator';
 
-// Based on the 'askQuestionPayload' schema in our spec
+/**
+ * DTO for asking a new question during a session or event.
+ * Supports anonymous questions and enforces character limits.
+ */
 export class AskQuestionDto {
   @IsString()
   @IsNotEmpty()
@@ -18,6 +21,6 @@ export class AskQuestionDto {
   @IsOptional()
   isAnonymous?: boolean;
 
-  @IsUUID(4)
+  @IsUUID('4')
   idempotencyKey: string;
 }

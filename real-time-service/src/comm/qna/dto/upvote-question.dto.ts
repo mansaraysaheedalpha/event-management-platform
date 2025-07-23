@@ -1,10 +1,15 @@
-import { IsUUID } from 'class-validator';
+import { IsNotEmpty, IsUUID } from 'class-validator';
 
-// Based on the 'upvoteQuestionPayload' schema in our spec
+/**
+ * DTO for upvoting a question.
+ * Used when a user wants to upvote a previously asked question.
+ */
 export class UpvoteQuestionDto {
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   questionId: string;
 
-  @IsUUID(4)
+  @IsNotEmpty()
+  @IsUUID('4')
   idempotencyKey: string;
 }

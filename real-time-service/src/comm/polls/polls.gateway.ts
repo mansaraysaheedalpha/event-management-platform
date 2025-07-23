@@ -25,6 +25,14 @@ export class PollsGateway {
 
   constructor(private readonly pollsService: PollsService) {}
 
+  /**
+   * Handles incoming request to create a new poll.
+   * Checks user permissions, calls service to create poll,
+   * and broadcasts the new poll to the session room.
+   * @param dto - Data required to create the poll.
+   * @param client - The connected authenticated socket client.
+   * @returns success status and new poll ID or error info.
+   */
   @SubscribeMessage('poll.create')
   async handleCreatePoll(
     @MessageBody() dto: CreatePollDto,
@@ -73,6 +81,13 @@ export class PollsGateway {
     }
   }
 
+  /**
+   * Handles incoming vote submission for a poll.
+   * Submits the vote via service, then broadcasts updated poll results.
+   * @param dto - Vote submission details.
+   * @param client - The connected authenticated socket client.
+   * @returns success status and poll ID or error info.
+   */
   @SubscribeMessage('poll.vote.submit')
   async handleSubmitVote(
     @MessageBody() dto: SubmitVoteDto,
@@ -106,6 +121,14 @@ export class PollsGateway {
     }
   }
 
+  /**
+   * Handles requests to manage a poll (e.g., closing a poll).
+   * Checks user permissions, performs management action via service,
+   * then broadcasts final poll results to the session room.
+   * @param dto - Poll management instructions.
+   * @param client - The connected authenticated socket client.
+   * @returns success status, poll ID, and final status or error info.
+   */
   @SubscribeMessage('poll.manage')
   async handleManagePoll(
     @MessageBody() dto: ManagePollDto,

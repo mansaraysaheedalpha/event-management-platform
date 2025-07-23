@@ -1,9 +1,20 @@
-import { IsUUID } from 'class-validator';
+import { IsNotEmpty, IsUUID } from 'class-validator';
 
+/**
+ * DTO for deleting a chat message.
+ */
 export class DeleteMessageDto {
-  @IsUUID(4)
+  /**
+   * The ID of the message to delete (UUID v4).
+   */
+  @IsNotEmpty()
+  @IsUUID('4')
   messageId: string;
 
-  @IsUUID(4)
+  /**
+   * A unique key to prevent duplicate delete requests (UUID v4).
+   */
+  @IsNotEmpty()
+  @IsUUID('4')
   idempotencyKey: string;
 }
