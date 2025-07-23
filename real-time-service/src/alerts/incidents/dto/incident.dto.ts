@@ -2,7 +2,7 @@
  * Lightweight representation of the user who reported an incident.
  * Used for embedding basic reporter info in the incident response.
  */
-class IncidentReporterDto {
+export class IncidentReporterDto {
   /** User ID of the reporter */
   id: string;
 

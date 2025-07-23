@@ -15,6 +15,11 @@ interface GoogleTranslateResponse {
   };
 }
 
+/**
+ * Service for handling message translation using Google Translate API
+ * and caching results with Redis.
+ */
+
 @Injectable()
 export class TranslationService {
   private readonly logger = new Logger(TranslationService.name);
@@ -27,6 +32,12 @@ export class TranslationService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
+  /**
+   * Get a translated message from cache or API.
+   * @param messageId - ID of the message to translate
+   * @param targetLanguage - Language to translate the message into
+   * @returns The translated message text
+   */
   async getTranslation(
     messageId: string,
     targetLanguage: string,
@@ -68,12 +79,16 @@ export class TranslationService {
     return translatedText;
   }
 
+  /**
+   * Fetch translation from external Google Translate API.
+   * @param text - Original message text
+   * @param target - Target language code
+   * @returns Translated message text
+   */
   private async _fetchFromExternalApi(
     text: string,
     target: string,
   ): Promise<string> {
-    // This is a mock implementation. You would replace this with the actual
-    // SDK or API call for your chosen translation service (e.g., Google Translate).
     const apiKey = this.configService.get<string>('TRANSLATION_API_KEY');
     const apiUrl = `https://translation.googleapis.com/language/translate/v2`;
 
