@@ -14,8 +14,10 @@ import { AskQuestionDto } from './dto/ask-question.dto';
 import { UpvoteQuestionDto } from './dto/upvote-question.dto';
 import { ModerateQuestionDto } from './dto/moderate-question.dto';
 
-// All gateways can share the same port and namespace configuration
-// We can centralize this configuration later.
+/**
+ * WebSocket gateway for managing Q&A events during live sessions.
+ * Handles asking, upvoting, and moderating questions in real-time.
+ */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
@@ -23,19 +25,26 @@ import { ModerateQuestionDto } from './dto/moderate-question.dto';
 export class QnaGateway {
   private readonly logger = new Logger(QnaGateway.name);
 
-  // We get a reference to the main server instance
   @WebSocketServer()
   server: Server;
 
   constructor(private readonly qnaService: QnaService) {}
 
+  /**
+   * Handles incoming client requests to ask a new question.
+   * Emits the new question to both public and moderator rooms.
+   *
+   * @param dto - Data transfer object with question content
+   * @param client - Authenticated WebSocket client
+   * @returns Result of question creation and broadcast
+   */
   @SubscribeMessage('qa.question.ask')
   async handleAskQuestion(
     @MessageBody() dto: AskQuestionDto,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
-    const { sessionId } = client.handshake.query; // Assuming sessionId is passed in query
+    const { sessionId } = client.handshake.query;
 
     if (typeof sessionId !== 'string') {
       return { success: false, error: 'Session ID is required.' };
@@ -49,7 +58,6 @@ export class QnaGateway {
         dto,
       );
 
-      // A key part of a professional system: broadcasting to the correct rooms.
       const moderationRoom = `session:${sessionId}:moderation`;
       const publicRoom = `session:${sessionId}`;
 
@@ -57,22 +65,24 @@ export class QnaGateway {
         `Broadcasting new question ${newQuestion.id} to rooms: ${publicRoom} and ${moderationRoom}`,
       );
 
-      // Emit to moderators immediately.
       this.server.to(moderationRoom).emit('qa.question.new', newQuestion);
-
-      // Based on your system rules, you might emit to the public room
-      // only after a question is 'approved'. For now, we emit to both.
       this.server.to(publicRoom).emit('qa.question.new', newQuestion);
 
-      // Return a success acknowledgment to the sender
       return { success: true, questionId: newQuestion.id };
     } catch (error) {
       this.logger.error(`Failed to ask question for user ${user.sub}:`, error);
-      // In a real system, you'd use your getErrorMessage utility here
       return { success: false, error: 'Could not process your question.' };
     }
   }
 
+  /**
+   * Handles upvoting a question by a client.
+   * Broadcasts the updated question to all participants in the session.
+   *
+   * @param dto - Data transfer object with questionId to upvote
+   * @param client - Authenticated WebSocket client
+   * @returns Updated upvote count or error response
+   */
   @SubscribeMessage('qna.question.upvote')
   async handleUpvoteQuestion(
     @MessageBody() dto: UpvoteQuestionDto,
@@ -92,15 +102,14 @@ export class QnaGateway {
       );
 
       if (!updatedQuestion) {
-        throw new Error(''); // without this check i get updatedQuestion is possibly null, you can help me replace it with something better
+        return { success: false, error: 'Question not found or inactive.' };
       }
+
       const publicRoom = `session:${sessionId}`;
       this.logger.log(
         `Broadcasting question update ${updatedQuestion.id} to room ${publicRoom}`,
       );
 
-      // Broadcast the 'qna.question.updated' event with the full, updated question object.
-      // Clients will listen for this event to update their UI in real-time.
       this.server.to(publicRoom).emit('qna.question.updated', updatedQuestion);
 
       return {
@@ -113,12 +122,18 @@ export class QnaGateway {
         `Failed to upvote for user ${user.sub}:`,
         (error as Error).message,
       );
-
-      // Return specific, actionable errors to the client.
       return { success: false, error: (error as Error).message };
     }
   }
 
+  /**
+   * Handles moderation actions such as approving or dismissing a question.
+   * Applies permission checks and broadcasts changes to public and moderator rooms.
+   *
+   * @param dto - Data transfer object with moderation details
+   * @param client - Authenticated WebSocket client
+   * @returns Moderation result including new status
+   */
   @SubscribeMessage('qna.question.moderate')
   async handleModerateQuestion(
     @MessageBody() dto: ModerateQuestionDto,
@@ -127,9 +142,6 @@ export class QnaGateway {
     const user = getAuthenticatedUser(client);
     const { sessionId } = client.handshake.query as { sessionId: string };
 
-    // --- WORLD-CLASS SECURITY CHECK ---
-    // The user's permissions are decoded from the JWT by a prior middleware/guard.
-    // We check for the specific permission required for this action.
     const requiredPermission = 'qna:moderate';
     if (!user.permissions || !user.permissions.includes(requiredPermission)) {
       this.logger.warn(
@@ -145,17 +157,19 @@ export class QnaGateway {
       const updatedQuestion = await this.qnaService.moderateQuestion(dto);
 
       if (!updatedQuestion) {
-        throw new Error(''); // without this check i get updatedQuestion is possibly null below, you can help me replace it with something better
+        return {
+          success: false,
+          error: 'Question not found or already handled.',
+        };
       }
+
       const publicRoom = `session:${sessionId}`;
       const moderationRoom = `session:${sessionId}:moderation`;
 
-      // Always update the moderators' view
       this.server
         .to(moderationRoom)
         .emit('qna.question.updated', updatedQuestion);
 
-      // Broadcast intelligently to the public room
       if (updatedQuestion.status === 'approved') {
         this.logger.log(
           `Broadcasting approved question ${updatedQuestion.id} to public.`,
@@ -167,7 +181,6 @@ export class QnaGateway {
         this.logger.log(
           `Broadcasting removed question ${updatedQuestion.id} to public.`,
         );
-        // As per our spec, tell clients to remove the question from their UI
         this.server
           .to(publicRoom)
           .emit('qna.question.removed', { questionId: updatedQuestion.id });

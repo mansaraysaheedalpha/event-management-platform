@@ -18,6 +18,8 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { UserDataDto } from 'src/common/dto/user-data.dto';
 import { PublisherService } from 'src/shared/services/publisher.service';
+import { isSessionMetadata } from 'src/common/utils/session.utils';
+import { SessionMetadata } from 'src/common/interfaces/session.interface';
 
 @Injectable()
 export class QnaService {
@@ -33,14 +35,13 @@ export class QnaService {
 
   /**
    * Creates a new question within a session.
-   * This is the first point of contact for a user's data with this service,
-   * so we ensure a local reference for the user exists.
-   *
+   * Ensures a user reference exists locally before creating the question.
+   * Enforces idempotency to avoid duplicate questions.
    * @param userId The ID of the user asking the question.
-   * @param userEmail The email of the user (from JWT).
-   * @param sessionId The ID of the session where the question is asked.
-   * @param dto The data for the new question.
-   * @returns The newly created question object.
+   * @param userEmail The user's email from JWT.
+   * @param sessionId The session ID where the question is asked.
+   * @param dto The question data payload.
+   * @returns The created question object with author info.
    */
   async askQuestion(
     userId: string,
@@ -180,11 +181,10 @@ export class QnaService {
   }
 
   /**
-   * Updates the status of a question (e.g., approves or dismisses it).
-   * This is a protected action intended for moderators/admins.
-   *
-   * @param dto Contains the questionId and the new status.
-   * @returns The question with its updated status.
+   * Allows moderators/admins to update the status of a question (approve/dismiss).
+   * Enforces idempotency and handles not found and duplicate requests gracefully.
+   * @param dto Contains questionId, new status, and idempotency key.
+   * @returns The updated question with upvote count.
    */
   async moderateQuestion(dto: ModerateQuestionDto) {
     const { questionId, status } = dto;
@@ -239,8 +239,9 @@ export class QnaService {
   }
 
   /**
-   * Retrieves a single question and includes the real-time count of its upvotes.
-   * @param questionId The ID of the question to retrieve.
+   * Helper to get a question with its author info and upvote count.
+   * @param questionId The question's unique ID.
+   * @returns Question including author and upvote count.
    */
   private async getQuestionWithUpvoteCount(questionId: string) {
     return this.prisma.question.findUnique({
@@ -259,13 +260,11 @@ export class QnaService {
   }
 
   /**
-   * Finds a user reference by ID or creates a new one.
-   * In a complete system, this might involve an internal API call or a
-   * message queue event from the User service to get the latest user details.
-   *
-   * @param userId The user's unique ID.
-   * @param email The user's email.
-   * @returns The found or created user reference.
+   * Finds or creates a user reference locally.
+   * Attempts to fetch user data from the User & Org service, falling back to default values.
+   * @param userId User's unique ID.
+   * @param email User's email.
+   * @returns The existing or newly created user reference.
    */
   private async findOrCreateUserReference(userId: string, email: string) {
     const existingRef = await this.prisma.userReference.findUnique({
@@ -314,26 +313,62 @@ export class QnaService {
     }
   }
 
-  // This is a new private helper to get session metadata from the cache.
+  /**
+   * Retrieves session metadata from Redis or falls back to database.
+   * Re-caches result on DB fetch.
+   *
+   * @param sessionId - Session ID to fetch metadata for.
+   * @returns Session metadata including eventId and organizationId.
+   * @throws NotFoundException
+   * @private
+   */
   private async _getSessionMetadata(
     sessionId: string,
-  ): Promise<{ eventId: string; organizationId: string }> {
+  ): Promise<SessionMetadata> {
     const redisKey = `session:info:${sessionId}`;
     const cachedData = await this.redis.get(redisKey);
 
     if (cachedData) {
-      return JSON.parse(cachedData);
+      try {
+        const parsedData: unknown = JSON.parse(cachedData);
+        if (isSessionMetadata(parsedData)) {
+          return parsedData;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Invalid session metadata in cache for ${sessionId}`,
+          error,
+        );
+      }
     }
 
-    // If not in cache, we would need to fetch it from the database as a fallback.
-    // For now, we'll return placeholders, but the caching logic is in place.
-    this.logger.warn(`Session metadata for ${sessionId} not found in cache.`);
-    return {
-      eventId: 'fallback-event-id',
-      organizationId: 'fallback-org-id',
-    };
+    // --- FALLBACK: If cache miss or invalid, fetch from PostgreSQL ---
+    this.logger.warn(
+      `Session metadata for ${sessionId} not found in cache. Fetching from DB.`,
+    );
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { eventId: true, organizationId: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException(
+        `Session with ID ${sessionId} not found in primary database.`,
+      );
+    }
+
+    // Re-populate the cache for the next request
+    await this.redis.set(redisKey, JSON.stringify(session), 'EX', 3600); // Cache for 1 hour
+
+    return session;
   }
-  // --- NEW: Safe, private helper for publishing events ---
+
+  /**
+   * Publishes an analytics event to Redis channel.
+   * Includes session, event, and organization metadata.
+   * @param type Type of analytics event.
+   * @param data Payload containing sessionId.
+   */
   private async _publishAnalyticsEvent(
     type: string,
     data: { sessionId: string },
