@@ -7,9 +7,32 @@ import { IsIn, IsString } from 'class-validator';
  * The emoji set is curated to ensure meaningful and respectful communication.
  *
  * @example
- * const dto: SendReactionDto = { emoji: '🔥' };
+ * import { plainToInstance } from 'class-transformer';
+ * const dto = plainToInstance(SendReactionDto, { emoji: '🔥' });
  */
 
+/**
+ * Whitelisted emojis for reactions and their intended meanings:
+ *
+ * 👍 - Approval or agreement
+ * ❤️ - Love or appreciation
+ * 🎉 - Celebration
+ * 💡 - Idea or suggestion
+ * 😂 - Laughter
+ * 👏 - Applause
+ * 🔥 - Excitement or highlight
+ * 🙏 - Gratitude or thanks
+ * 🤝 - Partnership or networking
+ * 🚀 - Progress or launch
+ * 🙌 - Support or encouragement
+ * ✅ - Confirmation or success
+ * 🎶 - Music vibes (especially for live shows)
+ * 🕺 - Dancing or good vibes
+ * 📢 - Announcements, engagement, hype
+ * 📸 - Photo moments or captured memories
+ * 🌍 - Pan-African unity, global presence
+ * 🧠 - Smart insight or innovation
+ */
 const ALLOWED_EMOJIS = [
   '👍',
   '❤️',
@@ -23,13 +46,12 @@ const ALLOWED_EMOJIS = [
   '🚀',
   '🙌',
   '✅',
-  '🎶', // Music vibes (especially for live shows)
-  '🕺', // Dancing or good vibes
-  '📢', // Announcements, engagement, hype
-  '📸', // Photo moments or captured memories
-  '🌍', // Pan-African unity, global presence
-  '🧠', // Smart insight or innovation
-  '🤝', // Partnership or networking moments
+  '🎶',
+  '🕺',
+  '📢',
+  '📸',
+  '🌍',
+  '🧠',
 ];
 
 export class SendReactionDto {
@@ -38,4 +60,4 @@ export class SendReactionDto {
   emoji: string;
 }
 
-// Further improvemnt later is to Allow admin users to customize emojis per event
+// Further improvement later is to Allow admin users to customize emojis per event

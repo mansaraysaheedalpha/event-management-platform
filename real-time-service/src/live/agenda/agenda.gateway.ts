@@ -8,7 +8,7 @@ import { AgendaUpdatePayload } from './agenda.service';
  *
  * Usage:
  *  - AgendaService emits an `agenda-updates` event
- *  - This gateway listens and emits `agenda.update` via socket
+ *  - This gateway is invoked when the event occurs and emits `agenda.update` via socket
  *
  * Rooms are named: `event:{eventId}`
  */

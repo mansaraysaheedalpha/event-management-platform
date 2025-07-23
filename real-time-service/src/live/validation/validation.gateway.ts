@@ -10,16 +10,24 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { ValidateTicketDto } from './dto/validate-ticket.dto';
 import { ValidationService } from './validation.service';
+import { ValidationResultDto } from './dto/validation-result.dto';
 
+type ValidationResponse =
+  | { success: true; event: 'validation.result'; data: ValidationResultDto }
+  | { success: false; error: string };
 /**
  * Gateway responsible for validating attendee tickets in real-time
  * via WebSocket. This is used by event staff during check-in.
  *
- * Usage (client-side emit):
+ * @example
+ * ```typescript
  * socket.emit('ticket.validate', {
  *   ticketId: 'abc123',
  *   attendeeId: 'user456',
  * });
+ * ```
+ *
+ * @see https://docs.nestjs.com/websockets/gateways
  */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -41,7 +49,7 @@ export class ValidationGateway {
   async handleValidateTicket(
     @MessageBody() dto: ValidateTicketDto,
     @ConnectedSocket() client: AuthenticatedSocket,
-  ): Promise<any> {
+  ): Promise<ValidationResponse> {
     const user = getAuthenticatedUser(client);
     const { eventId } = client.handshake.query as { eventId: string };
 

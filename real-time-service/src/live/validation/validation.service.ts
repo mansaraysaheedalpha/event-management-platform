@@ -1,3 +1,4 @@
+const ANALYTICS_CHECKIN_TOPIC = 'platform.analytics.check-in.v1';
 import { HttpService } from '@nestjs/axios';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
@@ -12,8 +13,18 @@ import { ValidationResultDto } from './dto/validation-result.dto';
  * It ensures idempotency, communicates with the Event Lifecycle API,
  * and publishes analytics events for real-time check-in dashboards.
  *
- * Usage:
- * const result = await validationService.validateTicket(eventId, dto);
+ * @example
+ * // Typical usage in a NestJS service or controller:
+ * import { ValidationService } from './validation.service';
+ *
+ * @Injectable()
+ * export class SomeController {
+ *   constructor(private readonly validationService: ValidationService) {}
+ *
+ *   async validate(eventId: string, dto: ValidateTicketDto) {
+ *     return await this.validationService.validateTicket(eventId, dto);
+ *   }
+ * }
  */
 @Injectable()
 export class ValidationService {
@@ -34,8 +45,10 @@ export class ValidationService {
    * @param eventId The event ID tied to the validation context.
    * @param dto The ticket validation payload (ticket code, idempotency key, etc.).
    * @returns The result of the validation (valid/invalid, user info, etc.).
-   * @throws ConflictException if the same idempotencyKey has been processed.
-   * @throws Any error returned by the Event Lifecycle service.
+   * @throws ConflictException (HTTP 409) if the same idempotencyKey has been processed.
+   * @throws BadRequestException (HTTP 400) for invalid payload or ticket code.
+   * @throws Network timeout or connection errors (HTTP 504/502) if the Event Lifecycle service is unreachable.
+   * @throws Other errors returned by the Event Lifecycle service, mapped to their respective HTTP status codes.
    */
   async validateTicket(
     eventId: string,
@@ -57,10 +70,14 @@ export class ValidationService {
       const response = await firstValueFrom(
         this.httpService.post<ValidationResultDto>(
           `${eventServiceUrl}/internal/tickets/validate`,
-          { eventId, ...dto },
+          // Ensure the explicit eventId wins in case dto contains one.
+          { ...dto, eventId },
           {
             headers: {
-              'X-Internal-Api-Key': process.env.INTERNAL_API_KEY,
+              // Only attach the header when the key is configured.
+              ...(process.env.INTERNAL_API_KEY
+                ? { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY }
+                : {}),
             },
           },
         ),
@@ -76,7 +93,7 @@ export class ValidationService {
         };
 
         void this.publisherService.publish(
-          'platform.analytics.check-in.v1',
+          ANALYTICS_CHECKIN_TOPIC,
           analyticsPayload,
         );
       }

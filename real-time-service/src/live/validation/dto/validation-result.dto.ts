@@ -1,22 +1,23 @@
+import { Type } from 'class-transformer';
 /**
  * Contains minimal info about the user who owns a validated ticket.
  *
  * Example:
  * {
- *   id: 'user-123',
- *   name: 'Alice Kamara',
- *   avatarUrl: 'https://cdn.app.com/avatar.png'
+ *   "id": "user-123",
+ *   "name": "Alice Kamara",
+ *   "avatarUrl": "https://cdn.app.com/avatar.png"
  * }
  */
 export class ValidatedUserDto {
   /** Unique user ID */
-  id: string;
+  readonly id: string;
 
   /** Full name of the user */
-  name: string;
+  readonly name: string;
 
   /** Optional URL to the user's avatar */
-  avatarUrl?: string;
+  readonly avatarUrl?: string;
 }
 
 /**
@@ -24,29 +25,31 @@ export class ValidatedUserDto {
  *
  * Example:
  * {
- *   isValid: true,
- *   ticketCode: 'ABC123',
- *   validatedAt: '2025-07-23T22:10:00Z',
- *   user: { id: 'u-1', name: 'John', avatarUrl: '...' },
- *   accessLevel: 'VIP',
+ *   "isValid": true,
+ *   "ticketCode": "ABC123",
+ *   "validatedAt": "2025-07-23T22:10:00Z",
+ *   "user": { "id": "u-1", "name": "John", "avatarUrl": "..." },
+ *   "accessLevel": "VIP",
+ *   "errorReason": null
  * }
  */
 export class ValidationResultDto {
   /** True if the ticket is valid */
-  isValid: boolean;
+  readonly isValid: boolean;
 
   /** The ticket code that was validated */
-  ticketCode: string;
+  readonly ticketCode: string;
 
   /** ISO timestamp of validation */
-  validatedAt: string;
+  @Type(() => Date)
+  readonly validatedAt: Date;
 
   /** Info about the user, if ticket is linked */
-  user?: ValidatedUserDto;
+  readonly user?: ValidatedUserDto;
 
   /** Optional access level (e.g., VIP, General) */
-  accessLevel?: string;
+  readonly accessLevel?: string;
 
   /** If invalid, reason for rejection (e.g., "expired") */
-  errorReason?: string;
+  readonly errorReason?: string;
 }

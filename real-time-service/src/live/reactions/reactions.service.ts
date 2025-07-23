@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/services/idempotency.service';
 import { PublisherService } from 'src/shared/services/publisher.service';
@@ -11,6 +11,8 @@ import { PublisherService } from 'src/shared/services/publisher.service';
  */
 @Injectable()
 export class ReactionsService {
+  private readonly logger = new Logger(ReactionsService.name);
+
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly publisherService: PublisherService,
@@ -35,8 +37,8 @@ export class ReactionsService {
     // Increment the count of the emoji atomically in Redis hash
     await this.redis.hincrby(redisKey, emoji, 1);
 
-    // Set expiration to clean up reaction data after 5 minutes of inactivity
-    await this.redis.expire(redisKey, 300);
+    // Set expiration to clean up reaction data after 5 minutes of inactivity, only if not already set
+    await this.redis.expire(redisKey, 300, 'NX');
 
     // Publish the reaction event for downstream consumers
     const reactionPayload = {
@@ -46,9 +48,13 @@ export class ReactionsService {
       timestamp: new Date().toISOString(),
     };
 
-    void this.publisherService.publish(
-      'platform.events.live.reaction.v1',
-      reactionPayload,
-    );
+    try {
+      await this.publisherService.publish(
+        'platform.events.live.reaction.v1',
+        reactionPayload,
+      );
+    } catch (error) {
+      this.logger.error('Failed to publish reaction event', error);
+    }
   }
 }
