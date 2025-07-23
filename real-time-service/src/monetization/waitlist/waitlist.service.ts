@@ -9,6 +9,10 @@ import { REDIS_CLIENT } from 'src/shared/shared.module';
  * This service supports use cases like handling full sessions where users are
  * placed in a queue and notified when a spot opens up.
  *
+ * @remarks
+ * Waitlists can grow unbounded if sessions are abandoned. Redis keys persist indefinitely unless explicitly expired or deleted.
+ * Implement cleanup or TTL strategies to avoid resource leaks and stale data.
+ *
  * @example
  * // Add a user to waitlist
  * await waitlistService.addUserToWaitlist('session-123', 'user-456');
@@ -18,6 +22,8 @@ import { REDIS_CLIENT } from 'src/shared/shared.module';
  */
 @Injectable()
 export class WaitlistService {
+  /** Compile-time constant for waitlist Redis key prefix */
+  private static readonly WAITLIST_KEY_PREFIX = 'waitlist:';
   private readonly logger = new Logger(WaitlistService.name);
 
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
@@ -29,7 +35,7 @@ export class WaitlistService {
    * @returns The Redis key string for the session's waitlist
    */
   private getRedisKey(sessionId: string): string {
-    return `waitlist:${sessionId}`;
+    return `${WaitlistService.WAITLIST_KEY_PREFIX}${sessionId}`;
   }
 
   /**
@@ -42,10 +48,21 @@ export class WaitlistService {
    */
   async addUserToWaitlist(sessionId: string, userId: string): Promise<void> {
     const redisKey = this.getRedisKey(sessionId);
-    await this.redis.rpush(redisKey, userId);
-    this.logger.log(
-      `User ${userId} added to waitlist for session ${sessionId}`,
-    );
+    try {
+      await this.redis.rpush(redisKey, userId);
+      this.logger.log(
+        `User ${userId} added to waitlist for session ${sessionId}`,
+      );
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+      this.logger.error(
+        `Failed to add user ${userId} to waitlist for session ${sessionId}: ${errorMsg}`,
+      );
+      throw new Error(
+        'Could not add user to waitlist. Please try again later.',
+      );
+    }
   }
 
   /**
@@ -61,6 +78,20 @@ export class WaitlistService {
     if (userId) {
       this.logger.log(
         `User ${userId} popped from waitlist for session ${sessionId}`,
+      );
+    }
+    // Check if the list is now empty and clean up the key
+    const listLength = await this.redis.llen(redisKey);
+    if (listLength === 0) {
+      await this.redis.del(redisKey);
+      this.logger.log(
+        `Waitlist for session ${sessionId} is now empty and key deleted.`,
+      );
+    } else {
+      // Optionally set an expiration to avoid stale keys
+      await this.redis.expire(redisKey, 3600); // 1 hour
+      this.logger.log(
+        `Waitlist for session ${sessionId} still has users, expiration set.`,
       );
     }
     return userId;

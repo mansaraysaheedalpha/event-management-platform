@@ -26,6 +26,9 @@ type MonetizationEventPayload =
  * upsell triggers, and session waitlist updates. It interacts with the Event Lifecycle Service
  * and sends real-time monetization content to the front end via MonetizationGateway.
  *
+ * @see MonetizationGateway - Handles real-time event delivery to clients
+ * @see WaitlistService - Manages session waitlists and user queueing
+ *
  * @example
  * // Triggered when a session spot becomes available:
  * eventEmitter.emit('monetization-events', { type: 'SPOT_AVAILABLE', sessionId: 'abc123' });
@@ -50,7 +53,8 @@ export class MonetizationService {
    * @returns {Promise<void>}
    *
    * @example
-   * await handleMonetizationEvent({ type: 'AD_INJECTION', eventId: 'e1', adId: 'ad101' });
+   * // Correct usage: emit the event via the event bus
+   * eventEmitter.emit('monetization-events', { type: 'AD_INJECTION', eventId: 'e1', adId: 'ad101' });
    */
   @OnEvent('monetization-events')
   async handleMonetizationEvent(payload: MonetizationEventPayload) {
@@ -103,6 +107,9 @@ export class MonetizationService {
   /**
    * Fetches a waitlist offer for a specific session from the Event Lifecycle service.
    *
+   * Returns `null` if the fetch operation fails (e.g., network error, not found).
+   * Callers should handle a `null` result appropriately.
+   *
    * @param sessionId The ID of the session with the waitlist.
    * @returns {Promise<WaitlistOfferDto | null>}
    */
@@ -133,6 +140,9 @@ export class MonetizationService {
   /**
    * Fetches ad content data using its unique ad ID.
    *
+   * Returns an `AdContent` object if found, or `null` if the fetch operation fails (e.g., not found, network error).
+   * Callers should handle a `null` result appropriately.
+   *
    * @param adId The ID of the ad to retrieve.
    * @returns {Promise<AdContent | null>}
    */
@@ -161,8 +171,11 @@ export class MonetizationService {
   /**
    * Retrieves upsell offer content from the Event Lifecycle service.
    *
+   * Returns an `OfferContent` object if found, or `null` if the fetch operation fails (e.g., not found, network error).
+   * Callers should handle a `null` result appropriately.
+   *
    * @param offerId The ID of the offer to retrieve.
-   * @returns {Promise<OfferContent | null>}
+   * @returns {Promise<OfferContent | null>} Resolves to an OfferContent object or null if not found.
    */
   private async _fetchOfferContent(
     offerId: string,

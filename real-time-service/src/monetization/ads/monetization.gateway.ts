@@ -1,3 +1,18 @@
+/**
+ * Interface describing the payload for waitlist spot notifications.
+ */
+export interface WaitlistNotificationPayload {
+  sessionId: string;
+  message: string;
+  [key: string]: unknown; // Allow for extensibility
+}
+function assertValidRoomId(eventId: string): void {
+  // Only allow alphanumeric, dash, and underscore
+  if (!/^[\w-]+$/.test(eventId)) {
+    throw new Error(`Invalid eventId for room: ${eventId}`);
+  }
+}
+import { getErrorMessage } from 'src/common/utils/error.utils';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -67,6 +82,13 @@ export class MonetizationGateway {
    * });
    */
   public broadcastAd(adContent: AdContent): void {
+    try {
+      assertValidRoomId(adContent.eventId);
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      this.logger.warn(`Ad broadcast aborted: ${msg}`);
+      return;
+    }
     const eventRoom = `event:${adContent.eventId}`;
     const eventName = 'monetization.ad.injected';
     this.server.to(eventRoom).emit(eventName, adContent);
@@ -116,16 +138,47 @@ export class MonetizationGateway {
    * socket.emit('monetization.waitlist.join');
    */
   @SubscribeMessage('monetization.waitlist.join')
-  async handleJoinWaitlist(@ConnectedSocket() client: AuthenticatedSocket) {
-    const user = getAuthenticatedUser(client); // Decodes JWT to extract user info
-    const { sessionId } = client.handshake.query as { sessionId: string };
+  async handleJoinWaitlist(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    let user: { sub?: string } | undefined;
+    try {
+      user = getAuthenticatedUser(client);
+    } catch (err) {
+      this.logger.warn('Failed to authenticate user for waitlist join', err);
+      return {
+        success: false,
+        error: 'Authentication failed. Please re-login.',
+      };
+    }
 
-    await this.waitlistService.addUserToWaitlist(sessionId, user.sub);
+    const { sessionId } = client.handshake.query as { sessionId?: string };
+    if (!sessionId) {
+      return {
+        success: false,
+        error: 'Session ID is required to join the waitlist.',
+      };
+    }
+    if (!user?.sub || typeof user.sub !== 'string') {
+      return {
+        success: false,
+        error: 'User ID is missing or invalid.',
+      };
+    }
 
-    return {
-      success: true,
-      message: 'You have been added to the waitlist.',
-    };
+    try {
+      await this.waitlistService.addUserToWaitlist(sessionId, user.sub);
+      return {
+        success: true,
+        message: 'You have been added to the waitlist.',
+      };
+    } catch (err) {
+      this.logger.error('Failed to add user to waitlist', err);
+      return {
+        success: false,
+        error: 'Failed to add user to waitlist. Please try again later.',
+      };
+    }
   }
 
   /**
@@ -141,7 +194,10 @@ export class MonetizationGateway {
    *   message: 'A spot just opened up! Join now.',
    * });
    */
-  public sendWaitlistNotification(targetUserId: string, payload: any): void {
+  public sendWaitlistNotification(
+    targetUserId: string,
+    payload: WaitlistNotificationPayload,
+  ): void {
     const userRoom = `user:${targetUserId}`;
     const eventName = 'monetization.waitlist.spot_available';
     this.server.to(userRoom).emit(eventName, payload);
