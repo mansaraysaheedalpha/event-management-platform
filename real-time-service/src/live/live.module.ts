@@ -11,7 +11,7 @@ import { ValidationModule } from './validation/validation.module'; // <-- Import
     AgendaModule,
     ContentModule,
     DashboardModule,
-    ValidationModule, 
+    ValidationModule,
   ],
 })
 export class LiveModule {}

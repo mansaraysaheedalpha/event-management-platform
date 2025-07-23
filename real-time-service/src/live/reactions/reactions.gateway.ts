@@ -15,6 +15,18 @@ import { REDIS_CLIENT } from 'src/shared/services/idempotency.service';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 
+/**
+ * Gateway to handle real-time emoji reactions in a session.
+ *
+ * Emits periodic 'reaction.burst' messages with the count of each emoji.
+ *
+ * @example
+ * // Client emits a reaction:
+ * socket.emit('reaction.send', { emoji: '🔥' });
+ *
+ * // Server emits burst update:
+ * socket.on('reaction.burst', (payload) => { console.log(payload); });
+ */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
@@ -31,11 +43,18 @@ export class ReactionsGateway {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
+  /**
+   * Handles incoming reaction from user and schedules broadcasting.
+   *
+   * @param dto The payload containing the emoji reaction.
+   * @param client The authenticated WebSocket client.
+   * @returns {Promise<void>}
+   */
   @SubscribeMessage('reaction.send')
   async handleSendReaction(
     @MessageBody() dto: SendReactionDto,
     @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
+  ): Promise<void> {
     const { sessionId } = client.handshake.query as { sessionId: string };
     const user = getAuthenticatedUser(client);
     const userId = user.sub;
@@ -52,18 +71,26 @@ export class ReactionsGateway {
     }
   }
 
-  private scheduleNextBroadcast(sessionId: string) {
-    const timer = setTimeout(
-      // --- FIX #1: Use the `void` operator to correctly handle the promise ---
-      () => {
-        void this.runBroadcastCycle(sessionId);
-      },
-      this.BROADCAST_INTERVAL,
-    );
+  /**
+   * Schedules the next broadcast cycle for a session.
+   *
+   * @param sessionId The session identifier.
+   * @returns {void}
+   */
+  private scheduleNextBroadcast(sessionId: string): void {
+    const timer = setTimeout(() => {
+      void this.runBroadcastCycle(sessionId);
+    }, this.BROADCAST_INTERVAL);
     this.activeTimers.set(sessionId, timer);
   }
 
-  private async runBroadcastCycle(sessionId: string) {
+  /**
+   * Runs a broadcast cycle: fetches reactions from Redis and emits to clients.
+   *
+   * @param sessionId The session identifier.
+   * @returns {Promise<void>}
+   */
+  private async runBroadcastCycle(sessionId: string): Promise<void> {
     try {
       const redisKey = `reactions:${sessionId}`;
 
@@ -73,12 +100,11 @@ export class ReactionsGateway {
         .del(redisKey)
         .exec();
 
-      // --- FIX #2: Add a null check to handle failed Redis transactions ---
       if (!results) {
         this.logger.warn(
           `Redis transaction for session ${sessionId} failed and returned null.`,
         );
-        return; // Stop this cycle if the transaction failed
+        return;
       }
 
       const reactionCounts = results[0][1] as Record<string, string>;
@@ -109,7 +135,13 @@ export class ReactionsGateway {
     }
   }
 
-  private stopBroadcastingForSession(sessionId: string) {
+  /**
+   * Stops broadcasting loop for a session when there are no more reactions.
+   *
+   * @param sessionId The session identifier.
+   * @returns {void}
+   */
+  private stopBroadcastingForSession(sessionId: string): void {
     if (this.activeTimers.has(sessionId)) {
       this.logger.log(
         `Stopping reaction broadcast loop for session: ${sessionId}`,

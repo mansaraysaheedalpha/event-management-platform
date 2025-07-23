@@ -13,6 +13,13 @@ import { Redis } from 'ioredis';
 import { ContentControlDto } from './dto/content-control.dto';
 import { PresentationState } from 'src/common/interfaces/presentation-state.interface';
 
+/**
+ * Service to manage live presentation control states
+ *
+ * Usage:
+ *  - Call `controlPresentation` to update the presentation state
+ *  - Call `getPresentationState` to fetch current state for a session
+ */
 @Injectable()
 export class ContentService {
   private readonly logger = new Logger(ContentService.name);
@@ -24,12 +31,21 @@ export class ContentService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
+  /**
+   * Generates Redis key for a given session.
+   *
+   * @param sessionId - The session identifier.
+   * @returns Redis cache key string.
+   */
   private getRedisKey(sessionId: string): string {
     return `presentation:state:${sessionId}`;
   }
 
   /**
    * Fetches the current state of a presentation from Redis.
+   *
+   * @param sessionId - The ID of the session.
+   * @returns The current presentation state or null if none exists.
    */
   async getPresentationState(
     sessionId: string,
@@ -39,11 +55,12 @@ export class ContentService {
   }
 
   /**
-   * Handles all control actions for a presentation.
+   * Handles presentation control actions (start, next slide, etc).
+   * Uses idempotency key to prevent duplicate processing.
    *
-   * @param sessionId The session being controlled.
-   * @param dto The control action to perform.
-   * @returns The new state of the presentation.
+   * @param sessionId - The session to control.
+   * @param dto - Control action data.
+   * @returns The updated presentation state.
    */
   async controlPresentation(sessionId: string, dto: ContentControlDto) {
     const canProceed = await this.idempotencyService.checkAndSet(

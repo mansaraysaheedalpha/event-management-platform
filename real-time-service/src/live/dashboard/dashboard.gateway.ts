@@ -10,6 +10,13 @@ import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { DashboardService } from './dashboard.service';
 
+/**
+ * Gateway for real-time event dashboard updates.
+ *
+ * Usage:
+ *  - Admin client sends 'dashboard.join' with eventId to start receiving live updates.
+ *  - Gateway manages periodic dashboard data pushes every 5 seconds.
+ */
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
@@ -18,14 +25,17 @@ export class DashboardGateway {
   private readonly logger = new Logger(DashboardGateway.name);
   @WebSocketServer() server: Server;
 
-  // We keep track of active broadcast timers for each event's dashboard
+  // Tracks active timers for event dashboard broadcasts
   private activeDashboardTimers = new Map<string, NodeJS.Timeout>();
   private readonly BROADCAST_INTERVAL = 5000; // Push updates every 5 seconds
 
   constructor(private readonly dashboardService: DashboardService) {}
 
   /**
-   * An admin client sends this event to start receiving dashboard updates.
+   * Admin client joins dashboard updates for an event.
+   *
+   * @param client - Connected WebSocket client socket.
+   * @returns Object indicating success or error message.
    */
   @SubscribeMessage('dashboard.join')
   handleJoinDashboard(@ConnectedSocket() client: AuthenticatedSocket): {
@@ -64,6 +74,12 @@ export class DashboardGateway {
     return { success: true };
   }
 
+  /**
+   * Schedule the next broadcast cycle for the event dashboard.
+   *
+   * @param eventId - ID of the event.
+   * @returns void
+   */
   private scheduleNextBroadcast(eventId: string) {
     const timer = setTimeout(() => {
       void this.runBroadcastCycle(eventId);
@@ -71,6 +87,14 @@ export class DashboardGateway {
     this.activeDashboardTimers.set(eventId, timer);
   }
 
+  /**
+   * Runs one cycle of fetching dashboard data and broadcasting to clients.
+   *
+   * Stops if no clients are listening.
+   *
+   * @param eventId - ID of the event.
+   * @returns Promise<void>
+   */
   private async runBroadcastCycle(eventId: string) {
     const dashboardRoom = `dashboard:${eventId}`;
 
@@ -101,6 +125,12 @@ export class DashboardGateway {
     }
   }
 
+  /**
+   * Stops broadcasting dashboard updates for an event.
+   *
+   * @param eventId - ID of the event.
+   * @returns void
+   */
   private stopBroadcastingForEvent(eventId: string) {
     if (this.activeDashboardTimers.has(eventId)) {
       const timer = this.activeDashboardTimers.get(eventId);
