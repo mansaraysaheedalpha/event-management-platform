@@ -4,12 +4,12 @@ info:
   version: 2.0.0
   description: >
     The complete specification for the real-time microservice, handling all interactive features
-    from live chat and Q&A to real-time analytics dashboards, security alerts, and monetization events.
+    from live chats and Q&A's to real-time analytics dashboards, security alerts, and monetization events.
     This service is designed for multi-tenancy, scalability, and a world-class user experience with
     comprehensive error handling, security, and operational monitoring.
   contact:
     name: Saheed Alpha Mansaray
-    url: 'https://www.linkedin.com/in/saheed-mansaray'
+    url: 'https://www.linkedin.com/in/mansaraysaheedalpha'
   license:
     name: Apache 2.0
     url: 'https://www.apache.org/licenses/LICENSE-2.0.html'
