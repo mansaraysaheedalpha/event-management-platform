@@ -73,8 +73,11 @@ channels:
     description: Channel for live attendee chat within a specific session with moderation.
     publish:
       summary: Send a chat message.
-      operationId: sendChatMessage, reactToMessage
-      message: { $ref: '#/components/messages/sendChatMessage' }
+      operationId: sendChatMessage
+      message:
+        oneOf:
+          - $ref: '#/components/messages/sendChatMessage'
+          - $ref: '#/components/messages/reactToMessage'
     subscribe:
       summary: Receive new chat messages and moderation events.
       operationId: receiveChatMessage
@@ -109,9 +112,13 @@ channels:
       sessionId: { $ref: '#/components/parameters/sessionId' }
     description: Admin-only channel for moderating Q&A questions with real-time alerts.
     publish:
-      summary: Approve or dismiss a question.
-      operationId: moderateQuestion, answerQuestion
-      message: { $ref: '#/components/messages/moderateQuestion' }
+      summary: Approve, dismiss, or answer a question.
+      message:
+        oneOf:
+          - operationId: moderateQuestion
+            message: { $ref: '#/components/messages/moderateQuestion' }
+          - operationId: answerQuestion
+            message: { $ref: '#/components/messages/answerQuestion' }
     subscribe:
       summary: Receive questions pending moderation and alerts.
       operationId: receivePendingQuestion
@@ -449,6 +456,14 @@ channels:
     parameters:
       sessionId: { $ref: '#/components/parameters/sessionId' }
     description: Private backchannel for speakers and staff ("Whisper Mode").
+    security:
+      - userToken: []
+    x-roles:
+      - speaker
+      - staff
+    x-docs:
+      notes: |
+        All messages sent via this backchannel are expected to be end-to-end encrypted to ensure confidentiality between authorized roles. Unauthorized access is strictly forbidden and monitored.
     publish:
       summary: Send a whisper message to a specific user or role.
       operationId: sendWhisper
@@ -600,8 +615,8 @@ components:
       name: 'questionRemoved'
       payload: { $ref: '#/components/schemas/questionRemoved' }
     answerQuestion:
-    name: 'answerQuestion'
-    payload: { $ref: '#/components/schemas/answerQuestionPayload' }
+      name: 'answerQuestion'
+      payload: { $ref: '#/components/schemas/answerQuestionPayload' }
 
     moderationAlert:
       name: 'moderationAlert'
@@ -1254,16 +1269,18 @@ components:
             expiresAt:
               type: string
               format: date-time
-            # In components.messages.pollResultsUpdated.payload (which references the poll schema)
-            # You would construct the payload to include a user-specific property like this
-            # (Note: This is a conceptual addition, as the user-specific part happens at publish time)
-            # This example shows adding it to the poll schema itself for simplicity.
 
-            # In components.schemas.poll.properties
-            userVotedForOptionId:
-              type: string
-              format: uuid
-              description: "(User-specific field) The option ID this specific user voted for."
+    # Envelope for user-specific poll results
+    pollResultsEnvelope:
+      type: object
+      required: [poll, userVotedForOptionId]
+      properties:
+        poll:
+          $ref: '#/components/schemas/poll'
+        userVotedForOptionId:
+          type: string
+          format: uuid
+          description: "The option ID this specific user voted for. This field is user-scoped and not part of the poll-wide data."
 
     pollClosed:
       type: object
