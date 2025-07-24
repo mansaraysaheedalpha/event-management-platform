@@ -7,7 +7,7 @@ export class SyncChangesQueryDto {
   since: string;
 }
 import { Controller, Get, Query, UseGuards, Req } from '@nestjs/common';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { AuthGuard } from '@nestjs/passport';
 import { SyncService } from './sync.service';
 import { SyncLogDto } from './dto/sync-log.dto';
 
@@ -29,7 +29,7 @@ import { SyncLogDto } from './dto/sync-log.dto';
  *   400 - Bad Request (invalid 'since' parameter)
  */
 @Controller('sync')
-@UseGuards(JwtAuthGuard) // Protect this endpoint
+@UseGuards(AuthGuard('jwt')) // Protect this endpoint
 export class SyncController {
   constructor(private readonly syncService: SyncService) {}
 

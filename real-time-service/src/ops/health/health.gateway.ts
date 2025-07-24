@@ -52,7 +52,6 @@ export class HealthGateway {
   @SubscribeMessage('ops.health.join')
   handleJoinHealthStream(@ConnectedSocket() client: AuthenticatedSocket): {
     success: boolean;
-    error?: string;
   } {
     const user = getAuthenticatedUser(client);
     const requiredPermission = 'system:health:read';

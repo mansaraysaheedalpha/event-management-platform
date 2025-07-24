@@ -73,7 +73,7 @@ channels:
     description: Channel for live attendee chat within a specific session with moderation.
     publish:
       summary: Send a chat message.
-      operationId: sendChatMessage
+      operationId: sendChatMessage, reactToMessage
       message: { $ref: '#/components/messages/sendChatMessage' }
     subscribe:
       summary: Receive new chat messages and moderation events.
@@ -110,7 +110,7 @@ channels:
     description: Admin-only channel for moderating Q&A questions with real-time alerts.
     publish:
       summary: Approve or dismiss a question.
-      operationId: moderateQuestion
+      operationId: moderateQuestion, answerQuestion
       message: { $ref: '#/components/messages/moderateQuestion' }
     subscribe:
       summary: Receive questions pending moderation and alerts.
@@ -123,7 +123,7 @@ channels:
   /comm/sessions/{sessionId}/polls:
     parameters:
       sessionId: { $ref: '#/components/parameters/sessionId' }
-    description: Channel for live polls and surveys with real-time results.
+    description: Channel for live polls, surveys, and sponsored giveaways with real-time results.
     publish:
       summary: Cast a vote in an active poll.
       operationId: voteOnPoll
@@ -136,6 +136,7 @@ channels:
           - $ref: '#/components/messages/pollOpened'
           - $ref: '#/components/messages/pollResultsUpdated'
           - $ref: '#/components/messages/pollClosed'
+          - $ref: '#/components/messages/liveGiveawayWinner' # THEME 3
 
   /comm/dms/{userId}:
     parameters:
@@ -154,6 +155,27 @@ channels:
           - $ref: '#/components/messages/messageDelivered'
           - $ref: '#/components/messages/messageRead'
 
+  ### THEME 1: INTELLIGENT NETWORKING ###
+  /comm/events/{eventId}/circles:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for managing dynamic, topic-based "Conversation Circles".
+    publish:
+      summary: Join or leave a conversation circle.
+      operationId: interactWithCircle
+      message:
+        oneOf:
+          - $ref: '#/components/messages/joinCircle'
+          - $ref: '#/components/messages/leaveCircle'
+    subscribe:
+      summary: Receive updates about conversation circles and their participants.
+      operationId: receiveCircleUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/circleOpened'
+          - $ref: '#/components/messages/circleClosed'
+          - $ref: '#/components/messages/circleRosterUpdate'
+
   # -------------------------------------------------------------------
   # Namespace: /alerts (Notifications & Alerts)
   # -------------------------------------------------------------------
@@ -171,6 +193,10 @@ channels:
           - $ref: '#/components/messages/emergencyAlert'
           - $ref: '#/components/messages/sessionReminder'
           - $ref: '#/components/messages/scheduleChange'
+          - $ref: '#/components/messages/personalizedCircleSuggestion' # THEME 1
+          - $ref: '#/components/messages/connectionIntroduction' # THEME 1
+          - $ref: '#/components/messages/pointsAwardedNotification' # THEME 2
+          - $ref: '#/components/messages/achievementUnlocked' # THEME 2
 
   /alerts/organizations/{orgId}/admin:
     parameters:
@@ -276,6 +302,46 @@ channels:
           - $ref: '#/components/messages/validationResult'
           - $ref: '#/components/messages/accessUpdated'
 
+  /live/events/{eventId}/sales:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Public channel for real-time ticket sales status and availability updates.
+    subscribe:
+      summary: Receive live updates on ticket availability.
+      operationId: receiveTicketAvailability
+      message:
+        $ref: '#/components/messages/ticketAvailabilityUpdate'
+
+  ### THEME 1: INTELLIGENT NETWORKING ###
+  /live/events/{eventId}/proximity:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for hybrid event social proximity radar.
+    publish:
+      summary: Send a ping to a nearby user.
+      operationId: sendProximityPing
+      message:
+        $ref: '#/components/messages/proximityPing'
+    subscribe:
+      summary: Receive updates on nearby attendees and pings from virtual users.
+      operationId: receiveProximityUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/proximityRosterUpdate'
+          - $ref: '#/components/messages/proximityPing'
+
+  ### THEME 2: GAMIFICATION & ENGAGEMENT ###
+  /live/events/{eventId}/leaderboard:
+    parameters:
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Channel for the live event leaderboard and team competitions.
+    subscribe:
+      summary: Receive real-time updates to the individual and team leaderboards.
+      operationId: receiveLeaderboardUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/leaderboardUpdated'
+          - $ref: '#/components/messages/teamLeaderboardUpdated'
   # -------------------------------------------------------------------
   # Namespace: /monetization (Real-Time Monetization)
   # -------------------------------------------------------------------
@@ -291,6 +357,7 @@ channels:
         oneOf:
           - $ref: '#/components/messages/adInjection'
           - $ref: '#/components/messages/sponsoredContent'
+          - $ref: '#/components/messages/broadcastOffer' # THEME 3
 
   /monetization/events/{eventId}/upsell:
     parameters:
@@ -315,6 +382,19 @@ channels:
         oneOf:
           - $ref: '#/components/messages/waitlistPromotion'
           - $ref: '#/components/messages/waitlistStatusUpdate'
+
+  ### THEME 3: SPONSOR & EXHIBITOR ROI ###
+  /monetization/sponsors/{sponsorId}/leads:
+    parameters:
+      sponsorId: { $ref: '#/components/parameters/sponsorId' }
+    description: Private channel for sponsors to receive real-time lead capture and intent signals.
+    subscribe:
+      summary: Receive notifications of new leads and updates to their intent score.
+      operationId: receiveLeadUpdate
+      message:
+        oneOf:
+          - $ref: '#/components/messages/newLeadCaptured'
+          - $ref: '#/components/messages/leadIntentUpdate'
 
   # -------------------------------------------------------------------
   # Namespace: /ops (Security, Operations & Monitoring)
@@ -352,6 +432,34 @@ channels:
           - $ref: '#/components/messages/systemHealthAlert'
           - $ref: '#/components/messages/failoverAlert'
           - $ref: '#/components/messages/downtimeAlert'
+
+  ### THEME 4: NEXT-GENERATION ADMIN TOOLING ###
+  /ops/organizations/{orgId}/events/{eventId}/heatmap:
+    parameters:
+      orgId: { $ref: '#/components/parameters/orgId' }
+      eventId: { $ref: '#/components/parameters/eventId' }
+    description: Admin-only channel for the "God View" event heatmap.
+    subscribe:
+      summary: Receive aggregated real-time data for visualizing event activity.
+      operationId: receiveHeatmapUpdate
+      message:
+        $ref: '#/components/messages/heatmapUpdate'
+        
+  /ops/sessions/{sessionId}/backchannel:
+    parameters:
+      sessionId: { $ref: '#/components/parameters/sessionId' }
+    description: Private backchannel for speakers and staff ("Whisper Mode").
+    publish:
+      summary: Send a whisper message to a specific user or role.
+      operationId: sendWhisper
+      message:
+        $ref: '#/components/messages/sendWhisperMessage'
+    subscribe:
+      summary: Receive whisper messages.
+      operationId: receiveWhisper
+      message:
+        $ref: '#/components/messages/whisperMessage'
+
 
   # -------------------------------------------------------------------
   # Namespace: /global (Global Real-Time Features)
@@ -433,6 +541,11 @@ components:
       schema:
         type: string
         format: uuid
+    sponsorId: ### THEME 3 ###
+      description: The unique identifier for a sponsor company.
+      schema:
+        type: string
+        format: uuid
 
   # --- MESSAGES ---
   messages:
@@ -486,6 +599,10 @@ components:
     questionRemoved:
       name: 'questionRemoved'
       payload: { $ref: '#/components/schemas/questionRemoved' }
+    answerQuestion:
+    name: 'answerQuestion'
+    payload: { $ref: '#/components/schemas/answerQuestionPayload' }
+
     moderationAlert:
       name: 'moderationAlert'
       payload: { $ref: '#/components/schemas/moderationAlert' }
@@ -517,6 +634,10 @@ components:
     messageRead:
       name: 'messageRead'
       payload: { $ref: '#/components/schemas/readStatus' }
+    reactToMessage:
+      name: 'reactToMessage'
+      payload: { $ref: '#/components/schemas/reactToMessagePayload' }
+
 
     # Alert Messages
     personalNotification:
@@ -661,6 +782,79 @@ components:
     subtitleStream:
       name: 'subtitleStream'
       payload: { $ref: '#/components/schemas/subtitleStream' }
+
+     # ### THEME 1 MESSAGES ###
+    circleOpened:
+      name: 'circleOpened'
+      payload: { $ref: '#/components/schemas/circle' }
+    circleClosed:
+      name: 'circleClosed'
+      payload: { $ref: '#/components/schemas/circle' }
+    circleRosterUpdate:
+      name: 'circleRosterUpdate'
+      payload: { $ref: '#/components/schemas/circleRosterUpdate' }
+    joinCircle:
+      name: 'joinCircle'
+      payload: { $ref: '#/components/schemas/circleAction' }
+    leaveCircle:
+      name: 'leaveCircle'
+      payload: { $ref: '#/components/schemas/circleAction' }
+    personalizedCircleSuggestion:
+      name: 'personalizedCircleSuggestion'
+      payload: { $ref: '#/components/schemas/personalizedCircleSuggestion' }
+    connectionIntroduction:
+      name: 'connectionIntroduction'
+      payload: { $ref: '#/components/schemas/connectionIntroduction' }
+    proximityRosterUpdate:
+      name: 'proximityRosterUpdate'
+      payload: { $ref: '#/components/schemas/proximityRosterUpdate' }
+    proximityPing:
+      name: 'proximityPing'
+      payload: { $ref: '#/components/schemas/proximityPing' }
+      
+    # ### THEME 2 MESSAGES ###
+    leaderboardUpdated:
+      name: 'leaderboardUpdated'
+      payload: { $ref: '#/components/schemas/leaderboard' }
+    teamLeaderboardUpdated:
+      name: 'teamLeaderboardUpdated'
+      payload: { $ref: '#/components/schemas/teamLeaderboard' }
+    pointsAwardedNotification:
+      name: 'pointsAwarded'
+      payload: { $ref: '#/components/schemas/pointsAwarded' }
+    achievementUnlocked:
+      name: 'achievementUnlocked'
+      payload: { $ref: '#/components/schemas/achievement' }
+      
+    # ### THEME 3 MESSAGES ###
+    newLeadCaptured:
+      name: 'newLeadCaptured'
+      payload: { $ref: '#/components/schemas/capturedLead' }
+    leadIntentUpdate:
+      name: 'leadIntentUpdate'
+      payload: { $ref: '#/components/schemas/leadIntent' }
+    liveGiveawayWinner:
+      name: 'liveGiveawayWinner'
+      payload: { $ref: '#/components/schemas/giveawayWinner' }
+    broadcastOffer:
+      name: 'broadcastOffer'
+      payload: { $ref: '#/components/schemas/broadcastOffer' }
+      
+    # ### THEME 4 MESSAGES ###
+    heatmapUpdate:
+      name: 'heatmapUpdate'
+      payload: { $ref: '#/components/schemas/heatmap' }
+    whisperMessage:
+      name: 'whisperMessage'
+      payload: { $ref: '#/components/schemas/whisperMessage' }
+    sendWhisperMessage:
+      name: 'sendWhisper'
+      payload: { $ref: '#/components/schemas/sendWhisperMessagePayload' }
+      
+    # ### TICKET AVAILABILITY MESSAGE ###
+    ticketAvailabilityUpdate:
+      name: 'ticketAvailabilityUpdate'
+      payload: { $ref: '#/components/schemas/ticketAvailabilityUpdate' }
 
   # --- SCHEMAS ---
   schemas:
@@ -827,6 +1021,32 @@ components:
         encrypted:
           type: boolean
           default: false
+        replyingToMessageId:
+          type: string
+          format: uuid
+          description: "The ID of the message this is a reply to, creating a thread."
+
+    reactToMessagePayload:
+      type: object
+      required: [messageId, emoji]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        emoji:
+          type: string
+          example: '👍'
+
+    answerQuestionPayload:
+      type: object
+      required: [questionId, answerText]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        answerText:
+          type: string
+          maxLength: 2000
 
     chatMessage:
       allOf:
@@ -941,6 +1161,18 @@ components:
               type: integer
               minimum: 0
               maximum: 10
+            tags:
+              type: array
+              items:
+                type: string
+              description: "Tags added by moderators for organization."
+              example: ['technical', 'api_v2']
+            answer:
+              type: object
+              properties:
+                text: { type: string }
+                answeredBy: { $ref: '#/components/schemas/userSummary' }
+                timestamp: { type: string, format: 'date-time' }
 
     questionRemoved:
       type: object
@@ -1005,6 +1237,12 @@ components:
                   voteCount:
                     type: integer
                     minimum: 0
+                  percentage:
+                    type: number
+                    format: float
+                    minimum: 0
+                    maximum: 100
+                    description: "The percentage of total votes this option has."
             isActive:
               type: boolean
             totalVotes:
@@ -1016,6 +1254,16 @@ components:
             expiresAt:
               type: string
               format: date-time
+            # In components.messages.pollResultsUpdated.payload (which references the poll schema)
+            # You would construct the payload to include a user-specific property like this
+            # (Note: This is a conceptual addition, as the user-specific part happens at publish time)
+            # This example shows adding it to the poll schema itself for simplicity.
+
+            # In components.schemas.poll.properties
+            userVotedForOptionId:
+              type: string
+              format: uuid
+              description: "(User-specific field) The option ID this specific user voted for."
 
     pollClosed:
       type: object
@@ -1465,7 +1713,7 @@ components:
         peakReaction:
           type: string
 
-    moodAnalytics:
+    moodAnalytics: # MODIFIED FOR THEME 4
       type: object
       required: [overallMood, sentiment, engagement]
       properties:
@@ -1476,6 +1724,10 @@ components:
           type: number
           minimum: -1
           maximum: 1
+        sentimentTrend:
+          type: string
+          enum: [RISING, FALLING, STABLE]
+          description: "The recent trend of the sentiment score."
         engagement:
           type: number
           minimum: 0
@@ -1491,7 +1743,168 @@ components:
                 type: integer
               percentage:
                 type: number
+                
+    ticketAvailabilityUpdate:
+      type: object
+      required: [ticketTypeId, status]
+      properties:
+        ticketTypeId:
+          type: string
+          description: "The ID of the ticket type that was updated."
+        status:
+          type: string
+          enum: [AVAILABLE, SOLD_OUT, LOW_STOCK]
+          example: 'LOW_STOCK'
+        ticketsRemaining:
+          type: integer
+          description: "The number of tickets left. Most relevant when status is LOW_STOCK."
+          example: 23
+        lastSoldTimestamp:
+          type: string
+          format: date-time
+          description: "Timestamp of the last sale for this ticket type."
 
+    ### THEME 1 SCHEMAS ###
+    circle:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        topic: { type: string }
+        maxParticipants: { type: integer }
+        timeLimit: { type: integer, description: "Time limit in minutes." }
+        createdBy: { $ref: '#/components/schemas/userSummary' }
+    circleRosterUpdate:
+      type: object
+      properties:
+        circleId: { type: string, format: uuid }
+        participants:
+          type: array
+          items: { $ref: '#/components/schemas/userSummary' }
+    circleAction:
+      type: object
+      properties:
+        circleId: { type: string, format: uuid }
+    personalizedCircleSuggestion:
+      type: object
+      properties:
+        circle: { $ref: '#/components/schemas/circle' }
+        reason: { type: string, example: "Based on your interest in API Design." }
+    connectionIntroduction:
+      type: object
+      properties:
+        userToMeet: { $ref: '#/components/schemas/userSummary' }
+        reason: { type: string, example: "You both work in event tech and are interested in real-time architecture." }
+        proposedDmId: { type: string, format: uuid }
+    proximityRosterUpdate:
+      type: object
+      properties:
+        nearbyUsers:
+          type: array
+          items:
+            type: object
+            properties:
+              user: { $ref: '#/components/schemas/userSummary' }
+              distance: { type: integer, description: "Approximate distance in meters." }
+              sharedInterests: { type: array, items: { type: string } }
+    proximityPing:
+      type: object
+      properties:
+        fromUser: { $ref: '#/components/schemas/userSummary' }
+        toUserId: { type: string, format: uuid }
+        message: { type: string, example: "Hey, can you tell me if the session is full?" }
+        
+    ### THEME 2 SCHEMAS ###
+    leaderboard:
+      type: object
+      properties:
+        topEntries:
+          type: array
+          items:
+            $ref: '#/components/schemas/leaderboardEntry'
+        userRank: { $ref: '#/components/schemas/leaderboardEntry' }
+    leaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer }
+        user: { $ref: '#/components/schemas/userSummary' }
+        score: { type: integer }
+    teamLeaderboard:
+      type: object
+      properties:
+        teamScores:
+          type: array
+          items:
+            type: object
+            properties:
+              teamName: { type: string }
+              score: { type: integer }
+              rank: { type: integer }
+    pointsAwarded:
+      type: object
+      properties:
+        points: { type: integer }
+        reason: { type: string, example: "For asking a top-voted question!" }
+        newTotalScore: { type: integer }
+    achievement:
+      type: object
+      properties:
+        badgeName: { type: string, example: "Networker" }
+        description: { type: string, example: "You made 5 new connections!" }
+        imageUrl: { type: string, format: uri }
+        
+    ### THEME 3 SCHEMAS ###
+    capturedLead:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/userSummary' }
+        action: { type: string, enum: [BOOTH_VISIT, CONTENT_DOWNLOAD, DEMO_REQUEST] }
+        timestamp: { type: string, format: 'date-time' }
+        sourceUrl: { type: string, format: 'uri' }
+    leadIntent:
+      type: object
+      properties:
+        leadUserId: { type: string, format: 'uuid' }
+        intentScore: { type: integer, minimum: 0, maximum: 100 }
+        latestAction: { type: string }
+    giveawayWinner:
+      type: object
+      properties:
+        pollId: { type: string, format: 'uuid' }
+        sponsor: { $ref: '#/components/schemas/userSummary' } # Simplified sponsor info
+        winner: { $ref: '#/components/schemas/userSummary' }
+        prize: { type: string }
+    broadcastOffer:
+      type: object
+      properties:
+        offerId: { type: string, format: 'uuid' }
+        title: { type: string }
+        description: { type: string }
+        callToActionUrl: { type: string, format: 'uri' }
+        expiresAt: { type: string, format: 'date-time' }
+        sponsorName: { type: string }
+        
+    ### THEME 4 SCHEMAS ###
+    heatmap:
+      type: object
+      properties:
+        sessionHeat:
+          type: object
+          additionalProperties: { type: number, minimum: 0, maximum: 1 }
+        chatVelocity: { type: number }
+        qnaVelocity: { type: number }
+        updatedAt: { type: string, format: 'date-time' }
+    whisperMessage:
+      type: object
+      properties:
+        from: { $ref: '#/components/schemas/userSummary' }
+        message: { type: string }
+        priority: { type: string, enum: ['normal', 'urgent'] }
+    sendWhisperMessagePayload:
+      type: object
+      properties:
+        toUserId: { type: string, format: 'uuid' }
+        toRole: { type: string, enum: ['speaker', 'moderator', 'staff'] }
+        message: { type: string }
     agendaUpdate:
       type: object
       required: [updateType, affectedSessions]
