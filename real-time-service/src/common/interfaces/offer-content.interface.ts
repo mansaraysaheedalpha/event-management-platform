@@ -1,3 +1,6 @@
+/**
+ * Represents a special event-related offer like ticket discount or promo item.
+ */
 export interface OfferContent {
   id: string;
   eventId: string;

@@ -13,6 +13,7 @@ export class PublisherService {
    *
    * @param stream The name of the stream (e.g., 'platform.events.chat.message.v1').
    * @param payload The data payload for the event.
+   *  @returns Promise<void>
    */
   async publish(stream: string, payload: Record<string, any>) {
     try {

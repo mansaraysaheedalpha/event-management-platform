@@ -13,6 +13,7 @@ import { MonetizationModule } from './monetization/ads/monetization.module';
 import { GlobalModule } from './global/global.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { SystemModule } from './system/system.module';
+import { GamificationModule } from './gamification/gamification.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { SystemModule } from './system/system.module';
     GlobalModule,
     AlertsModule,
     SystemModule,
+    GamificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

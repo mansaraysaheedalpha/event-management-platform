@@ -1,6 +1,15 @@
+import { IsISO8601 } from 'class-validator';
+/**
+ * DTO for validating the 'since' query parameter as ISO8601 string.
+ */
+export class SyncChangesQueryDto {
+  @IsISO8601()
+  since: string;
+}
 import { Controller, Get, Query, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SyncService } from './sync.service';
+import { SyncLogDto } from './dto/sync-log.dto';
 
 /**
  * The `SyncController` handles data synchronization between the client
@@ -11,8 +20,13 @@ import { SyncService } from './sync.service';
  *
  * @example
  * // Client hits endpoint with last sync timestamp
- * GET /sync/changes?since=2024-07-13T10:00:00Z
- * Authorization: Bearer <jwt_token>
+ * curl -X GET "http://localhost:3000/sync/changes?since=2024-07-13T10:00:00Z" \
+ *   -H "Authorization: Bearer <jwt_token>"
+ *
+ * Typical HTTP response codes:
+ *   200 - Success, returns array of changes
+ *   401 - Unauthorized (missing or invalid token)
+ *   400 - Bad Request (invalid 'since' parameter)
  */
 @Controller('sync')
 @UseGuards(AuthGuard('jwt')) // Protect this endpoint
@@ -29,9 +43,9 @@ export class SyncController {
   @Get('changes')
   async getChanges(
     @Req() req: { user: { sub: string } },
-    @Query('since') since: string,
-  ) {
+    @Query() query: SyncChangesQueryDto,
+  ): Promise<SyncLogDto[]> {
     const userId = req.user.sub;
-    return this.syncService.getChangesSince(userId, since);
+    return this.syncService.getChangesSince(userId, query.since);
   }
 }

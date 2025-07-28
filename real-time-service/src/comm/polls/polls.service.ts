@@ -18,6 +18,7 @@ import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
+import { GamificationService } from 'src/gamification/gamification.service';
 
 @Injectable()
 export class PollsService {
@@ -28,6 +29,7 @@ export class PollsService {
     private readonly idempotencyService: IdempotencyService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis, // Redis client for caching and messaging
     private readonly publisherService: PublisherService, // Publishes events to message bus
+    private readonly gamificationService: GamificationService,
   ) {}
 
   /**
@@ -112,6 +114,7 @@ export class PollsService {
 
     // Use a transaction to ensure data consistency. We read the poll's state
     // and write the vote in a single, atomic operation.
+    let pollSessionId: string | undefined;
     const pollWithResults = await this.prisma.$transaction(async (tx) => {
       // 1. Find the poll to validate its status.
       const poll = await tx.poll.findUnique({
@@ -147,6 +150,7 @@ export class PollsService {
         throw error; // Re-throw other unexpected errors.
       }
 
+      pollSessionId = poll.sessionId;
       this.logger.log(
         `User ${userId} voted for option ${optionId} in poll ${pollId}`,
       );
@@ -154,6 +158,21 @@ export class PollsService {
       // updated results to be broadcasted.
       return this.getPollWithResults(pollId, tx);
     });
+
+    // Award gamification points outside the transaction to avoid rollback on failure
+    if (pollSessionId) {
+      try {
+        await this.gamificationService.awardPoints(
+          userId,
+          pollSessionId,
+          'POLL_VOTED',
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Gamification points could not be awarded for user ${userId} in poll ${pollId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     // This code now works correctly because `pollWithResults` is the resolved object.
     if (pollWithResults) {

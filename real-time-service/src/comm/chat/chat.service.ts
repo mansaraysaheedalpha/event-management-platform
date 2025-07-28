@@ -16,6 +16,9 @@ import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
+import { ReactToMessageDto } from './dto/react-to-message.dto';
+import { GamificationService } from 'src/gamification/gamification.gateway';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ChatService {
@@ -27,6 +30,7 @@ export class ChatService {
     private readonly idempotencyService: IdempotencyService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis, // <-- INJECT REDIS
     private readonly publisherService: PublisherService,
+    private readonly gamificationService: GamificationService,
   ) {}
 
   /**
@@ -96,6 +100,17 @@ export class ChatService {
 
       return createdMessage;
     });
+
+    // --- NEW GAMIFICATION LOGIC ---
+    // After the message is successfully created, award points to the author.
+    // We use `void` because we don't need to wait for this to complete
+    // before returning the message to the user.
+    void this.gamificationService.awardPoints(
+      authorId,
+      sessionId,
+      'MESSAGE_SENT',
+    );
+    // --- END OF NEW LOGIC ---
 
     // --- REFINED LOGIC: Use the safe, fire-and-forget helper ---
     void this._publishAnalyticsEvent('MESSAGE_SENT', { sessionId });
@@ -334,5 +349,109 @@ export class ChatService {
     } catch (error) {
       this.logger.error('Failed to publish analytics event', error);
     }
+  }
+
+  /**
+   * Adds or removes an emoji reaction from a specific message for a user.
+   * This method implements a toggle: reacting a second time with the same emoji
+   * will remove the reaction.
+   */
+  async reactToMessage(userId: string, dto: ReactToMessageDto) {
+    const { messageId, emoji } = dto;
+
+    const existingReaction = await this.prisma.messageReaction.findUnique({
+      where: {
+        userId_messageId_emoji: {
+          userId,
+          messageId,
+          emoji,
+        },
+      },
+    });
+
+    if (existingReaction) {
+      // If the reaction exists, the user is toggling it off.
+      await this.prisma.messageReaction.delete({
+        where: {
+          userId_messageId_emoji: {
+            userId,
+            messageId,
+            emoji,
+          },
+        },
+      });
+      this.logger.log(
+        `User ${userId} removed reaction '${emoji}' from message ${messageId}`,
+      );
+    } else {
+      // If it doesn't exist, create it.
+      // We wrap this in a try/catch to handle the rare case where the message might be deleted
+      // between the client's action and our database operation.
+      try {
+        await this.prisma.messageReaction.create({
+          data: {
+            userId,
+            messageId,
+            emoji,
+          },
+        });
+        this.logger.log(
+          `User ${userId} added reaction '${emoji}' to message ${messageId}`,
+        );
+      } catch (error) {
+        // P2003: Foreign key constraint failed (e.g., the messageId doesn't exist)
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2003'
+        ) {
+          throw new NotFoundException(
+            `Message with ID ${messageId} not found.`,
+          );
+        }
+        throw error;
+      }
+    }
+
+    // After changing a reaction, fetch the updated message with aggregated reaction counts
+    return this._getMessageWithReactions(messageId);
+  }
+
+  /**
+   * Private helper to fetch a message and its aggregated reactions.
+   * This provides a clean payload to broadcast back to clients.
+   */
+  private async _getMessageWithReactions(messageId: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: {
+        author: { select: { id: true, firstName: true, lastName: true } },
+        // Include the raw reaction data
+        reactions: {
+          select: {
+            emoji: true,
+            userId: true,
+          },
+        },
+      },
+    });
+
+    if (!message) {
+      return null;
+    }
+
+    // Aggregate the raw reactions into a count map
+    const reactionsSummary = message.reactions.reduce(
+      (acc, reaction) => {
+        acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    // Return the message object along with the clean summary
+    return {
+      ...message,
+      reactionsSummary, // e.g., { "👍": 3, "❤️": 1 }
+    };
   }
 }

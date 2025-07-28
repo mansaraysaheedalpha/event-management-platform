@@ -20,6 +20,14 @@ function isAgendaUpdatePayload(
   );
 }
 
+/**
+ * SubscriberService listens to multiple Redis Pub/Sub channels and emits
+ * corresponding events within the NestJS event system.
+ *
+ * It uses Redis subscriber client to subscribe to predefined channels,
+ * handles incoming messages, and forwards them internally.
+ */
+
 @Injectable()
 export class SubscriberService implements OnModuleInit {
   private readonly logger = new Logger(SubscriberService.name);
@@ -29,10 +37,24 @@ export class SubscriberService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  /**
-   * This NestJS lifecycle hook runs once the module is initialized.
+ /**
+   * Lifecycle hook called once when the module is initialized.
+   * Sets up Redis subscriptions and message handlers.
+   *
+   * Subscribes to multiple Redis channels:
+   * - agenda-updates
+   * - audit-events
+   * - security-events
+   * - monetization-events
+   * - system-health-events
+   * - platform.analytics.check-in.v1
+   * - sync-events
+   *
+   * Logs subscription success or failure.
+   *
+   * @returns Promise<void>
    */
-  // FIX: Make the lifecycle hook async to allow for await.
+
   async onModuleInit() {
     this.logger.log('Initializing Redis message subscriber...');
 
@@ -41,7 +63,7 @@ export class SubscriberService implements OnModuleInit {
     });
 
     try {
-      // FIX: We now `await` the subscribe command.
+
       await this.subscriber.subscribe(
         'agenda-updates',
         'audit-events',
@@ -62,6 +84,14 @@ export class SubscriberService implements OnModuleInit {
     }
   }
 
+  
+  /**
+   * Handles incoming messages from Redis channels.
+   * Parses the JSON string message and emits it internally using EventEmitter2.
+   *
+   * @param channel The Redis channel from which the message originated.
+   * @param message The raw JSON string message payload.
+   */
   private handleIncomingMessage(channel: string, message: string) {
     try {
       this.logger.log(`Received message from Redis on channel '${channel}'`);
