@@ -32,7 +32,7 @@ export class QnaService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly httpService: HttpService,
     private readonly publisherService: PublisherService,
-      private readonly gamificationService: GamificationService,
+    private readonly gamificationService: GamificationService,
   ) {}
 
   /**
@@ -92,14 +92,13 @@ export class QnaService {
       },
     });
 
-     // --- NEW GAMIFICATION LOGIC ---
+    // --- NEW GAMIFICATION LOGIC ---
     void this.gamificationService.awardPoints(
       userId,
       sessionId,
       'QUESTION_ASKED',
     );
     // --- END OF NEW LOGIC ---
-    
 
     // REFINED: Use the helper and correct event type
     void this._publishAnalyticsEvent('QUESTION_ASKED', { sessionId });
@@ -275,9 +274,11 @@ export class QnaService {
         _count: {
           select: { upvotes: true },
         },
-        answer: { // <-- INCLUDE THE ANSWER
+        answer: {
+          // <-- INCLUDE THE ANSWER
           include: {
-            author: { // Include who answered it
+            author: {
+              // Include who answered it
               select: { id: true, firstName: true, lastName: true },
             },
           },
@@ -285,7 +286,6 @@ export class QnaService {
       },
     });
   }
-}
 
   /**
    * Finds or creates a user reference locally.
@@ -424,6 +424,36 @@ export class QnaService {
    * This is a protected action for moderators.
    */
   async answerQuestion(adminId: string, dto: AnswerQuestionDto) {
+    // Input validation
+    if (
+      !dto.questionId ||
+      typeof dto.questionId !== 'string' ||
+      !dto.questionId.trim()
+    ) {
+      throw new ConflictException('A valid questionId must be provided.');
+    }
+    if (
+      !dto.answerText ||
+      typeof dto.answerText !== 'string' ||
+      !dto.answerText.trim()
+    ) {
+      throw new ConflictException('Answer text must be provided.');
+    }
+
+    // Check if the question exists
+    const question = await this.prisma.question.findUnique({
+      where: { id: dto.questionId },
+    });
+    if (!question) {
+      throw new NotFoundException(
+        `Question with ID ${dto.questionId} not found.`,
+      );
+    }
+    // Check if already answered
+    if (question.isAnswered) {
+      throw new ConflictException('This question has already been answered.');
+    }
+
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -433,7 +463,7 @@ export class QnaService {
 
     // Use a transaction to ensure both the answer is created AND
     // the question is marked as answered in one atomic operation.
-    const updatedQuestion = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // 1. Create the Answer record
       await tx.answer.create({
         data: {

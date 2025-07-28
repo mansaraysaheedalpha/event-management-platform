@@ -1254,7 +1254,6 @@ components:
                     minimum: 0
                   percentage:
                     type: number
-                    format: float
                     minimum: 0
                     maximum: 100
                     description: "The percentage of total votes this option has."

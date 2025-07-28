@@ -7,6 +7,9 @@ export class AnswerQuestionDto {
 
   @IsString()
   @IsNotEmpty()
+  @Matches(/\S/, {
+    message: 'answerText must contain non-whitespace characters',
+  })
   @MaxLength(2000)
   answerText: string;
 

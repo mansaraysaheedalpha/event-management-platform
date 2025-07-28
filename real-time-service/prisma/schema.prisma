@@ -179,7 +179,7 @@ model Answer {
   text      String   @db.Text
 
   authorId String
-  author   UserReference @relation(fields: [authorId], references: [id])
+  author   UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   questionId String    @unique // Enforces a one-to-one relationship
   question   Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
@@ -191,7 +191,6 @@ model Question {
   id          String   @id @default(cuid())
   text        String   @db.VarChar(500)
   isAnonymous Boolean  @default(false)
-  isAnswered  Boolean  @default(false)
   status      String   @default("pending")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -216,6 +215,7 @@ model QuestionUpvote {
 
 // Add this new model
 model MessageReaction {
+  id        String   @id @default(cuid())
   emoji     String
   createdAt DateTime @default(now())
 
@@ -226,7 +226,7 @@ model MessageReaction {
   message   Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   // Enforces that a user can only react with the same emoji once per message
-  @@id([userId, messageId, emoji])
+  @@unique([userId, messageId, emoji])
   @@map("message_reactions")
 }
 
@@ -289,6 +289,8 @@ model GamificationPointEntry {
   sessionId String
   session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, sessionId, reason])
+  @@index([userId, sessionId])
   @@map("gamification_point_entries")
 }
 

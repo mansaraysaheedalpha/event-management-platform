@@ -6,7 +6,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { ForbiddenException, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { QnaService } from './qna.service';
@@ -216,9 +216,20 @@ export class QnaGateway {
     // Permission check to ensure only moderators can answer.
     const requiredPermission = 'qna:moderate';
     if (!user.permissions?.includes(requiredPermission)) {
-      throw new ForbiddenException(
-        'You do not have permission to answer questions.',
+      this.logger.warn(
+        `User ${user.sub} attempted to answer a question without permission.`,
       );
+      return {
+        success: false,
+        error: 'Forbidden: You do not have permission to answer questions.',
+      };
+    }
+
+    if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+      return {
+        success: false,
+        error: 'A valid sessionId must be provided to answer a question.',
+      };
     }
 
     try {
@@ -226,6 +237,13 @@ export class QnaGateway {
         user.sub,
         dto,
       );
+
+      if (!updatedQuestion) {
+        return {
+          success: false,
+          error: 'Failed to answer question: No question returned.',
+        };
+      }
 
       const publicRoom = `session:${sessionId}`;
       const eventName = 'qna.question.updated';
@@ -238,7 +256,10 @@ export class QnaGateway {
 
       return { success: true, questionId: updatedQuestion.id };
     } catch (error) {
-      this.logger.error(`Failed to answer question for admin ${user.sub}`, getErrorMessage(error));
+      this.logger.error(
+        `Failed to answer question for admin ${user.sub}`,
+        getErrorMessage(error),
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }

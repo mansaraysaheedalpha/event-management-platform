@@ -4,6 +4,6 @@ import { GamificationGateway } from './gamification.gateway';
 
 @Module({
   providers: [GamificationService, GamificationGateway],
-  exports: [GamificationService], // Export the service so other modules can use it
+  exports: [GamificationService],
 })
 export class GamificationModule {}

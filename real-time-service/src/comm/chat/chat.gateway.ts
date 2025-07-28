@@ -14,6 +14,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
+import { ReactToMessageDto } from './dto/react-to-message.dto';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -54,7 +55,7 @@ export class ChatGateway {
       const errorMessage = getErrorMessage(error);
       this.logger.error(
         `Failed to send message for user ${user.sub}:`,
-        (error as Error).message,
+        errorMessage,
       );
       return { success: false, error: errorMessage };
     }

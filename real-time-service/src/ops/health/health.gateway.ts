@@ -18,7 +18,7 @@ import { HealthStatusDto } from './dto/health-status.dto';
  * @example
  * // Client emits this to start receiving health updates
  * socket.emit('ops.health.join');
- * 
+ *
  * // Client listens to this for real-time status updates
  * socket.on('ops.system.health', (payload) => { ... });
  */
@@ -27,6 +27,7 @@ import { HealthStatusDto } from './dto/health-status.dto';
   namespace: '/events',
 })
 export class HealthGateway {
+  private static readonly HEALTH_ROOM = 'system-health';
   private readonly logger = new Logger(HealthGateway.name);
 
   /**
@@ -50,9 +51,9 @@ export class HealthGateway {
    * @returns An object with `{ success: true }` or throws if unauthorized.
    */
   @SubscribeMessage('ops.health.join')
-  handleJoinHealthStream(@ConnectedSocket() client: AuthenticatedSocket): {
-    success: boolean;
-  } {
+  async handleJoinHealthStream(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<{ success: boolean }> {
     const user = getAuthenticatedUser(client);
     const requiredPermission = 'system:health:read';
 
@@ -62,8 +63,8 @@ export class HealthGateway {
       );
     }
 
-    const healthRoom = `system-health`;
-    void client.join(healthRoom);
+
+    await client.join(HealthGateway.HEALTH_ROOM);
     this.logger.log(`Super-admin ${user.sub} joined system health stream.`);
 
     return { success: true };
@@ -76,8 +77,9 @@ export class HealthGateway {
    * @param payload - The health status update to send.
    */
   public broadcastHealthStatus(payload: HealthStatusDto): void {
-    const healthRoom = `system-health`;
-    this.server.to(healthRoom).emit('ops.system.health', payload);
+    this.server
+      .to(HealthGateway.HEALTH_ROOM)
+      .emit('ops.system.health', payload);
     this.logger.log(
       `Broadcasted system health update: ${payload.service} is ${payload.status}`,
     );

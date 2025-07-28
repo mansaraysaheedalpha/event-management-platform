@@ -1,17 +1,22 @@
--- CreateEnum
-CREATE TYPE "PointReason" AS ENUM ('MESSAGE_SENT', 'QUESTION_ASKED', 'QUESTION_UPVOTED', 'POLL_VOTED');
+
 
 -- CreateTable
 CREATE TABLE "gamification_point_entries" (
     "id" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "points" INTEGER NOT NULL,
-    "reason" "PointReason" NOT NULL,
+    "reason" TEXT NOT NULL CHECK ("reason" IN ('MESSAGE_SENT', 'QUESTION_ASKED', 'QUESTION_UPVOTED', 'POLL_VOTED')),
     "userId" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
 
+
     CONSTRAINT "gamification_point_entries_pkey" PRIMARY KEY ("id")
 );
+
+-- Indexes for efficient queries
+CREATE INDEX "gamification_point_entries_userId_idx" ON "gamification_point_entries"("userId");
+CREATE INDEX "gamification_point_entries_sessionId_idx" ON "gamification_point_entries"("sessionId");
+CREATE INDEX "gamification_point_entries_userId_createdAt_idx" ON "gamification_point_entries"("userId", "createdAt");
 
 -- CreateTable
 CREATE TABLE "gamification_achievements" (

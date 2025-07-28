@@ -11,10 +11,10 @@
  *   details: { reason: 'Moderator decision' }
  * }
  */
-export interface AuditLogPayload {
+export interface AuditLogPayload<DetailsType = Record<string, unknown>> {
   action: string;
   actingUserId: string;
   organizationId: string;
   sessionId?: string;
-  details?: Record<string, any>;
+  details?: DetailsType;
 }

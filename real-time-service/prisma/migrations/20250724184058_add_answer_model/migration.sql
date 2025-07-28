@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE "answers" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "text" TEXT NOT NULL,
     "authorId" TEXT NOT NULL,
