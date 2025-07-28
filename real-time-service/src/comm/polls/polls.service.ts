@@ -18,6 +18,7 @@ import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
+import { GamificationService } from 'src/gamification/gamification.gateway';
 
 @Injectable()
 export class PollsService {
@@ -28,6 +29,7 @@ export class PollsService {
     private readonly idempotencyService: IdempotencyService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis, // Redis client for caching and messaging
     private readonly publisherService: PublisherService, // Publishes events to message bus
+    private readonly gamificationService: GamificationService,
   ) {}
 
   /**
@@ -147,6 +149,13 @@ export class PollsService {
         throw error; // Re-throw other unexpected errors.
       }
 
+      // --- NEW GAMIFICATION LOGIC (inside the transaction) ---
+      await this.gamificationService.awardPoints(
+        userId,
+        poll.sessionId,
+        'POLL_VOTED',
+      );
+      // --- END OF NEW LOGIC ---
       this.logger.log(
         `User ${userId} voted for option ${optionId} in poll ${pollId}`,
       );

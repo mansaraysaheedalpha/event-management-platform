@@ -30,6 +30,17 @@ enum IncidentSeverity {
   CRITICAL
 }
 
+// Add this new enum
+enum PointReason {
+  MESSAGE_SENT
+  MESSAGE_REACTED
+  QUESTION_ASKED
+  QUESTION_UPVOTED
+  POLL_CREATED
+  POLL_VOTED
+  WAITLIST_JOINED
+}
+
 model SyncLog {
   id        String   @id @default(cuid())
   timestamp DateTime @default(now())
@@ -47,22 +58,26 @@ model SyncLog {
 }
 
 model UserReference {
-  id        String @id
-  email     String @unique
-  firstName String?
-  lastName  String?
+  id                    String @id
+  email                 String @unique
+  firstName             String?
+  lastName              String?
 
-  messages           Message[]
-  questions          Question[]
-  questionUpvotes    QuestionUpvote[]
-  createdPolls       Poll[]
-  pollVotes          PollVote[]
+  messages              Message[]
+  questions             Question[]
+  questionUpvotes       QuestionUpvote[]
+  createdPolls          Poll[]
+  pollVotes             PollVote[]
   // This now correctly points to the Conversation model
-  conversations      Conversation[]
-  sentDirectMessages DirectMessage[]  @relation("SentMessages")
-  reportedIncidents Incident[]
-  assignedIncidents Incident[] @relation("AssignedIncidents")
-  syncLogs          SyncLog[]
+  conversations         Conversation[]
+  sentDirectMessages    DirectMessage[]  @relation("SentMessages")
+  reportedIncidents     Incident[]
+  assignedIncidents     Incident[] @relation("AssignedIncidents")
+  syncLogs              SyncLog[]
+  answers               Answer[]
+  messageReactions      MessageReaction[]
+  gamificationPointEntries GamificationPointEntry[]
+  gamificationAchievements GamificationAchievement[]
   @@map("user_references")
 }
 
@@ -94,6 +109,7 @@ model ChatSession {
   polls        Poll[]
   presentation Presentation? // Add the one-to-one relation
   incidents    Incident[]
+  gamificationPointEntries GamificationPointEntry[]
   @@map("chat_sessions")
 }
 
@@ -126,6 +142,7 @@ model Incident {
   @@map("incidents")
 }
 
+//client keeps asking server for updates every 5 seconds: feature to be worked on
 
 model Message {
   id        String   @id @default(cuid())
@@ -136,6 +153,7 @@ model Message {
   author    UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
   sessionId String
   session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reactions MessageReaction[]
   @@index([sessionId, timestamp])
   @@map("messages")
 }
@@ -155,6 +173,20 @@ model DirectMessage {
   @@map("direct_messages")
 }
 
+model Answer {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  text      String   @db.Text
+
+  authorId String
+  author   UserReference @relation(fields: [authorId], references: [id])
+
+  questionId String    @unique // Enforces a one-to-one relationship
+  question   Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("answers")
+}
+
 model Question {
   id          String   @id @default(cuid())
   text        String   @db.VarChar(500)
@@ -168,6 +200,7 @@ model Question {
   sessionId   String
   session     ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   upvotes     QuestionUpvote[]
+  answer      Answer?
   @@map("questions")
 }
 
@@ -179,6 +212,22 @@ model QuestionUpvote {
   createdAt  DateTime      @default(now())
   @@id([userId, questionId])
   @@map("question_upvotes")
+}
+
+// Add this new model
+model MessageReaction {
+  emoji     String
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  messageId String
+  message   Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  // Enforces that a user can only react with the same emoji once per message
+  @@id([userId, messageId, emoji])
+  @@map("message_reactions")
 }
 
 model Poll {
@@ -226,4 +275,32 @@ model Presentation {
   slideUrls String[]
 
   @@map("presentations")
+}
+
+model GamificationPointEntry {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  points    Int
+  reason    PointReason
+
+  userId    String
+  user      UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("gamification_point_entries")
+}
+
+model GamificationAchievement {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  badgeName   String   // e.g., "First Question", "Super Voter"
+  description String
+
+  userId      String
+  user        UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeName])
+  @@map("gamification_achievements")
 }
