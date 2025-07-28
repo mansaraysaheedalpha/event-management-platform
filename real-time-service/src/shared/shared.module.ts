@@ -42,16 +42,23 @@ export const REDIS_SUBSCRIBER_CLIENT = 'REDIS_SUBSCRIBER_CLIENT';
     // Provider for the general-purpose Redis client
     {
       provide: REDIS_CLIENT,
-      useFactory: () => new Redis({ host: 'localhost', port: 6379 }),
+      useFactory: () => {
+        const host = process.env.REDIS_HOST || 'localhost';
+        const port = process.env.REDIS_PORT
+          ? parseInt(process.env.REDIS_PORT, 10)
+          : 6379;
+        return new Redis({ host, port });
+      },
     },
-    // Provider for the dedicated subscriber Redis client
+    // Provider for the dedicated subscriber Redis client (uses .duplicate() for shared connection)
     {
       provide: REDIS_SUBSCRIBER_CLIENT,
-      useFactory: () => new Redis({ host: 'localhost', port: 6379 }),
+      useFactory: (redisClient: Redis) => redisClient.duplicate(),
+      inject: [REDIS_CLIENT],
     },
     IdempotencyService,
     SubscriberService, // Provides subscriber-related functionalities
-    PublisherService,  // Provides event publishing functionalities
+    PublisherService, // Provides event publishing functionalities
   ],
   exports: [IdempotencyService, HttpModule, PublisherService],
 })

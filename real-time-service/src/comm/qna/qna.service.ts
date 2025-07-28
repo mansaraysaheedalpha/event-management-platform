@@ -9,7 +9,6 @@ import { PrismaService } from 'src/prisma.service';
 import { AskQuestionDto } from './dto/ask-question.dto';
 import { UpvoteQuestionDto } from './dto/upvote-question.dto';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
-import { Prisma } from '@prisma/client';
 import { ModerateQuestionDto } from './dto/moderate-question.dto';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/shared.module';
@@ -20,6 +19,8 @@ import { UserDataDto } from 'src/common/dto/user-data.dto';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
+import { AnswerQuestionDto } from './dto/answer-question.dto';
+import { GamificationService } from 'src/gamification/gamification.gateway';
 
 @Injectable()
 export class QnaService {
@@ -31,6 +32,7 @@ export class QnaService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly httpService: HttpService,
     private readonly publisherService: PublisherService,
+    private readonly gamificationService: GamificationService,
   ) {}
 
   /**
@@ -89,6 +91,14 @@ export class QnaService {
         },
       },
     });
+
+    // --- NEW GAMIFICATION LOGIC ---
+    void this.gamificationService.awardPoints(
+      userId,
+      sessionId,
+      'QUESTION_ASKED',
+    );
+    // --- END OF NEW LOGIC ---
 
     // REFINED: Use the helper and correct event type
     void this._publishAnalyticsEvent('QUESTION_ASKED', { sessionId });
@@ -153,6 +163,17 @@ export class QnaService {
       // Re-throw any other unexpected database errors.
       throw error;
     }
+
+    // --- NEW GAMIFICATION LOGIC ---
+    // We need the sessionId, which is on the question object we fetched.
+    if (question) {
+      void this.gamificationService.awardPoints(
+        userId,
+        question.sessionId,
+        'QUESTION_UPVOTED',
+      );
+    }
+    // --- END OF NEW LOGIC ---
 
     this.logger.log(`User ${userId} upvoted question ${questionId}`);
     // REFINED: Use the helper and correct event type
@@ -247,13 +268,20 @@ export class QnaService {
     return this.prisma.question.findUnique({
       where: { id: questionId },
       include: {
-        // Include the author's basic info for display
         author: {
           select: { id: true, firstName: true, lastName: true },
         },
-        // Prisma's '_count' feature is highly efficient for this.
         _count: {
           select: { upvotes: true },
+        },
+        answer: {
+          // <-- INCLUDE THE ANSWER
+          include: {
+            author: {
+              // Include who answered it
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
         },
       },
     });
@@ -389,5 +417,82 @@ export class QnaService {
     } catch (error) {
       this.logger.error('Failed to publish analytics event', error);
     }
+  }
+
+  /**
+   * Adds an official answer to a question.
+   * This is a protected action for moderators.
+   */
+  async answerQuestion(adminId: string, dto: AnswerQuestionDto) {
+    // Input validation
+    if (
+      !dto.questionId ||
+      typeof dto.questionId !== 'string' ||
+      !dto.questionId.trim()
+    ) {
+      throw new ConflictException('A valid questionId must be provided.');
+    }
+    if (
+      !dto.answerText ||
+      typeof dto.answerText !== 'string' ||
+      !dto.answerText.trim()
+    ) {
+      throw new ConflictException('Answer text must be provided.');
+    }
+
+    // Check if the question exists
+    const question = await this.prisma.question.findUnique({
+      where: { id: dto.questionId },
+    });
+    if (!question) {
+      throw new NotFoundException(
+        `Question with ID ${dto.questionId} not found.`,
+      );
+    }
+    // Check if already answered
+    if (question.isAnswered) {
+      throw new ConflictException('This question has already been answered.');
+    }
+
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException('This answer has already been submitted.');
+    }
+
+    // Use a transaction to ensure both the answer is created AND
+    // the question is marked as answered in one atomic operation.
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Create the Answer record
+      await tx.answer.create({
+        data: {
+          text: dto.answerText,
+          authorId: adminId,
+          questionId: dto.questionId,
+        },
+      });
+
+      // 2. Update the Question to mark it as answered
+      return tx.question.update({
+        where: { id: dto.questionId },
+        data: { isAnswered: true },
+      });
+    });
+
+    this.logger.log(`Question ${dto.questionId} answered by admin ${adminId}`);
+
+    // Fetch the full question with the new answer included to broadcast
+    const finalQuestion = await this.getQuestionWithUpvoteCount(dto.questionId);
+
+    // Publish sync event
+    const syncPayload = {
+      resource: 'QUESTION',
+      action: 'UPDATED',
+      payload: finalQuestion,
+    };
+    void this.publisherService.publish('sync-events', syncPayload);
+
+    return finalQuestion;
   }
 }

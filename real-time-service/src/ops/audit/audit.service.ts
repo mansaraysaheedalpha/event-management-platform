@@ -68,14 +68,17 @@ export class AuditService {
       const userOrgServiceUrl =
         process.env.USER_ORG_SERVICE_URL || 'http://localhost:3001';
 
+      const headers: Record<string, string> = {};
+      if (process.env.INTERNAL_API_KEY) {
+        headers['X-Internal-Api-Key'] = process.env.INTERNAL_API_KEY;
+      }
+
       const response = await firstValueFrom(
         this.httpService.post<AuditLogDto>(
           `${userOrgServiceUrl}/internal/audit-logs`,
           payload,
           {
-            headers: {
-              'X-Internal-Api-Key': process.env.INTERNAL_API_KEY,
-            },
+            headers,
           },
         ),
       );

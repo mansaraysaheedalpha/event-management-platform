@@ -37,13 +37,13 @@ export class AuditLogDto {
   /**
    * (Optional) The user affected by the action, if applicable.
    */
-  targetUserId: string;
+  targetUserId?: string;
 
   /**
    * Additional contextual information about the action.
    */
-  details: JSON;
-
+  /** Additional contextual information about the action (arbitrary key/value pairs). */
+  details?: Record<string, unknown>;
   /**
    * Timestamp when the log entry was created.
    */

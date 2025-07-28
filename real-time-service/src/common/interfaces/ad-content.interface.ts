@@ -1,5 +1,5 @@
 /**
- * Advertisement content to be shown during an event.
+ * @description Advertisement content to be shown during an event.
  * Can be a banner or video with clickable redirect.
  */
 export interface AdContent {
