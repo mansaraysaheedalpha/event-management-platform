@@ -58,26 +58,28 @@ model SyncLog {
 }
 
 model UserReference {
-  id                    String @id
-  email                 String @unique
-  firstName             String?
-  lastName              String?
+  id                        String @id
+  email                     String @unique
+  firstName                 String?
+  lastName                  String?
 
-  messages              Message[]
-  questions             Question[]
-  questionUpvotes       QuestionUpvote[]
-  createdPolls          Poll[]
-  pollVotes             PollVote[]
+  messages                  Message[]
+  questions                 Question[]
+  questionUpvotes           QuestionUpvote[]
+  createdPolls              Poll[]
+  pollVotes                 PollVote[]
   // This now correctly points to the Conversation model
-  conversations         Conversation[]
-  sentDirectMessages    DirectMessage[]  @relation("SentMessages")
-  reportedIncidents     Incident[]
-  assignedIncidents     Incident[] @relation("AssignedIncidents")
-  syncLogs              SyncLog[]
-  answers               Answer[]
-  messageReactions      MessageReaction[]
-  gamificationPointEntries GamificationPointEntry[]
-  gamificationAchievements GamificationAchievement[]
+  conversations             Conversation[]
+  sentDirectMessages        DirectMessage[]  @relation("SentMessages")
+  reportedIncidents         Incident[]
+  assignedIncidents         Incident[] @relation("AssignedIncidents")
+  syncLogs                  SyncLog[]
+  answers                   Answer[]
+  messageReactions          MessageReaction[]
+  gamificationPointEntries  GamificationPointEntry[]
+  gamificationAchievements  GamificationAchievement[]
+  createdCircles            ConversationCircle[]
+  circleMemberships         ConversationCircleParticipant[]
   @@map("user_references")
 }
 
@@ -110,6 +112,7 @@ model ChatSession {
   presentation Presentation? // Add the one-to-one relation
   incidents    Incident[]
   gamificationPointEntries GamificationPointEntry[]
+  conversationCircles ConversationCircle[]
   @@map("chat_sessions")
 }
 
@@ -305,4 +308,35 @@ model GamificationAchievement {
 
   @@unique([userId, badgeName])
   @@map("gamification_achievements")
+}
+
+model ConversationCircle {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  topic     String   @db.VarChar(255)
+  isActive  Boolean  @default(true)
+
+  creatorId String
+  creator   UserReference @relation(fields: [creatorId], references: [id])
+  
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  participants ConversationCircleParticipant[]
+
+  @@map("conversation_circles")
+}
+
+
+model ConversationCircleParticipant {
+  joinedAt DateTime @default(now())
+
+  userId   String
+  user     UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  circleId String
+  circle   ConversationCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, circleId])
+  @@map("conversation_circle_participants")
 }

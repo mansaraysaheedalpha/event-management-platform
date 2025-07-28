@@ -86,7 +86,7 @@ export class SyncService {
       id: log.id,
       timestamp: log.timestamp,
       resource: log.resource,
-      action: log.action,
+      action: log.action as SyncLogDto['action'],
       payload: log.payload,
     }));
   }
