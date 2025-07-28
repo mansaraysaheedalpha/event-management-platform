@@ -37,7 +37,7 @@ export class SubscriberService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
- /**
+  /**
    * Lifecycle hook called once when the module is initialized.
    * Sets up Redis subscriptions and message handlers.
    *
@@ -63,7 +63,6 @@ export class SubscriberService implements OnModuleInit {
     });
 
     try {
-
       await this.subscriber.subscribe(
         'agenda-updates',
         'audit-events',
@@ -72,6 +71,7 @@ export class SubscriberService implements OnModuleInit {
         'system-health-events',
         'platform.analytics.check-in.v1',
         'sync-events',
+        'ai-suggestions',
       );
       this.logger.log(
         'Successfully subscribed to Redis channel: agenda-updates',
@@ -84,7 +84,6 @@ export class SubscriberService implements OnModuleInit {
     }
   }
 
-  
   /**
    * Handles incoming messages from Redis channels.
    * Parses the JSON string message and emits it internally using EventEmitter2.

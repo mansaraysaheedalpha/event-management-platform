@@ -14,6 +14,7 @@ import { GlobalModule } from './global/global.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { SystemModule } from './system/system.module';
 import { GamificationModule } from './gamification/gamification.module';
+import { NetworkingModule } from './networking/networking.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { GamificationModule } from './gamification/gamification.module';
     AlertsModule,
     SystemModule,
     GamificationModule,
+    NetworkingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
