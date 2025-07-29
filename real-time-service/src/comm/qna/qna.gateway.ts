@@ -6,13 +6,16 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { ForbiddenException, Logger } from '@nestjs/common';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { QnaService } from './qna.service';
 import { AskQuestionDto } from './dto/ask-question.dto';
 import { UpvoteQuestionDto } from './dto/upvote-question.dto';
 import { ModerateQuestionDto } from './dto/moderate-question.dto';
+import { AnswerQuestionDto } from './dto/answer-question.dto';
+import { getErrorMessage } from 'src/common/utils/error.utils';
+import { TagQuestionDto } from './dto/tag-question.dto';
 
 /**
  * WebSocket gateway for managing Q&A events during live sessions.
@@ -197,6 +200,105 @@ export class QnaGateway {
         (error as Error).message,
       );
       return { success: false, error: (error as Error).message };
+    }
+  }
+
+  /**
+   * Handles a moderator submitting an answer to a question.
+   */
+  @SubscribeMessage('qna.question.answer')
+  async handleAnswerQuestion(
+    @MessageBody() dto: AnswerQuestionDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    // Permission check to ensure only moderators can answer.
+    const requiredPermission = 'qna:moderate';
+    if (!user.permissions?.includes(requiredPermission)) {
+      this.logger.warn(
+        `User ${user.sub} attempted to answer a question without permission.`,
+      );
+      return {
+        success: false,
+        error: 'Forbidden: You do not have permission to answer questions.',
+      };
+    }
+
+    if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+      return {
+        success: false,
+        error: 'A valid sessionId must be provided to answer a question.',
+      };
+    }
+
+    try {
+      const updatedQuestion = await this.qnaService.answerQuestion(
+        user.sub,
+        dto,
+      );
+
+      if (!updatedQuestion) {
+        return {
+          success: false,
+          error: 'Failed to answer question: No question returned.',
+        };
+      }
+
+      const publicRoom = `session:${sessionId}`;
+      const eventName = 'qna.question.updated';
+
+      // Broadcast the fully updated question, now with the answer, to everyone.
+      this.server.to(publicRoom).emit(eventName, updatedQuestion);
+      this.logger.log(
+        `Broadcasted answer for question ${dto.questionId} to room ${publicRoom}`,
+      );
+
+      return { success: true, questionId: updatedQuestion.id };
+    } catch (error) {
+      this.logger.error(
+        `Failed to answer question for admin ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Handles a moderator adding tags to a question.
+   */
+  @SubscribeMessage('qna.question.tag')
+  async handleTagQuestion(
+    @MessageBody() dto: TagQuestionDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    const requiredPermission = 'qna:moderate';
+    if (!user.permissions?.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        'You do not have permission to tag questions.',
+      );
+    }
+
+    try {
+      const updatedQuestion = await this.qnaService.tagQuestion(dto);
+
+      const publicRoom = `session:${sessionId}`;
+      const eventName = 'qna.question.updated';
+
+      this.server.to(publicRoom).emit(eventName, updatedQuestion);
+      this.logger.log(`Broadcasted tag update for question ${dto.questionId}`);
+
+      return { success: true, questionId: dto.questionId };
+    } catch (error) {
+      this.logger.error(
+        `Failed to tag question for admin ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
     }
   }
 }

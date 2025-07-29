@@ -1,25 +1,13 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';
-import { REDIS_SUBSCRIBER_CLIENT } from '../shared.module';
+import { REDIS_SUBSCRIBER_CLIENT } from '../redis.constants';
 import { getErrorMessage } from 'src/common/utils/error.utils';
-import { AgendaUpdatePayload } from 'src/live/agenda/agenda.service';
 
-// This is our "type guard" function.
-// It checks if an unknown object matches the AgendaUpdatePayload interface.
-function isAgendaUpdatePayload(
-  payload: unknown,
-): payload is AgendaUpdatePayload {
-  const p = payload as AgendaUpdatePayload;
-  return (
-    typeof p === 'object' &&
-    p !== null &&
-    typeof p.eventId === 'string' &&
-    typeof p.updateType === 'string' &&
-    typeof p.sessionData === 'object'
-  );
-}
-
+/**
+ * SubscriberService listens to multiple Redis Pub/Sub channels and emits
+ * corresponding events within the NestJS event system.
+ */
 @Injectable()
 export class SubscriberService implements OnModuleInit {
   private readonly logger = new Logger(SubscriberService.name);
@@ -30,9 +18,8 @@ export class SubscriberService implements OnModuleInit {
   ) {}
 
   /**
-   * This NestJS lifecycle hook runs once the module is initialized.
+   * Lifecycle hook that sets up Redis subscriptions.
    */
-  // FIX: Make the lifecycle hook async to allow for await.
   async onModuleInit() {
     this.logger.log('Initializing Redis message subscriber...');
 
@@ -41,7 +28,6 @@ export class SubscriberService implements OnModuleInit {
     });
 
     try {
-      // FIX: We now `await` the subscribe command.
       await this.subscriber.subscribe(
         'agenda-updates',
         'audit-events',
@@ -50,25 +36,28 @@ export class SubscriberService implements OnModuleInit {
         'system-health-events',
         'platform.analytics.check-in.v1',
         'sync-events',
+        'ai-suggestions',
+        'heatmap-events',
+        'sales-events',
+        'proximity-updates',
+        'oracle.predictions.sentiment.v1',
+        'capacity-events',
+        'notification-events',
+        'system-metrics-events',
       );
-      this.logger.log(
-        'Successfully subscribed to Redis channel: agenda-updates',
-      );
+      this.logger.log('Successfully subscribed to all Redis Pub/Sub channels.');
     } catch (err) {
-      this.logger.error(
-        'Failed to subscribe to Redis channel: agenda-updates',
-        err,
-      );
+      this.logger.error('Failed to subscribe to Redis channels', err);
     }
   }
 
+  /**
+   * Handles incoming messages from Redis and emits them internally.
+   */
   private handleIncomingMessage(channel: string, message: string) {
     try {
       this.logger.log(`Received message from Redis on channel '${channel}'`);
-
-      // FIX: We parse the JSON, but the result is initially 'unknown'.
       const unknownPayload: unknown = JSON.parse(message);
-      // We emit the channel name as the event, which now includes our check-in stream
       this.eventEmitter.emit(channel, unknownPayload);
     } catch (error) {
       this.logger.error(

@@ -8,10 +8,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
-import { REDIS_CLIENT } from 'src/shared/shared.module';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Redis } from 'ioredis';
 import { ContentControlDto } from './dto/content-control.dto';
 import { PresentationState } from 'src/common/interfaces/presentation-state.interface';
+import { DropContentDto } from './dto/drop-content.dto';
 
 /**
  * Service to manage live presentation control states
@@ -20,6 +21,16 @@ import { PresentationState } from 'src/common/interfaces/presentation-state.inte
  *  - Call `controlPresentation` to update the presentation state
  *  - Call `getPresentationState` to fetch current state for a session
  */
+
+interface DroppedContentPayload {
+  title: string;
+  description?: string;
+  contentType: DropContentDto['contentType'];
+  contentUrl: string;
+  droppedBy: { id: string; name: string };
+  timestamp: string;
+}
+
 @Injectable()
 export class ContentService {
   private readonly logger = new Logger(ContentService.name);
@@ -148,5 +159,36 @@ export class ContentService {
     );
 
     return currentState;
+  }
+
+  /**
+   * Logs the content drop event to the database and prepares the payload for broadcasting.
+   */
+  async handleContentDrop(
+    dto: DropContentDto,
+    dropper: { id: string; name: string },
+    sessionId: string,
+  ): Promise<DroppedContentPayload> {
+    this.logger.log(`User ${dropper.id} dropping content: ${dto.title}`);
+
+    // --- THIS IS THE REAL IMPLEMENTATION ---
+    // Log the event to our primary database for a permanent record.
+    await this.prisma.contentDropLog.create({
+      data: {
+        dropperId: dropper.id,
+        sessionId,
+        title: dto.title,
+        description: dto.description,
+        contentType: dto.contentType,
+        contentUrl: dto.contentUrl,
+      },
+    });
+    // --- END OF REAL IMPLEMENTATION ---
+
+    return {
+      ...dto,
+      droppedBy: dropper,
+      timestamp: new Date().toISOString(),
+    };
   }
 }

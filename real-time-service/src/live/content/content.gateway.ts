@@ -29,6 +29,8 @@ import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { ContentService } from './content.service';
 import { ContentControlDto } from './dto/content-control.dto';
+import { DropContentDto } from './dto/drop-content.dto';
+import { PrismaService } from 'src/prisma.service';
 
 /**
  * Gateway handling WebSocket communication for live content control
@@ -50,7 +52,10 @@ export class ContentGateway {
   private readonly logger = new Logger(ContentGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly contentService: ContentService) {}
+  constructor(
+    private readonly contentService: ContentService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Handles control commands from a presenter (e.g., next slide).
@@ -135,6 +140,59 @@ export class ContentGateway {
         getErrorMessage(error),
       );
       return { success: false, state: null, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Handles a presenter dropping content for all attendees in a session.
+   */
+  @SubscribeMessage('content.drop')
+  async handleContentDrop(
+    @MessageBody() dto: DropContentDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    const requiredPermission = 'content:manage';
+    if (!user.permissions?.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        'You do not have permission to drop content.',
+      );
+    }
+
+    try {
+      // --- THIS IS THE REAL IMPLEMENTATION ---
+      // Fetch the dropper's name from our local UserReference table.
+      const dropperDetails = await this.prisma.userReference.findUnique({
+        where: { id: user.sub },
+        select: { firstName: true, lastName: true },
+      });
+      const dropper = {
+        id: user.sub,
+        name: `${dropperDetails?.firstName || 'Event'} ${dropperDetails?.lastName || 'Staff'}`,
+      };
+      // --- END OF REAL IMPLEMENTATION ---
+
+      const contentPayload = await this.contentService.handleContentDrop(
+        dto,
+        dropper,
+        sessionId,
+      );
+
+      const publicRoom = `session:${sessionId}`;
+      const eventName = 'content.dropped'; // A more specific event name
+
+      this.server.to(publicRoom).emit(eventName, contentPayload);
+      this.logger.log(`Broadcasted content drop to room ${publicRoom}`);
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(
+        `Failed to drop content for user ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
     }
   }
 }

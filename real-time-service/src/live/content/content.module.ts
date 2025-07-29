@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ContentService } from './content.service';
-import { ContentGateway } from './content.gateway';
+import { SharedModule } from 'src/shared/shared.module';
 
 @Module({
-  providers: [ContentService, ContentGateway], // We'll fill the gateway in next
+  imports: [SharedModule],
+  providers: [ContentService],
+  exports: [ContentService],
 })
 export class ContentModule {}

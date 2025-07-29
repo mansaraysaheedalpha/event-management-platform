@@ -4,6 +4,7 @@ import { ContentModule } from './content/content.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReactionsModule } from './reactions/reactions.module';
 import { ValidationModule } from './validation/validation.module'; // <-- Import
+import { StreamingModule } from './streaming/streaming.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { ValidationModule } from './validation/validation.module'; // <-- Import
     DashboardModule,
     ReactionsModule,
     ValidationModule,
+    StreamingModule,
   ],
 })
 export class LiveModule {}

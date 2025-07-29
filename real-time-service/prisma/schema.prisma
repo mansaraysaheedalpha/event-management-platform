@@ -30,6 +30,17 @@ enum IncidentSeverity {
   CRITICAL
 }
 
+// Add this new enum
+enum PointReason {
+  MESSAGE_SENT
+  MESSAGE_REACTED
+  QUESTION_ASKED
+  QUESTION_UPVOTED
+  POLL_CREATED
+  POLL_VOTED
+  WAITLIST_JOINED
+}
+
 model SyncLog {
   id        String   @id @default(cuid())
   timestamp DateTime @default(now())
@@ -47,22 +58,32 @@ model SyncLog {
 }
 
 model UserReference {
-  id        String @id
-  email     String @unique
-  firstName String?
-  lastName  String?
+  id                        String @id
+  email                     String @unique
+  firstName                 String?
+  lastName                  String?
 
-  messages           Message[]
-  questions          Question[]
-  questionUpvotes    QuestionUpvote[]
-  createdPolls       Poll[]
-  pollVotes          PollVote[]
+  messages                  Message[]
+  questions                 Question[]
+  questionUpvotes           QuestionUpvote[]
+  createdPolls              Poll[]
+  pollVotes                 PollVote[]
   // This now correctly points to the Conversation model
-  conversations      Conversation[]
-  sentDirectMessages DirectMessage[]  @relation("SentMessages")
-  reportedIncidents Incident[]
-  assignedIncidents Incident[] @relation("AssignedIncidents")
-  syncLogs          SyncLog[]
+  conversations             Conversation[]
+  sentDirectMessages        DirectMessage[]  @relation("SentMessages")
+  reportedIncidents         Incident[]
+  assignedIncidents         Incident[] @relation("AssignedIncidents")
+  syncLogs                  SyncLog[]
+  answers                   Answer[]
+  messageReactions          MessageReaction[]
+  gamificationPointEntries  GamificationPointEntry[]
+  gamificationAchievements  GamificationAchievement[]
+  createdCircles            ConversationCircle[]
+  circleMemberships         ConversationCircleParticipant[]
+  sentBackchannelMessages   BackchannelMessage[]
+  createdTeams              Team[]
+  teamMemberships           TeamMembership[]
+  contentDrops              ContentDropLog[]
   @@map("user_references")
 }
 
@@ -82,18 +103,23 @@ model Conversation {
 // Prisma will now generate the required join table in the background.
 
 model ChatSession {
-  id           String @id @default(cuid())
-  name         String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  participants String[]
-  eventId        String
-  organizationId String
-  messages     Message[]
-  questions    Question[]
-  polls        Poll[]
-  presentation Presentation? // Add the one-to-one relation
-  incidents    Incident[]
+  id                          String @id @default(cuid())
+  name                        String
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  participants                String[]
+  eventId                     String
+  organizationId              String
+  messages                    Message[]
+  questions                   Question[]
+  polls                       Poll[]
+  presentation                Presentation? // Add the one-to-one relation
+  incidents                   Incident[]
+  gamificationPointEntries    GamificationPointEntry[]
+  conversationCircles         ConversationCircle[]
+  backchannelMessages         BackchannelMessage[]
+  teams                       Team[]
+  contentDrops                ContentDropLog[]
   @@map("chat_sessions")
 }
 
@@ -126,6 +152,7 @@ model Incident {
   @@map("incidents")
 }
 
+//client keeps asking server for updates every 5 seconds: feature to be worked on
 
 model Message {
   id        String   @id @default(cuid())
@@ -136,6 +163,13 @@ model Message {
   author    UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
   sessionId String
   session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  // --- ADD THESE FIELDS FOR THREADING ---
+  replyingToMessageId String?
+  parentMessage       Message?  @relation("Replies", fields: [replyingToMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies             Message[] @relation("Replies")
+  // --- END OF NEW FIELDS ---
+  reactions MessageReaction[]
+   
   @@index([sessionId, timestamp])
   @@map("messages")
 }
@@ -155,11 +189,24 @@ model DirectMessage {
   @@map("direct_messages")
 }
 
+model Answer {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  text      String   @db.Text
+
+  authorId String
+  author   UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  questionId String    @unique // Enforces a one-to-one relationship
+  question   Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("answers")
+}
+
 model Question {
   id          String   @id @default(cuid())
   text        String   @db.VarChar(500)
   isAnonymous Boolean  @default(false)
-  isAnswered  Boolean  @default(false)
   status      String   @default("pending")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -167,7 +214,11 @@ model Question {
   author      UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
   sessionId   String
   session     ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  isAnswered  Boolean  @default(false)
   upvotes     QuestionUpvote[]
+  answer      Answer?
+    
+  tags        String[]
   @@map("questions")
 }
 
@@ -179,6 +230,23 @@ model QuestionUpvote {
   createdAt  DateTime      @default(now())
   @@id([userId, questionId])
   @@map("question_upvotes")
+}
+
+// Add this new model
+model MessageReaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  messageId String
+  message   Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  // Enforces that a user can only react with the same emoji once per message
+  @@unique([userId, messageId, emoji])
+  @@map("message_reactions")
 }
 
 model Poll {
@@ -226,4 +294,129 @@ model Presentation {
   slideUrls String[]
 
   @@map("presentations")
+}
+
+model GamificationPointEntry {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  points    Int
+  reason    PointReason
+
+  userId    String
+  user      UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId, reason])
+  @@index([userId, sessionId])
+  @@map("gamification_point_entries")
+}
+
+model GamificationAchievement {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  badgeName   String   // e.g., "First Question", "Super Voter"
+  description String
+
+  userId      String
+  user        UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeName])
+  @@map("gamification_achievements")
+}
+
+model ConversationCircle {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  topic     String   @db.VarChar(255)
+  isActive  Boolean  @default(true)
+
+  creatorId String
+  creator   UserReference @relation(fields: [creatorId], references: [id])
+  
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  participants ConversationCircleParticipant[]
+
+  @@map("conversation_circles")
+}
+
+
+model ConversationCircleParticipant {
+  joinedAt DateTime @default(now())
+
+  userId   String
+  user     UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  circleId String
+  circle   ConversationCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, circleId])
+  @@map("conversation_circle_participants")
+}
+
+model BackchannelMessage {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  text      String   @db.Text
+
+  senderId  String
+  sender    UserReference @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("backchannel_messages")
+}
+
+// Add these new models
+model Team {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  name      String
+
+  creatorId String
+  creator   UserReference @relation(fields: [creatorId], references: [id])
+  
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  members   TeamMembership[]
+
+  @@unique([sessionId, name])
+  @@map("teams")
+}
+
+model TeamMembership {
+  joinedAt DateTime @default(now())
+
+  userId String
+  user   UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  teamId String
+  team   Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, teamId])
+  @@map("team_memberships")
+}
+
+// Add this new model
+model ContentDropLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  dropperId String
+  dropper   UserReference @relation(fields: [dropperId], references: [id])
+  
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  title       String
+  description String?
+  contentType String // e.g., 'DOCUMENT', 'LINK'
+  contentUrl  String
+
+  @@map("content_drop_logs")
 }

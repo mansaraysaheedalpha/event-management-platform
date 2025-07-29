@@ -1,22 +1,29 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
-import { PrismaModule } from './prisma.module';
-import { CommModule } from './comm/comm.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+
+// --- GUARDS & MAIN GATEWAY ---
+import { AppGateway } from './app.gateway';
+import { WsThrottlerGuard } from './common/guards/ws-throttler.guard';
+
+// --- FEATURE MODULES (which now only export services) ---
 import { SharedModule } from './shared/shared.module';
+import { CommModule } from './comm/comm.module';
 import { LiveModule } from './live/live.module';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { OpsModule } from './ops/ops.module';
 import { MonetizationModule } from './monetization/ads/monetization.module';
-import { GlobalModule } from './global/global.module';
+import { GamificationModule } from './gamification/gamification.module';
+import { NetworkingModule } from './networking/networking.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { SystemModule } from './system/system.module';
+import { PrismaModule } from './prisma.module';
+import { GlobalModule } from './global/global.module';
+import { ConnectionModule } from './system/connection/connection.module';
 
 @Module({
   imports: [
-    EventEmitterModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -37,8 +44,28 @@ import { SystemModule } from './system/system.module';
     GlobalModule,
     AlertsModule,
     SystemModule,
+    GamificationModule,
+    NetworkingModule,
+    ConnectionModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'default', // Name for the default tier
+        ttl: 60000, // 60 seconds
+        limit: 100, // 100 requests per minute
+      },
+      {
+        name: 'vip', // Name for the VIP tier
+        ttl: 60000,
+        limit: 500, // 500 requests per minute
+      },
+    ]),
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: WsThrottlerGuard,
+    },
+    AppGateway, // The main connection handler
+  ],
 })
 export class AppModule {}

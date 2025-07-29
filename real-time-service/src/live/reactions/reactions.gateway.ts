@@ -6,12 +6,12 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Logger, Inject } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { ReactionsService } from './reactions.service';
 import { SendReactionDto } from './dto/send-reactions.dto';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/services/idempotency.service';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 
@@ -39,6 +39,7 @@ export class ReactionsGateway {
   private readonly BROADCAST_INTERVAL = 2000; // 2 seconds
 
   constructor(
+    @Inject(forwardRef(() => ReactionsService))
     private readonly reactionsService: ReactionsService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
@@ -162,5 +163,16 @@ export class ReactionsGateway {
       clearTimeout(timer);
       this.activeTimers.delete(sessionId);
     }
+  }
+
+  /**
+   * Broadcasts the latest mood analytics to all attendees in a session.
+   * This is a public method called by the ReactionsService.
+   */
+  public broadcastMoodAnalytics(sessionId: string, analyticsPayload: any) {
+    const publicRoom = `session:${sessionId}`;
+    const eventName = 'mood.analytics.updated'; // A more specific event name
+    this.server.to(publicRoom).emit(eventName, analyticsPayload);
+    this.logger.log(`Broadcasted mood analytics to room ${publicRoom}`);
   }
 }

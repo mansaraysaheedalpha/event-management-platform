@@ -1,11 +1,7 @@
 /**
  * Interface describing the payload for waitlist spot notifications.
  */
-export interface WaitlistNotificationPayload {
-  sessionId: string;
-  message: string;
-  [key: string]: unknown; // Allow for extensibility
-}
+
 function assertValidRoomId(eventId: string): void {
   // Only allow alphanumeric, dash, and underscore
   if (!/^[\w-]+$/.test(eventId)) {
@@ -27,6 +23,7 @@ import { OfferContent } from 'src/common/interfaces/offer-content.interface';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
+import { WaitlistNotificationPayload } from 'src/common/interfaces/monetization.interface';
 
 /**
  * WebSocket Gateway handling real-time monetization events.

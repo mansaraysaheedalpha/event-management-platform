@@ -1,16 +1,27 @@
 import { Socket } from 'socket.io';
 
-// 1. Define the shape of our token's payload
+/**
+ * Standard payload extracted from the user's JWT.
+ * Used to identify and authorize users across microservices.
+ */
 export interface JwtPayload {
-  sub: string;
+  sub: string; // User ID
   email: string;
-  orgId: string; // <-- The user's active Organization ID, need to update this change in the user's microservice
-  role?: string; // Optional: for role-based access
+  orgId: string; // Active organization context
+  role?: string;
   permissions?: string[];
+  tier?: 'default' | 'vip';
   preferredLanguage?: string;
+  sponsorId?: string;
 }
 
-// 2. Define the shape of our authenticated socket
+/**
+ * A WebSocket client that has passed authentication.
+ * Carries the validated JwtPayload for authorization purposes during communication.
+ *
+ * Usage:
+ * const user = client.data.user;
+ */
 export interface AuthenticatedSocket extends Socket {
   data: {
     user: JwtPayload;
