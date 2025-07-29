@@ -5,10 +5,11 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { ForbiddenException, Logger } from '@nestjs/common';
+import { ForbiddenException, forwardRef, Inject, Logger } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { DashboardService } from './dashboard.service';
+import { CapacityUpdateDto } from './dto/capacity-update.dto';
 
 /**
  * Gateway for real-time event dashboard updates.
@@ -18,6 +19,12 @@ import { DashboardService } from './dashboard.service';
  *  - The eventId is provided via the WebSocket handshake query parameters, not in the message payload.
  *  - Gateway manages periodic dashboard data pushes every 5 seconds.
  */
+
+// Define the new DTO shape here for clarity in the gateway
+interface MultitenantMetricsDto {
+  orgId: string;
+  metrics: object;
+}
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
@@ -30,7 +37,10 @@ export class DashboardGateway {
   private activeDashboardTimers = new Map<string, NodeJS.Timeout>();
   private readonly BROADCAST_INTERVAL = 5000; // Push updates every 5 seconds
 
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    @Inject(forwardRef(() => DashboardService))
+    private readonly dashboardService: DashboardService,
+  ) {}
 
   /**
    * Admin client joins dashboard updates for an event.
@@ -139,5 +149,35 @@ export class DashboardGateway {
       clearTimeout(timer);
       this.activeDashboardTimers.delete(eventId);
     }
+  }
+
+  /**
+   * Broadcasts a capacity update to the private admin dashboard room.
+   */
+  public broadcastCapacityUpdate(payload: CapacityUpdateDto) {
+    const adminRoom = `dashboard:${payload.eventId}`;
+    const eventName = 'dashboard.capacity.updated';
+    this.server.to(adminRoom).emit(eventName, payload);
+    this.logger.log(`Broadcasted capacity update to room ${adminRoom}`);
+  }
+
+  /**
+   * Broadcasts system-wide multitenant metrics to all active event dashboards for an organization.
+   */
+  public broadcastSystemMetrics(
+    eventIds: string[],
+    payload: MultitenantMetricsDto,
+  ) {
+    const eventName = 'dashboard.metrics.updated';
+
+    // Loop through each active event and broadcast to its specific dashboard room.
+    for (const eventId of eventIds) {
+      const adminRoom = `dashboard:${eventId}`;
+      this.server.to(adminRoom).emit(eventName, payload);
+    }
+
+    this.logger.log(
+      `Broadcasted system metrics to ${eventIds.length} dashboards for org ${payload.orgId}`,
+    );
   }
 }

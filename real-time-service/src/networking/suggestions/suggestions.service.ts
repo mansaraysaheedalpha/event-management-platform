@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { SuggestionsGateway } from './suggestions.gateway';
+import { AiSuggestionPayload, SuggestionsGateway } from './suggestions.gateway';
 
 @Injectable()
 export class SuggestionsService {
@@ -12,7 +12,7 @@ export class SuggestionsService {
   ) {}
 
   @OnEvent('ai-suggestions')
-  handleAiSuggestion(payload: any) {
+  handleAiSuggestion(payload: AiSuggestionPayload) {
     this.logger.log(`Processing AI suggestion: ${payload.type}`);
 
     // The service's job is to route the event to the gateway

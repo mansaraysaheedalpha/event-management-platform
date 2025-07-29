@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { CreateCircleDto } from './dto/create-circle.dto';
@@ -130,5 +136,44 @@ export class CirclesService {
         },
       },
     });
+  }
+
+  /**
+   * Closes a Conversation Circle.
+   * This is a protected action for the circle creator or an admin.
+   */
+  async closeCircle(
+    circleId: string,
+    adminId: string,
+    adminPermissions: string[],
+  ) {
+    const circle = await this.prisma.conversationCircle.findUnique({
+      where: { id: circleId },
+      select: { creatorId: true },
+    });
+
+    if (!circle) {
+      throw new NotFoundException(
+        `Conversation Circle with ID ${circleId} not found.`,
+      );
+    }
+
+    const isCreator = circle.creatorId === adminId;
+    const hasModeratorPermission = adminPermissions.includes('circles:manage'); // A new, specific permission
+
+    // The user can proceed if they are the creator OR have the override permission.
+    if (!isCreator && !hasModeratorPermission) {
+      throw new ForbiddenException(
+        'You do not have permission to close this circle.',
+      );
+    }
+
+    const closedCircle = await this.prisma.conversationCircle.update({
+      where: { id: circleId },
+      data: { isActive: false },
+    });
+
+    this.logger.log(`Circle ${closedCircle.id} was closed by admin ${adminId}`);
+    return closedCircle;
   }
 }

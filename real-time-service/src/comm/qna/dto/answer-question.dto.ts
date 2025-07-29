@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 export class AnswerQuestionDto {
   @IsUUID('4')

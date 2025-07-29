@@ -4,6 +4,5 @@ import { SecurityGateway } from './security.gateway';
 
 @Module({
   providers: [SecurityService, SecurityGateway],
-  exports: [SecurityService],
 })
 export class SecurityModule {}

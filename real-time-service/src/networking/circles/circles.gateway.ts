@@ -14,6 +14,7 @@ import { CirclesService } from './circles.service';
 import { CreateCircleDto } from './dto/create-circle.dto';
 import { JoinCircleDto } from './dto/join-circle.dto';
 import { LeaveCircleDto } from './dto/leave-circle.dto';
+import { CloseCircleDto } from './dto/close-circle.dto';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -121,7 +122,44 @@ export class CirclesGateway {
         .emit('circle.roster.updated', updatedRoster);
       return { success: true, circleId: dto.circleId };
     } catch (error) {
-      this.logger.error(/* ... */);
+      this.logger.error(
+        `Failed to leave circle ${dto.circleId} for user ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Handles a moderator's request to close a Conversation Circle.
+   */
+  @SubscribeMessage('circle.close')
+  async handleCloseCircle(
+    @MessageBody() dto: CloseCircleDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      const closedCircle = await this.circlesService.closeCircle(
+        dto.circleId,
+        user.sub,
+        user.permissions ?? [],
+      );
+
+      const publicRoom = `session:${sessionId}`;
+      const eventName = 'circle.closed';
+
+      this.server.to(publicRoom).emit(eventName, { circleId: closedCircle.id });
+      this.logger.log(`Broadcasted close event for circle ${closedCircle.id}`);
+
+      return { success: true, circleId: closedCircle.id };
+    } catch (error) {
+      this.logger.error(
+        `Failed to close circle for admin ${user.sub}`,
+        getErrorMessage(error),
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }

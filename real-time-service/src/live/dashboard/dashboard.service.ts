@@ -9,7 +9,9 @@ export interface DashboardData {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/shared.module';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
+import { DashboardGateway } from './dashboard.gateway';
+import { CapacityUpdateDto } from './dto/capacity-update.dto';
 
 // Supporting types and type guard (unchanged)
 type AnalyticsEventType =
@@ -31,6 +33,16 @@ interface AnalyticsEventPayload {
 interface CheckInFeedItem {
   id: string;
   name: string;
+}
+
+// Define the shape of the incoming payload
+interface MultitenantMetricsDto {
+  orgId: string;
+  metrics: {
+    activeConnections: number;
+    messagesPerSecond: number;
+    averageLatency: number;
+  };
 }
 
 function isAnalyticsEventPayload(
@@ -59,7 +71,10 @@ function isAnalyticsEventPayload(
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly dashboardGateway: DashboardGateway,
+  ) {}
 
   /**
    * Listens to analytics events and updates Redis stats accordingly.
@@ -182,5 +197,39 @@ export class DashboardService {
       totalReactions: parseInt(analytics.totalReactions || '0', 10),
       liveCheckInFeed: feed,
     };
+  }
+
+  /**
+   * Listens for capacity update events and triggers a broadcast.
+   */
+  @OnEvent('capacity-events')
+  handleCapacityUpdate(payload: CapacityUpdateDto) {
+    this.logger.log(
+      `Processing capacity update for resource: ${payload.resourceId}`,
+    );
+    this.dashboardGateway.broadcastCapacityUpdate(payload);
+  }
+
+  /**
+   * Listens for system-wide metric events, finds all active events for the org,
+   * and triggers a broadcast to all relevant dashboards.
+   */
+  @OnEvent('system-metrics-events')
+  async handleSystemMetrics(payload: MultitenantMetricsDto) {
+    this.logger.log(`Processing system metrics for org: ${payload.orgId}`);
+
+    // 1. Get the list of all active event IDs for this organization from Redis.
+    const activeEventIds = await this.redis.smembers(
+      `org:active_events:${payload.orgId}`,
+    );
+
+    if (activeEventIds.length === 0) {
+      this.logger.log(
+        `No active event dashboards for org ${payload.orgId}. Skipping broadcast.`,
+      );
+      return;
+    }
+
+    this.dashboardGateway.broadcastSystemMetrics(activeEventIds, payload);
   }
 }

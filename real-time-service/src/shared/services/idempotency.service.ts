@@ -1,8 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Redis } from 'ioredis';
-
-// A descriptive key for our Redis provider
-export const REDIS_CLIENT = 'REDIS_CLIENT';
+import { REDIS_CLIENT } from '../redis.constants';
 
 @Injectable()
 export class IdempotencyService {

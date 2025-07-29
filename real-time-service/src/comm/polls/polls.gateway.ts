@@ -14,6 +14,7 @@ import { PollsService } from './polls.service';
 import { ManagePollDto } from './dto/manage-polls.dto';
 import { SubmitVoteDto } from './dto/submit-vote.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
+import { StartGiveawayDto } from './dto/start-giveaway.dto';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -172,6 +173,49 @@ export class PollsGateway {
         errorMessage,
       );
       return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Handles an admin starting a giveaway for a poll.
+   */
+  @SubscribeMessage('poll.giveaway.start')
+  async handleStartGiveaway(
+    @MessageBody() dto: StartGiveawayDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    const requiredPermission = 'poll:manage'; // Same permission as closing a poll
+    if (!user.permissions?.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        'You do not have permission to manage giveaways.',
+      );
+    }
+
+    try {
+      const giveawayResult = await this.pollsService.selectGiveawayWinner(
+        dto,
+        user.sub,
+      );
+
+      if (giveawayResult) {
+        const publicRoom = `session:${sessionId}`;
+        const eventName = 'poll.giveaway.winner';
+        this.server.to(publicRoom).emit(eventName, giveawayResult);
+        this.logger.log(
+          `Broadcasted giveaway winner for poll ${dto.pollId} to room ${publicRoom}`,
+        );
+      }
+
+      return { success: true, winner: giveawayResult?.winner };
+    } catch (error) {
+      this.logger.error(
+        `Failed to start giveaway for admin ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
     }
   }
 }

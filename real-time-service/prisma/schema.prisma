@@ -80,6 +80,10 @@ model UserReference {
   gamificationAchievements  GamificationAchievement[]
   createdCircles            ConversationCircle[]
   circleMemberships         ConversationCircleParticipant[]
+  sentBackchannelMessages   BackchannelMessage[]
+  createdTeams              Team[]
+  teamMemberships           TeamMembership[]
+  contentDrops              ContentDropLog[]
   @@map("user_references")
 }
 
@@ -99,20 +103,23 @@ model Conversation {
 // Prisma will now generate the required join table in the background.
 
 model ChatSession {
-  id           String @id @default(cuid())
-  name         String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  participants String[]
-  eventId        String
-  organizationId String
-  messages     Message[]
-  questions    Question[]
-  polls        Poll[]
-  presentation Presentation? // Add the one-to-one relation
-  incidents    Incident[]
-  gamificationPointEntries GamificationPointEntry[]
-  conversationCircles ConversationCircle[]
+  id                          String @id @default(cuid())
+  name                        String
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  participants                String[]
+  eventId                     String
+  organizationId              String
+  messages                    Message[]
+  questions                   Question[]
+  polls                       Poll[]
+  presentation                Presentation? // Add the one-to-one relation
+  incidents                   Incident[]
+  gamificationPointEntries    GamificationPointEntry[]
+  conversationCircles         ConversationCircle[]
+  backchannelMessages         BackchannelMessage[]
+  teams                       Team[]
+  contentDrops                ContentDropLog[]
   @@map("chat_sessions")
 }
 
@@ -156,7 +163,13 @@ model Message {
   author    UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
   sessionId String
   session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  // --- ADD THESE FIELDS FOR THREADING ---
+  replyingToMessageId String?
+  parentMessage       Message?  @relation("Replies", fields: [replyingToMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies             Message[] @relation("Replies")
+  // --- END OF NEW FIELDS ---
   reactions MessageReaction[]
+   
   @@index([sessionId, timestamp])
   @@map("messages")
 }
@@ -201,8 +214,11 @@ model Question {
   author      UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
   sessionId   String
   session     ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  isAnswered  Boolean  @default(false)
   upvotes     QuestionUpvote[]
   answer      Answer?
+    
+  tags        String[]
   @@map("questions")
 }
 
@@ -339,4 +355,68 @@ model ConversationCircleParticipant {
   
   @@id([userId, circleId])
   @@map("conversation_circle_participants")
+}
+
+model BackchannelMessage {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  text      String   @db.Text
+
+  senderId  String
+  sender    UserReference @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("backchannel_messages")
+}
+
+// Add these new models
+model Team {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  name      String
+
+  creatorId String
+  creator   UserReference @relation(fields: [creatorId], references: [id])
+  
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  members   TeamMembership[]
+
+  @@unique([sessionId, name])
+  @@map("teams")
+}
+
+model TeamMembership {
+  joinedAt DateTime @default(now())
+
+  userId String
+  user   UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  teamId String
+  team   Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, teamId])
+  @@map("team_memberships")
+}
+
+// Add this new model
+model ContentDropLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  dropperId String
+  dropper   UserReference @relation(fields: [dropperId], references: [id])
+  
+  sessionId String
+  session   ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  title       String
+  description String?
+  contentType String // e.g., 'DOCUMENT', 'LINK'
+  contentUrl  String
+
+  @@map("content_drop_logs")
 }

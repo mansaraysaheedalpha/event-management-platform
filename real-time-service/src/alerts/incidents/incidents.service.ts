@@ -8,10 +8,8 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
-import {
-  IdempotencyService,
-  REDIS_CLIENT,
-} from 'src/shared/services/idempotency.service';
+import { IdempotencyService } from 'src/shared/services/idempotency.service';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { ReportIncidentDto } from './dto/report-incident.dto';
 import { IncidentsGateway } from './incident.gateway';
 import { IncidentDto } from './dto/incident.dto';

@@ -11,7 +11,7 @@ import { UpvoteQuestionDto } from './dto/upvote-question.dto';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { ModerateQuestionDto } from './dto/moderate-question.dto';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/shared.module';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Inject } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -20,7 +20,9 @@ import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
 import { AnswerQuestionDto } from './dto/answer-question.dto';
-import { GamificationService } from 'src/gamification/gamification.gateway';
+import { GamificationService } from 'src/gamification/gamification.service';
+import { Prisma } from '@prisma/client';
+import { TagQuestionDto } from './dto/tag-question.dto';
 
 @Injectable()
 export class QnaService {
@@ -91,6 +93,10 @@ export class QnaService {
         },
       },
     });
+
+    // --- NEW HEATMAP LOGIC ---
+    void this.publisherService.publish('heatmap-events', { sessionId });
+    // --- END NEW LOGIC ---
 
     // --- NEW GAMIFICATION LOGIC ---
     void this.gamificationService.awardPoints(
@@ -486,6 +492,35 @@ export class QnaService {
     const finalQuestion = await this.getQuestionWithUpvoteCount(dto.questionId);
 
     // Publish sync event
+    const syncPayload = {
+      resource: 'QUESTION',
+      action: 'UPDATED',
+      payload: finalQuestion,
+    };
+    void this.publisherService.publish('sync-events', syncPayload);
+
+    return finalQuestion;
+  }
+
+  /**
+   * Adds or updates tags on a question.
+   * This is a protected action for moderators.
+   */
+  async tagQuestion(dto: TagQuestionDto) {
+    await this.prisma.question.update({
+      where: { id: dto.questionId },
+      data: {
+        tags: {
+          set: dto.tags, // Overwrites existing tags with the new array
+        },
+      },
+    });
+
+    this.logger.log(`Tags updated for question ${dto.questionId}`);
+
+    const finalQuestion = await this.getQuestionWithUpvoteCount(dto.questionId);
+
+    // Publish sync event for the update
     const syncPayload = {
       resource: 'QUESTION',
       action: 'UPDATED',

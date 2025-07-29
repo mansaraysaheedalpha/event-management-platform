@@ -10,14 +10,14 @@ import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/shared.module';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Inject } from '@nestjs/common';
 import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
 import { ReactToMessageDto } from './dto/react-to-message.dto';
-import { GamificationService } from 'src/gamification/gamification.gateway';
+import { GamificationService } from 'src/gamification/gamification.service';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -63,9 +63,19 @@ export class ChatService {
     const newMessage = await this.prisma.$transaction(async (tx) => {
       // 1. Create the message
       const createdMessage = await tx.message.create({
-        data: { text: dto.text, authorId, sessionId },
+        data: {
+          text: dto.text,
+          authorId,
+          sessionId,
+          replyingToMessageId: dto.replyingToMessageId,
+        },
         include: {
           author: { select: { id: true, firstName: true, lastName: true } },
+          parentMessage: {
+            include: {
+              author: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
         },
       });
 
@@ -100,6 +110,10 @@ export class ChatService {
 
       return createdMessage;
     });
+
+    // --- NEW HEATMAP LOGIC ---
+    void this.publisherService.publish('heatmap-events', { sessionId });
+    // --- END NEW LOGIC ---
 
     // --- NEW GAMIFICATION LOGIC ---
     // After the message is successfully created, award points to the author.

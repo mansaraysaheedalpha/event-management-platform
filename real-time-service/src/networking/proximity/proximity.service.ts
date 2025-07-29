@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/shared.module';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { UpdateLocationDto } from './dto/update-location.dto';
 
 @Injectable()

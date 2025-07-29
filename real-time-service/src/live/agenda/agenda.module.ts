@@ -4,5 +4,6 @@ import { AgendaGateway } from './agenda.gateway';
 
 @Module({
   providers: [AgendaService, AgendaGateway],
+  exports: [AgendaService],
 })
 export class AgendaModule {}

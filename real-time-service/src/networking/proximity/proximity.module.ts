@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ProximityService } from './proximity.service';
-import { ProximityGateway } from './proximity.gateway';
+import { PrismaModule } from 'src/prisma.module';
 
 @Module({
-  providers: [ProximityService, ProximityGateway],
+  imports: [PrismaModule],
+  providers: [ProximityService],
+  exports: [ProximityService],
 })
 export class ProximityModule {}

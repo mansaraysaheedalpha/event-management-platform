@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { SyncService } from './sync.service';
 import { SyncGateway } from './sync.gateway';
-import { SyncController } from './sync.controller';
-import { SystemModule } from '../system.module';
 
 @Module({
-  imports: [SystemModule],
-  providers: [SyncService, SyncGateway, SyncController],
+  imports: [],
+  providers: [SyncService, SyncGateway],
+  exports: [SyncService],
 })
 export class SyncModule {}

@@ -57,23 +57,32 @@ export class GamificationGateway {
   }
 
   /**
-   * Fetches the latest leaderboard data and broadcasts it to the session room.
-   * This is a public method called by the GamificationService.
+   * Fetches the latest individual and team leaderboards and broadcasts them.
    */
   public async broadcastLeaderboardUpdate(sessionId: string) {
     try {
-      // We don't need a specific user ID here, as we're just getting the top 10.
-      const leaderboardData =
-        await this.gamificationService.getLeaderboard(sessionId);
+      // Fetch both leaderboards simultaneously
+      const [individualLeaderboard, teamLeaderboard] = await Promise.all([
+        this.gamificationService.getLeaderboard(sessionId),
+        this.gamificationService.getTeamLeaderboard(sessionId),
+      ]);
 
       const publicRoom = `session:${sessionId}`;
-      const eventName = 'leaderboard.updated';
 
-      this.server.to(publicRoom).emit(eventName, leaderboardData);
-      this.logger.log(`Broadcasted leaderboard update to room ${publicRoom}`);
+      // Broadcast individual leaderboard
+      this.server.to(publicRoom).emit('leaderboard.updated', {
+        topEntries: individualLeaderboard.topEntries,
+      });
+
+      // Broadcast team leaderboard
+      this.server.to(publicRoom).emit('team.leaderboard.updated', {
+        teamScores: teamLeaderboard,
+      });
+
+      this.logger.log(`Broadcasted leaderboard updates to room ${publicRoom}`);
     } catch (error) {
       this.logger.error(
-        `Failed to broadcast leaderboard update for session ${sessionId}`,
+        `Failed to broadcast leaderboard updates for session ${sessionId}`,
         getErrorMessage(error),
       );
     }

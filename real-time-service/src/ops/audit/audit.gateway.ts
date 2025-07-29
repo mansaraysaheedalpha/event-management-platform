@@ -5,12 +5,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import {
-  ForbiddenException,
-  Inject,
-  Logger,
-  forwardRef,
-} from '@nestjs/common';
+import { ForbiddenException, Inject, Logger, forwardRef } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuditService } from './audit.service';
@@ -55,9 +50,10 @@ export class AuditGateway {
    * @throws {ForbiddenException} - If the user lacks 'ops:audit:read' permission
    */
   @SubscribeMessage('ops.audit.join')
-  handleJoinAuditStream(
-    @ConnectedSocket() client: AuthenticatedSocket,
-  ): { success: boolean; error?: string } {
+  handleJoinAuditStream(@ConnectedSocket() client: AuthenticatedSocket): {
+    success: boolean;
+    error?: string;
+  } {
     const user = getAuthenticatedUser(client);
     const requiredPermission = 'ops:audit:read';
 

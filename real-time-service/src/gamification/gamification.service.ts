@@ -145,6 +145,60 @@ export class GamificationService {
   }
 
   /**
+   * Calculates and returns the team leaderboard for a given session.
+   */
+  async getTeamLeaderboard(sessionId: string, limit = 10) {
+    // 1. Find all teams in the session
+    const teams = await this.prisma.team.findMany({
+      where: { sessionId },
+      include: {
+        members: {
+          select: {
+            userId: true, // Get the IDs of all members in each team
+          },
+        },
+      },
+    });
+
+    if (teams.length === 0) {
+      return []; // No teams, empty leaderboard
+    }
+
+    // 2. For each team, calculate the total score by summing up the points of all its members
+    const teamScores = await Promise.all(
+      teams.map(async (team) => {
+        const memberIds = team.members.map((member) => member.userId);
+
+        if (memberIds.length === 0) {
+          return { teamId: team.id, name: team.name, score: 0 };
+        }
+
+        const aggregate = await this.prisma.gamificationPointEntry.aggregate({
+          _sum: {
+            points: true,
+          },
+          where: {
+            sessionId,
+            userId: { in: memberIds },
+          },
+        });
+
+        return {
+          teamId: team.id,
+          name: team.name,
+          score: aggregate._sum.points || 0,
+        };
+      }),
+    );
+
+    // 3. Sort the teams by score in descending order and return the top entries
+    return teamScores
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((team, index) => ({ ...team, rank: index + 1 }));
+  }
+
+  /**
    * Checks for and grants new achievements to a user based on their actions and score.
    */
   private async _checkAndGrantAchievements(

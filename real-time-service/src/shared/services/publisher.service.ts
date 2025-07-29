@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from '../shared.module';
+import { REDIS_CLIENT } from '../redis.constants';
 
 @Injectable()
 export class PublisherService {
@@ -19,12 +19,11 @@ export class PublisherService {
     try {
       // Redis Streams works with flat key-value pairs.
       // We'll stringify the payload to send it as a single 'data' field.
-      const data = { data: JSON.stringify(payload) };
+      const dataString = JSON.stringify(payload);
 
       // XADD is the command to add a new entry to a stream.
       // '*' tells Redis to auto-generate a unique ID for the entry.
-      await this.redis.xadd(stream, '*', data);
-
+      await this.redis.xadd(stream, '*', 'data', dataString);
       this.logger.log(`Published event to stream '${stream}'`);
     } catch (error) {
       this.logger.error(`Failed to publish event to stream '${stream}'`, error);

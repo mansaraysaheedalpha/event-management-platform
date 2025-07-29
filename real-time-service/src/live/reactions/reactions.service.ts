@@ -1,7 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/services/idempotency.service';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { PublisherService } from 'src/shared/services/publisher.service';
+import { ReactionsGateway } from './reactions.gateway';
+import { OnEvent } from '@nestjs/event-emitter';
 
 /**
  * Service to handle user reactions (emojis) in live sessions.
@@ -16,6 +18,8 @@ export class ReactionsService {
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly publisherService: PublisherService,
+    @Inject(forwardRef(() => ReactionsGateway))
+    private readonly reactionsGateway: ReactionsGateway,
   ) {}
 
   /**
@@ -40,6 +44,10 @@ export class ReactionsService {
     // Set expiration to clean up reaction data after 5 minutes of inactivity, only if not already set
     await this.redis.expire(redisKey, 300, 'NX');
 
+    // --- NEW HEATMAP LOGIC ---
+    void this.publisherService.publish('heatmap-events', { sessionId });
+    // --- END NEW LOGIC ---
+
     // Publish the reaction event for downstream consumers
     const reactionPayload = {
       userId,
@@ -56,5 +64,19 @@ export class ReactionsService {
     } catch (error) {
       this.logger.error('Failed to publish reaction event', error);
     }
+  }
+
+  /**
+   * Listens for sentiment analysis from the Oracle AI.
+   */
+  @OnEvent('oracle.predictions.sentiment.v1')
+  handleMoodAnalytics(payload: { sessionId: string; analytics: any }) {
+    this.logger.log(
+      `Processing mood analytics for session: ${payload.sessionId}`,
+    );
+    this.reactionsGateway.broadcastMoodAnalytics(
+      payload.sessionId,
+      payload.analytics,
+    );
   }
 }

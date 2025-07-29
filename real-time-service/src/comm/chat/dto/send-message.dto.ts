@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 /**
  * DTO for sending a chat message.
@@ -15,6 +15,11 @@ export class SendMessageDto {
   /**
    * A unique key to prevent duplicate message submissions (UUID v4).
    */
-  @IsUUID(4)
+  @IsUUID('4')
+  @IsNotEmpty()
   idempotencyKey: string;
+
+  @IsUUID('4')
+  @IsOptional() // A message does not have to be a reply
+  replyingToMessageId?: string;
 }

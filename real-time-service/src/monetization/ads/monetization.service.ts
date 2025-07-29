@@ -7,6 +7,7 @@ import { getErrorMessage } from 'src/common/utils/error.utils';
 import { AdContent } from 'src/common/interfaces/ad-content.interface';
 import { OfferContent } from 'src/common/interfaces/offer-content.interface';
 import { WaitlistService } from '../waitlist/waitlist.service';
+import { WaitlistNotificationPayload } from 'src/common/interfaces/monetization.interface';
 
 // Add the Waitlist Offer to our DTOs
 interface WaitlistOfferDto {
@@ -88,18 +89,20 @@ export class MonetizationService {
           payload.sessionId,
         );
         if (nextUserId) {
-          // In a real system, you might fetch a special offer or token here
-          const notificationPayload = await this._fetchWaitlistOffer(
-            payload.sessionId,
-          );
-          if (notificationPayload) {
+          const offer = await this._fetchWaitlistOffer(payload.sessionId);
+          if (offer) {
+            // FIX: Construct the correct payload with the sessionId
+            const notificationPayload: WaitlistNotificationPayload = {
+              sessionId: payload.sessionId,
+              ...offer, // Spread the properties from the fetched offer
+            };
             this.monetizationGateway.sendWaitlistNotification(
               nextUserId,
               notificationPayload,
             );
           }
+          break;
         }
-        break;
       }
     }
   }

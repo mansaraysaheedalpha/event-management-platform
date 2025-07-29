@@ -10,9 +10,10 @@ export interface JwtPayload {
   orgId: string; // Active organization context
   role?: string;
   permissions?: string[];
+  tier?: 'default' | 'vip';
   preferredLanguage?: string;
+  sponsorId?: string;
 }
-
 
 /**
  * A WebSocket client that has passed authentication.
@@ -26,4 +27,3 @@ export interface AuthenticatedSocket extends Socket {
     user: JwtPayload;
   };
 }
-

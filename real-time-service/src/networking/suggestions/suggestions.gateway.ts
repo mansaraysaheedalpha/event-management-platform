@@ -1,7 +1,13 @@
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Inject, Logger, forwardRef } from '@nestjs/common';
-import { SuggestionsService } from './suggestions.service';
+import { Logger } from '@nestjs/common';
+
+// Define the shape of the payload we expect from the Oracle AI
+export interface AiSuggestionPayload {
+  type: 'CONNECTION_SUGGESTION' | 'CIRCLE_SUGGESTION';
+  targetUserId: string;
+  // ... other properties from the AI can exist here
+}
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -11,12 +17,12 @@ export class SuggestionsGateway {
   private readonly logger = new Logger(SuggestionsGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(
-    @Inject(forwardRef(() => SuggestionsService))
-    private readonly suggestionsService: SuggestionsService,
-  ) {}
+  constructor() {}
 
-  public sendSuggestion(payload: any) {
+  /**
+   * Listens for internal AI suggestion events and broadcasts them to the target user.
+   */
+  sendSuggestion(payload: AiSuggestionPayload) {
     if (!payload.targetUserId) return;
 
     const userRoom = `user:${payload.targetUserId}`;

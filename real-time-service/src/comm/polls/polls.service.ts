@@ -12,13 +12,14 @@ import { ManagePollDto } from './dto/manage-polls.dto';
 import { Prisma } from '@prisma/client';
 import { SubmitVoteDto } from './dto/submit-vote.dto';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/shared.module';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Inject } from '@nestjs/common';
 import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
 import { GamificationService } from 'src/gamification/gamification.service';
+import { StartGiveawayDto } from './dto/start-giveaway.dto';
 
 @Injectable()
 export class PollsService {
@@ -156,7 +157,7 @@ export class PollsService {
       );
       // 4. After a successful vote, fetch the poll again with the complete,
       // updated results to be broadcasted.
-      return this.getPollWithResults(pollId, tx);
+      return this.getPollWithResults(dto.pollId, userId, tx);
     });
 
     // Award gamification points outside the transaction to avoid rollback on failure
@@ -178,15 +179,15 @@ export class PollsService {
     if (pollWithResults) {
       // REFINED: Use the helper and correct event type
       void this._publishAnalyticsEvent('POLL_VOTE_CAST', {
-        sessionId: pollWithResults.sessionId,
-        pollId: pollWithResults.id,
+        sessionId: pollWithResults.poll.sessionId,
+        pollId: pollWithResults.poll.id,
       });
       // --- NEW: PUBLISH TO STREAM for the Oracle AI ---
       const votePayload = {
         userId,
         pollId: dto.pollId,
         optionId: dto.optionId,
-        sessionId: pollWithResults.sessionId,
+        sessionId: pollWithResults.poll.sessionId,
         voteTimestamp: new Date().toISOString(),
       };
       void this.publisherService.publish(
@@ -207,6 +208,7 @@ export class PollsService {
    */
   private async getPollWithResults(
     pollId: string,
+    userId?: string,
     tx: Prisma.TransactionClient = this.prisma,
   ) {
     // 1. Fetch the main poll data and its options.
@@ -242,7 +244,28 @@ export class PollsService {
       0,
     );
 
-    return { ...poll, options: optionsWithVotes, totalVotes };
+    const publicPollData = { ...poll, options: optionsWithVotes, totalVotes };
+
+    // 2. If a userId is provided, find their specific vote
+    let userVoteId: string | null = null;
+    if (userId) {
+      const userVote = await tx.pollVote.findUnique({
+        where: {
+          userId_pollId: {
+            userId,
+            pollId,
+          },
+        },
+        select: { optionId: true },
+      });
+      userVoteId = userVote?.optionId || null;
+    }
+
+    // 3. Return the data in the "envelope" structure from our spec
+    return {
+      poll: publicPollData,
+      userVotedForOptionId: userVoteId,
+    };
   }
 
   /**
@@ -422,5 +445,76 @@ export class PollsService {
     } catch (error) {
       this.logger.error('Failed to publish analytics event', error);
     }
+  }
+
+  /**
+   * Selects a random winner from users who voted for a specific poll option.
+   */
+  async selectGiveawayWinner(dto: StartGiveawayDto, adminId: string) {
+    // 1. Get all users who voted for the winning option
+    const voters = await this.prisma.pollVote.findMany({
+      where: {
+        pollId: dto.pollId,
+        optionId: dto.winningOptionId,
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    if (voters.length === 0) {
+      this.logger.warn(
+        `No voters found for option ${dto.winningOptionId} in poll ${dto.pollId}. No winner selected.`,
+      );
+      return null;
+    }
+
+    // 2. Select a random winner
+    const winnerIndex = Math.floor(Math.random() * voters.length);
+    const winnerId = voters[winnerIndex].userId;
+
+    // 3. Fetch winner's details and session details for the payload
+    const [winnerDetails, pollDetails] = await Promise.all([
+      this.prisma.userReference.findUnique({
+        where: { id: winnerId },
+        select: { id: true, firstName: true, lastName: true },
+      }),
+      this.prisma.poll.findUnique({
+        where: { id: dto.pollId },
+        select: { sessionId: true },
+      }),
+    ]);
+
+    if (!pollDetails) {
+      throw new NotFoundException(`Poll with ID ${dto.pollId} not found.`);
+    }
+
+    // --- THIS IS THE FIX ---
+    // 4. Fetch the real metadata using our helper to get the organizationId
+    const metadata = await this._getSessionMetadata(pollDetails.sessionId);
+
+    // 5. Publish an audit event with the real organizationId
+    const auditPayload: AuditLogPayload = {
+      action: 'GIVEAWAY_WINNER_SELECTED',
+      actingUserId: adminId,
+      organizationId: metadata.organizationId, // <-- Placeholder removed
+      sessionId: pollDetails.sessionId,
+      details: {
+        pollId: dto.pollId,
+        winningOptionId: dto.winningOptionId,
+        winnerId,
+      },
+    };
+    void this._publishAuditEvent(auditPayload);
+
+    this.logger.log(
+      `User ${winnerId} selected as giveaway winner for poll ${dto.pollId}`,
+    );
+
+    return {
+      pollId: dto.pollId,
+      winner: winnerDetails,
+      prize: dto.prize, // Prize details could be added to the DTO
+    };
   }
 }

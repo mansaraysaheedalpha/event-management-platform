@@ -38,12 +38,18 @@ importers:
       '@nestjs/swagger':
         specifier: ^11.2.0
         version: 11.2.0(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.5)(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)
+      '@nestjs/throttler':
+        specifier: ^6.4.0
+        version: 6.4.0(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.5)(reflect-metadata@0.2.2)
       '@nestjs/websockets':
         specifier: ^11.1.3
         version: 11.1.5(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.5)(@nestjs/platform-socket.io@11.1.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@prisma/client':
         specifier: ^6.11.1
         version: 6.12.0(prisma@6.12.0(typescript@5.8.3))(typescript@5.8.3)
+      '@socket.io/redis-adapter':
+        specifier: ^8.3.0
+        version: 8.3.0(socket.io-adapter@2.5.5)
       axios:
         specifier: ^1.10.0
         version: 1.11.0
@@ -62,6 +68,9 @@ importers:
       passport-jwt:
         specifier: ^4.0.1
         version: 4.0.1
+      redis:
+        specifier: ^5.6.1
+        version: 5.6.1
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -905,6 +914,13 @@ packages:
       '@nestjs/platform-express':
         optional: true
 
+  '@nestjs/throttler@6.4.0':
+    resolution: {integrity: sha512-osL67i0PUuwU5nqSuJjtUJZMkxAnYB4VldgYUMGzvYRJDCqGRFMWbsbzm/CkUtPLRL30I8T74Xgt/OQxnYokiA==}
+    peerDependencies:
+      '@nestjs/common': ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0
+      '@nestjs/core': ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0
+      reflect-metadata: ^0.1.13 || ^0.2.0
+
   '@nestjs/websockets@11.1.5':
     resolution: {integrity: sha512-mAM11HwyS7aeSUbXdOqHbNCRoHwB0OOb+cmx5sgxvszhdG0Y6bwR60nKA4+EXL9xUEeWoxmbfLmSHlTSIJ9GKA==}
     peerDependencies:
@@ -975,6 +991,34 @@ packages:
   '@prisma/get-platform@6.12.0':
     resolution: {integrity: sha512-nRerTGhTlgyvcBlyWgt8OLNIV7QgJS2XYXMJD1hysorMCuLAjuDDuoxmVt7C2nLxbuxbWPp7OuFRHC23HqD9dA==}
 
+  '@redis/bloom@5.6.1':
+    resolution: {integrity: sha512-5/22U76IMEfn6TeZ+uvjXspHw+ykBF0kpBa8xouzeHaQMXs/auqBUOEYzU2VKYDvnd2RSpPTyIg82oB7PpUgLg==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.6.1
+
+  '@redis/client@5.6.1':
+    resolution: {integrity: sha512-bWHmSFIJ5w1Y4aHsYs46XMDHKQsBHFRhNcllYaBxz2Zl+lu+gbm5yI9BqxvKh48bLTs/Wx1Kns0gN2WIasE8MA==}
+    engines: {node: '>= 18'}
+
+  '@redis/json@5.6.1':
+    resolution: {integrity: sha512-cTggVzPIVuiFeXcEcnTRiUzV7rmUvM9KUYxWiHyjsAVACTEUe4ifKkvzrij0H/z3ammU5tfGACffDB3olBwtVA==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.6.1
+
+  '@redis/search@5.6.1':
+    resolution: {integrity: sha512-+eOjx8O2YoKygjqkLpTHqcAq0zKLjior+ee2tRBx/3RSf1+OHxiC9Y6NstshQpvB1XHqTw9n7+f0+MsRJZrp0g==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.6.1
+
+  '@redis/time-series@5.6.1':
+    resolution: {integrity: sha512-sd3q4jMJdoSO2akw1L9NrdFI1JJ6zeMgMUoTh4a34p9sY3AnOI4aDLCecy8L2IcPAP1oNR3TbLFJiCJDQ35QTA==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.6.1
+
   '@scarf/scarf@1.4.0':
     resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
 
@@ -993,6 +1037,12 @@ packages:
 
   '@socket.io/component-emitter@3.1.2':
     resolution: {integrity: sha512-9BCxFwvbGg/RsZK9tjXd8s4UcwR0MWeFQ1XEKIQVVvAGJyINdrqKMcTRyLoK8Rse1GjzLV9cwjWV1olXRWEXVA==}
+
+  '@socket.io/redis-adapter@8.3.0':
+    resolution: {integrity: sha512-ly0cra+48hDmChxmIpnESKrc94LjRL80TEmZVscuQ/WWkRP81nNj8W8cCGMqbI4L6NCuAaPRSzZF1a9GlAxxnA==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      socket.io-adapter: ^2.5.4
 
   '@swc/cli@0.6.0':
     resolution: {integrity: sha512-Q5FsI3Cw0fGMXhmsg7c08i4EmXCrcl+WnAxb6LYOLHw4JFFC3yzmx9LaXZ7QMbA+JZXbigU2TirI7RAfO0Qlnw==}
@@ -2886,6 +2936,9 @@ packages:
     resolution: {integrity: sha512-Ee/R3SyN4BuynXcnTaekmaVdbDAEiNrHqjQIA37mHU8G9pf7aaAD4ZX3XjBLo6rsdcxA/gtkcNYZLt30ACgynw==}
     engines: {node: '>=14.16'}
 
+  notepack.io@3.0.1:
+    resolution: {integrity: sha512-TKC/8zH5pXIAMVQio2TvVDTtPRX+DJPHDqjRbxogtFiByHyzKmy96RA0JtCQJ+WouyyL4A10xomQzgbUT+1jCg==}
+
   npm-run-path@4.0.1:
     resolution: {integrity: sha512-S48WzZW777zhNIrn7gxOlISNAqi9ZC/uQFnRdbeIHhZhCA6UqpkOT8T1G7BvfdgP4Er8gF4sUbaS0i7QvIfCWw==}
     engines: {node: '>=8'}
@@ -3119,6 +3172,10 @@ packages:
   redis-parser@3.0.0:
     resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
     engines: {node: '>=4'}
+
+  redis@5.6.1:
+    resolution: {integrity: sha512-O9DwAvcBm/lrlkGE0A6gNBtUdA8J9oD9njeLYlLzmm+MGTR7nd7VkpspfXqeXFg3gm89zldDqckyaHhXfhY80g==}
+    engines: {node: '>= 18'}
 
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
@@ -3574,6 +3631,10 @@ packages:
     resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  uid2@1.0.0:
+    resolution: {integrity: sha512-+I6aJUv63YAcY9n4mQreLUt0d4lvwkkopDNmpomkAUz0fAkEMV9pRWxN0EjhW1YfRhcuyHg2v3mwddCDW1+LFQ==}
+    engines: {node: '>= 4.0.0'}
 
   uid@2.0.2:
     resolution: {integrity: sha512-u3xV3X7uzvi5b1MncmZo3i2Aw222Zk1keqLA1YkHldREkAhAqi65wuPfe7lHx8H/Wzy+8CE7S7uS3jekIM5s8g==}
@@ -4622,6 +4683,12 @@ snapshots:
     optionalDependencies:
       '@nestjs/platform-express': 11.1.5(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.5)
 
+  '@nestjs/throttler@6.4.0(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.5)(reflect-metadata@0.2.2)':
+    dependencies:
+      '@nestjs/common': 11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core': 11.1.5(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.5)(@nestjs/websockets@11.1.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      reflect-metadata: 0.2.2
+
   '@nestjs/websockets@11.1.5(@nestjs/common@11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.5)(@nestjs/platform-socket.io@11.1.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)':
     dependencies:
       '@nestjs/common': 11.1.5(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -4688,6 +4755,26 @@ snapshots:
     dependencies:
       '@prisma/debug': 6.12.0
 
+  '@redis/bloom@5.6.1(@redis/client@5.6.1)':
+    dependencies:
+      '@redis/client': 5.6.1
+
+  '@redis/client@5.6.1':
+    dependencies:
+      cluster-key-slot: 1.1.2
+
+  '@redis/json@5.6.1(@redis/client@5.6.1)':
+    dependencies:
+      '@redis/client': 5.6.1
+
+  '@redis/search@5.6.1(@redis/client@5.6.1)':
+    dependencies:
+      '@redis/client': 5.6.1
+
+  '@redis/time-series@5.6.1(@redis/client@5.6.1)':
+    dependencies:
+      '@redis/client': 5.6.1
+
   '@scarf/scarf@1.4.0': {}
 
   '@sinclair/typebox@0.27.8': {}
@@ -4703,6 +4790,15 @@ snapshots:
       '@sinonjs/commons': 3.0.1
 
   '@socket.io/component-emitter@3.1.2': {}
+
+  '@socket.io/redis-adapter@8.3.0(socket.io-adapter@2.5.5)':
+    dependencies:
+      debug: 4.3.7
+      notepack.io: 3.0.1
+      socket.io-adapter: 2.5.5
+      uid2: 1.0.0
+    transitivePeerDependencies:
+      - supports-color
 
   '@swc/cli@0.6.0(@swc/core@1.13.2)(chokidar@4.0.3)':
     dependencies:
@@ -6909,6 +7005,8 @@ snapshots:
 
   normalize-url@8.0.2: {}
 
+  notepack.io@3.0.1: {}
+
   npm-run-path@4.0.1:
     dependencies:
       path-key: 3.1.1
@@ -7114,6 +7212,14 @@ snapshots:
   redis-parser@3.0.0:
     dependencies:
       redis-errors: 1.2.0
+
+  redis@5.6.1:
+    dependencies:
+      '@redis/bloom': 5.6.1(@redis/client@5.6.1)
+      '@redis/client': 5.6.1
+      '@redis/json': 5.6.1(@redis/client@5.6.1)
+      '@redis/search': 5.6.1(@redis/client@5.6.1)
+      '@redis/time-series': 5.6.1(@redis/client@5.6.1)
 
   reflect-metadata@0.2.2: {}
 
@@ -7610,6 +7716,8 @@ snapshots:
       - supports-color
 
   typescript@5.8.3: {}
+
+  uid2@1.0.0: {}
 
   uid@2.0.2:
     dependencies:

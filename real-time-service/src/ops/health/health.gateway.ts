@@ -63,7 +63,6 @@ export class HealthGateway {
       );
     }
 
-
     await client.join(HealthGateway.HEALTH_ROOM);
     this.logger.log(`Super-admin ${user.sub} joined system health stream.`);
 

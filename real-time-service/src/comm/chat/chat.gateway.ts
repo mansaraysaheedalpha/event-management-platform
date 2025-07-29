@@ -15,6 +15,7 @@ import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { ReactToMessageDto } from './dto/react-to-message.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -34,6 +35,10 @@ export class ChatGateway {
    * @param client - The connected WebSocket client (with authentication).
    * @returns An object containing success status and message ID or error.
    */
+  @Throttle({
+    default: { limit: 100, ttl: 60000 },
+    vip: { limit: 500, ttl: 60000 },
+  }) // Apply specific limits for this action
   @SubscribeMessage('chat.message.send')
   async handleSendMessage(
     @MessageBody() dto: SendMessageDto,

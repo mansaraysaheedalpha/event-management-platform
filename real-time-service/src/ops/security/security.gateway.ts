@@ -5,12 +5,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import {
-  ForbiddenException,
-  Inject,
-  Logger,
-  forwardRef,
-} from '@nestjs/common';
+import { ForbiddenException, Inject, Logger, forwardRef } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { SecurityService } from './security.service';
@@ -23,7 +18,7 @@ import { SecurityAlertPayload } from 'src/common/interfaces/security.interface';
  * @example
  * // Client emits:
  * socket.emit('ops.security.join');
- * 
+ *
  * // Server pushes:
  * socket.on('ops.security.alert', (payload) => handleAlert(payload));
  */
