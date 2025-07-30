@@ -866,6 +866,14 @@ components:
         resource_id: { type: string }
         current_level: { type: integer }
         capacity: { type: integer }
+
+    TicketAvailabilityUpdate:
+      type: object
+      properties:
+        eventId: { type: string }
+        ticketTypeId: { type: string }
+        status: { type: string, enum: [AVAILABLE, SOLD_OUT, LOW_STOCK] }
+        ticketsRemaining: { type: integer }
     # --- Helper Schemas ---
     ErrorResponse:
       type: object
