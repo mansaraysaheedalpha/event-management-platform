@@ -3,8 +3,9 @@ info:
   title: Event Management Microservice API
   version: 1.1.0
   description: >
-    API for managing the full lifecycle of events, including sessions, speakers, venues, and registrations.
-    All resources are scoped to an organization for strict data isolation.
+     A world-class API for managing the full lifecycle of events using an Event Sourcing pattern.
+     It handles Events, Sessions, Speakers, Venues, Registrations, and reusable Event Blueprints.
+     All resources are treated as dynamic, bookable assets within a multi-tenant organization.
 servers:
   - url: http://localhost:8000/api/events/v1 # Port updated for clarity
     description: Local development server for Events Service
@@ -13,16 +14,21 @@ security:
 tags:
   - name: Events
     description: Operations for managing events within an organization.
+  - name: Event History
+    description: Endpoints for retrieving the historical log of an event.
   - name: Sessions
     description: Operations for managing sessions within a specific event.
+  - name: Speakers
+    description:  Organization-level management of speakers as bookable resources.
+  - name: Venues
+    description: Organization-level management of venues as bookable resources.
+  - name: Event Blueprints 
+    description: Create and manage reusable templates for events.
   - name: Presentations
     description: Manages speakers presentation contents(files, or slides etc)
   - name: Registrations
     description: Operations related to attendee registration for events.
-  - name: Speakers
-    description: Organization-level management of speakers.
-  - name: Venues
-    description: Organization-level management of venues.
+  
   - name: Public
     description: Unauthenticated endpoints for public event discovery.
   - name: Internal # NEW TAG
@@ -89,6 +95,107 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /organizations/{orgId}/events/{eventId}/history:
+    get:
+      tags: [Event History]
+      summary: Get the historical event log for an event
+      operationId: getEventHistory
+      description: >
+        Retrieves a chronological log of all domain events that have occurred for a specific event.
+        This provides a complete audit trail and allows for "time travel".
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "A list of domain events for the specified event."
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DomainEvent"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+   # --- ENHANCED ENDPOINTS FOR SPEAKERS (DYNAMIC RESOURCE MANAGEMENT) ---
+  /organizations/{orgId}/speakers/availability:
+    get:
+      tags: [Speakers]
+      summary: Find available speakers
+      operationId: findAvailableSpeakers
+      description: >
+        Queries for speakers based on expertise, availability, and other criteria.
+      parameters:
+        - { name: orgId, in: path, required: true, schema: { type: string } }
+        - { name: expertise, in: query, schema: { type: string } }
+        - { name: available_from, in: query, schema: { type: string, format: "date-time" } }
+        - { name: available_to, in: query, schema: { type: string, format: "date-time" } }
+      responses:
+        "200":
+          description: "A list of available speakers matching the criteria."
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Speaker"
+  
+  # --- NEW ENDPOINTS FOR EVENT BLUEPRINTS ---
+  /organizations/{orgId}/blueprints:
+    post:
+      tags: [Event Blueprints]
+      summary: Create an event blueprint
+      operationId: createBlueprint
+      description: Creates a new reusable event template.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/BlueprintRequest"
+      responses:
+        "201":
+          description: "Blueprint created successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventBlueprint"
+    get:
+      tags: [Event Blueprints]
+      summary: List event blueprints
+      operationId: listBlueprints
+      description: Retrieves all available event blueprints for an organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      responses:
+        "200":
+          description: "A list of event blueprints."
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventBlueprint"
+
+  /organizations/{orgId}/blueprints/{blueprintId}/instantiate:
+    post:
+      tags: [Event Blueprints]
+      summary: Instantiate an event from a blueprint
+      operationId: instantiateBlueprint
+      description: Creates a new, fully configured event from a saved blueprint.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - { name: blueprintId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        $ref: "#/components/requestBodies/InstantiateBlueprintRequest"
+      responses:
+        "201":
+          description: "New event created from blueprint successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
 
   /organizations/{orgId}/events/{eventId}:
     get:
@@ -522,6 +629,47 @@ paths:
         "202":
           description: "Accepted. The notification has been received."
 
+    # --- NEW ENDPOINT FOR PUBLISHING ---
+  /organizations/{orgId}/events/{eventId}/publish:
+    post:
+      tags: [Events]
+      summary: Publish a draft event
+      operationId: publishEvent
+      description: >
+        Changes the status of an event from 'draft' to 'published', making it publicly visible.
+        This is an immutable action.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "Event published successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "409":
+          description: "Conflict. The event is already published or archived."
+          
+  # --- NEW ENDPOINT FOR OFFLINE SYNC ---
+  /organizations/{orgId}/events/{eventId}/sync-bundle:
+    get:
+      tags: [Events]
+      summary: Get event data bundle for offline sync
+      operationId: getEventSyncBundle
+      description: >
+        Retrieves all necessary data for a single event (sessions, speakers, venues, etc.)
+        in one single payload, optimized for offline client synchronization.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "A complete data bundle for the event."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSyncBundle"
 # --- Reusable Components ---
 components:
   securitySchemes:
@@ -549,6 +697,25 @@ components:
       { name: sessionId, in: path, required: true, schema: { type: string } }
       
   requestBodies:
+    BlueprintRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name: { type: string }
+              description: { type: string }
+              template: { type: object }
+    InstantiateBlueprintRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name: { type: string, description: "The name for the new event." }
+              start_date: { type: string, format: "date-time", description: "The start date for the new event." }
     EventRequest:
       required: true
       content:
@@ -649,13 +816,52 @@ components:
         id: { type: string, readOnly: true }
         organization_id: { type: string, readOnly: true }
         name: { type: string, example: "Global AI Summit" }
+        version: # <-- ADD THIS
+          type: integer
+          description: "The current version number of the event state, incremented with each change."
+          readOnly: true
         description: { type: string, nullable: true }
-        status: { type: string, enum: [draft, published, archived] }
+        status: { type: string, enum: [draft, published, archived], description: "The current publication status of the event." }
         start_date: { type: string, format: "date-time",  description: "The event start timestamp in UTC format (ISO 8601)." }
         end_date: { type: string, format: "date-time", description: "The event end timestamp in UTC format (ISO 8601)."}
         venue_id: { type: string, nullable: true }
         is_public: { type: boolean, default: false }
         createdAt: { type: string, format: "date-time", readOnly: true }
+        updatedAt: { type: string, format: "date-time", readOnly: true } # <-- ADD THIS
+     # --- NEW DomainEvent SCHEMA ---
+    DomainEvent:
+      type: object
+      required: [id, eventType, timestamp, version]
+      properties:
+        id: { type: string, readOnly: true }
+        eventType:
+          type: string
+          description: "The type of event that occurred."
+          example: "EventRenamed"
+        timestamp:
+          type: string
+          format: "date-time"
+          description: "The exact UTC time the event occurred."
+        version:
+          type: integer
+          description: "The version of the aggregate state after this event was applied."
+        userId:
+          type: string
+          description: "The ID of the user who initiated the event."
+        data:
+          type: object
+          description: "The payload containing the specific details of the event."
+          example: { "newName": "The Ultimate AI Summit" }
+  
+    EventBlueprint:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string, example: "Annual Sales Kick-off" }
+        description: { type: string }
+        template:
+          type: object
+          description: "The template containing the structure of the event."
     Session:
       type: object
       properties:
@@ -678,14 +884,26 @@ components:
         status: { type: string, enum: [confirmed, cancelled, checked_in] }
         ticket_type_id: { type: string, nullable: true }
         createdAt: { type: string, format: "date-time", readOnly: true }
-    Speaker:
+    Speaker: # <-- ENHANCED for Dynamic Resource Management
       type: object
       properties:
         id: { type: string, readOnly: true }
-        organization_id: { type: string, readOnly: true }
         name: { type: string, example: "Dr. Evelyn Reed" }
         bio: { type: string, nullable: true }
-        # other speaker fields...
+        expertise:
+          type: array
+          items:
+            type: string
+          example: ["AI", "Machine Learning", "Python"]
+        bookings:
+          type: array
+          readOnly: true
+          items:
+            type: object
+            properties:
+              session_id: { type: string }
+              start_time: { type: string, format: "date-time" }
+              end_time: { type: string, format: "date-time" }
     Venue:
       type: object
       properties:
@@ -866,7 +1084,6 @@ components:
         resource_id: { type: string }
         current_level: { type: integer }
         capacity: { type: integer }
-
     TicketAvailabilityUpdate:
       type: object
       properties:
@@ -874,6 +1091,24 @@ components:
         ticketTypeId: { type: string }
         status: { type: string, enum: [AVAILABLE, SOLD_OUT, LOW_STOCK] }
         ticketsRemaining: { type: integer }
+     # --- NEW SCHEMA FOR THE SYNC BUNDLE ---
+    EventSyncBundle:
+      type: object
+      properties:
+        event:
+          $ref: "#/components/schemas/Event"
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        speakers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Speaker"
+        venues:
+          type: array
+          items:
+            $ref: "#/components/schemas/Venue"
     # --- Helper Schemas ---
     ErrorResponse:
       type: object
