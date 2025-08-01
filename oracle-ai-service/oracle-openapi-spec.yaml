@@ -1,0 +1,3047 @@
+openapi: 3.0.3
+info:
+  title: Oracle Microservice API
+  description: AI-powered predictions, analytics, and intelligent recommendations for events.
+  version: 1.0.0
+  contact:
+    name: Oracle API Support
+    email: oracle-support@eventplatform.com
+
+servers:
+  - url: https://api.eventplatform.com/oracle/v1
+    description: Production server
+  - url: https://staging-api.eventplatform.com/oracle/v1
+    description: Staging server
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Predictive Analytics
+    description: Endpoints for forecasting and calculating event metrics.
+  - name: Sentiment & Behavior Analysis
+    description: Endpoints for analyzing user sentiment and behavior patterns.
+  - name: AI-Powered Networking & Matchmaking
+    description: Endpoints for smart networking and recommendations.
+  - name: Dynamic Optimization
+    description: Endpoints for optimizing schedules, capacity, and resources.
+  - name: Recommendations
+    description: Endpoints for personalized content and speaker suggestions.
+  - name: Advanced Predictions
+    description: High-level predictions for event creation, trends, and risk.
+  - name: Global Intelligence
+    description: Endpoints for market analysis and cultural adaptation.
+  - name: AI Assistant
+    description: Endpoints for the AI concierge and smart notifications.
+  - name: Advanced Analytics & Reporting
+    description: Endpoints for generating insights and custom reports.
+  - name: Model Management
+    description: Endpoints for managing and deploying ML models.
+  - name: A/B Testing
+    description: Endpoints for managing A/B testing experiments.
+  - name: Health
+    description: Service health check.
+
+paths:
+  # Predictive Analytics Endpoints
+  /analytics/event-timing:
+    post:
+      summary: Get optimal event timing predictions
+      description: Predict the best time to schedule events based on historical data and market trends.
+      tags: [Predictive Analytics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventTimingRequest'
+      responses:
+        '200':
+          description: Optimal timing predictions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTimingResponse'
+
+  /analytics/attendance-forecast:
+    post:
+      summary: Forecast event attendance
+      description: Predict final attendance numbers based on current registrations and trends.
+      tags: [Predictive Analytics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceForecastRequest'
+      responses:
+        '200':
+          description: Attendance predictions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceForecastResponse'
+
+  /analytics/success-probability:
+    post:
+      summary: Calculate event success probability
+      description: Predict likelihood of event success based on multiple factors.
+      tags: [Predictive Analytics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuccessProbabilityRequest'
+      responses:
+        '200':
+          description: Success probability calculation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessProbabilityResponse'
+
+  /analytics/engagement-prediction:
+    post:
+      summary: Predict session engagement
+      description: Forecast which sessions will be most popular.
+      tags: [Predictive Analytics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngagementPredictionRequest'
+      responses:
+        '200':
+          description: Engagement predictions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementPredictionResponse'
+
+  /analytics/roi-calculation:
+    post:
+      summary: Calculate real-time ROI
+      description: Predict event profitability and ROI metrics.
+      tags: [Predictive Analytics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ROICalculationRequest'
+      responses:
+        '200':
+          description: ROI calculations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ROICalculationResponse'
+
+  # Sentiment & Behavior Analysis
+  /analysis/sentiment:
+    post:
+      summary: Analyze sentiment
+      description: Analyze sentiment from chat messages, feedback, and other text data.
+      tags: [Sentiment & Behavior Analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SentimentAnalysisRequest'
+      responses:
+        '200':
+          description: Sentiment analysis results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SentimentAnalysisResponse'
+
+  /analysis/engagement-scoring:
+    post:
+      summary: Calculate engagement scores
+      description: Score user engagement levels in real-time.
+      tags: [Sentiment & Behavior Analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngagementScoringRequest'
+      responses:
+        '200':
+          description: Engagement scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngagementScoringResponse'
+
+  /analysis/audience-segmentation:
+    post:
+      summary: Segment audience
+      description: Dynamically group attendees based on behavior and preferences.
+      tags: [Sentiment & Behavior Analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AudienceSegmentationRequest'
+      responses:
+        '200':
+          description: Audience segments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudienceSegmentationResponse'
+
+  /analysis/behavioral-patterns:
+    post:
+      summary: Analyze behavioral patterns
+      description: Identify user journey patterns and behavior trends.
+      tags: [Sentiment & Behavior Analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BehavioralPatternRequest'
+      responses:
+        '200':
+          description: Behavioral pattern analysis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehavioralPatternResponse'
+
+  # AI-Powered Networking & Matchmaking
+  /networking/matchmaking:
+    post:
+      summary: Get networking matches
+      description: AI-powered attendee matching for networking.
+      tags: [AI-Powered Networking & Matchmaking]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchmakingRequest'
+      responses:
+        '200':
+          description: Networking matches.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchmakingResponse'
+
+  /networking/conversation-starters:
+    post:
+      summary: Get conversation starters
+      description: AI-generated ice-breaker suggestions for networking.
+      tags: [AI-Powered Networking & Matchmaking]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationStarterRequest'
+      responses:
+        '200':
+          description: Conversation starters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationStarterResponse'
+
+  /networking/booth-suggestions:
+    post:
+      summary: Get booth suggestions
+      description: Suggest relevant exhibitor booths for attendees.
+      tags: [AI-Powered Networking & Matchmaking]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BoothSuggestionRequest'
+      responses:
+        '200':
+          description: Booth suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoothSuggestionResponse'
+
+  # Dynamic Optimization
+  /optimization/schedule:
+    post:
+      summary: Optimize event schedule
+      description: Suggest schedule optimizations to reduce crowding.
+      tags: [Dynamic Optimization]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleOptimizationRequest'
+      responses:
+        '200':
+          description: Schedule optimization suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleOptimizationResponse'
+
+  /optimization/capacity-management:
+    post:
+      summary: Manage capacity
+      description: Predict and manage session capacity.
+      tags: [Dynamic Optimization]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CapacityManagementRequest'
+      responses:
+        '200':
+          description: Capacity management recommendations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityManagementResponse'
+
+  /optimization/resource-allocation:
+    post:
+      summary: Optimize resource allocation
+      description: Optimize staff deployment and resource allocation.
+      tags: [Dynamic Optimization]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceAllocationRequest'
+      responses:
+        '200':
+          description: Resource allocation optimization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceAllocationResponse'
+
+  # Recommendations
+  /recommendations/content:
+    post:
+      summary: Get content recommendations
+      description: Personalized session and content recommendations.
+      tags: [Recommendations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentRecommendationRequest'
+      responses:
+        '200':
+          description: Content recommendations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentRecommendationResponse'
+
+  /recommendations/speakers:
+    post:
+      summary: Get speaker recommendations
+      description: AI-powered speaker suggestions for events.
+      tags: [Recommendations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpeakerRecommendationRequest'
+      responses:
+        '200':
+          description: Speaker recommendations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpeakerRecommendationResponse'
+
+  # Advanced Predictions
+  /predictions/event-creation:
+    post:
+      summary: Predict event creation
+      description: AI suggests entire events based on market trends.
+      tags: [Advanced Predictions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCreationPredictionRequest'
+      responses:
+        '200':
+          description: Event creation suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventCreationPredictionResponse'
+
+  /predictions/trend-tracking:
+    post:
+      summary: Track innovation trends
+      description: Identify emerging topics and trends.
+      tags: [Advanced Predictions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrendTrackingRequest'
+      responses:
+        '200':
+          description: Trend tracking results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendTrackingResponse'
+
+  /predictions/churn-prediction:
+    post:
+      summary: Predict attendee churn
+      description: Identify at-risk attendees likely to leave.
+      tags: [Advanced Predictions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChurnPredictionRequest'
+      responses:
+        '200':
+          description: Churn prediction results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChurnPredictionResponse'
+
+  /predictions/crisis-prediction:
+    post:
+      summary: Predict potential crises
+      description: Predict and help manage potential event issues.
+      tags: [Advanced Predictions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrisisPredictionRequest'
+      responses:
+        '200':
+          description: Crisis prediction results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CrisisPredictionResponse'
+
+  # Global Intelligence
+  /intelligence/cultural-adaptation:
+    post:
+      summary: Adapt content culturally
+      description: Adapt content to local customs and preferences.
+      tags: [Global Intelligence]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CulturalAdaptationRequest'
+      responses:
+        '200':
+          description: Cultural adaptation suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CulturalAdaptationResponse'
+
+  /intelligence/market-analysis:
+    post:
+      summary: Analyze market trends
+      description: Global event industry insights and analysis.
+      tags: [Global Intelligence]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketAnalysisRequest'
+      responses:
+        '200':
+          description: Market analysis results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketAnalysisResponse'
+
+  /intelligence/competitive-analysis:
+    post:
+      summary: Analyze competitor strategies
+      description: Competitive intelligence and strategy analysis.
+      tags: [Global Intelligence]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompetitiveAnalysisRequest'
+      responses:
+        '200':
+          description: Competitive analysis results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompetitiveAnalysisResponse'
+
+  # AI Assistant
+  /assistant/concierge:
+    post:
+      summary: AI concierge interaction
+      description: AI-powered support for attendees and speakers.
+      tags: [AI Assistant]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConciergeRequest'
+      responses:
+        '200':
+          description: AI concierge response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConciergeResponse'
+
+  /assistant/smart-notifications:
+    post:
+      summary: Get smart notification timing
+      description: Optimal alert scheduling based on user behavior.
+      tags: [AI Assistant]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartNotificationRequest'
+      responses:
+        '200':
+          description: Smart notification timing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartNotificationResponse'
+
+  # Advanced Analytics & Reporting
+  /reporting/insights:
+    post:
+      summary: Generate AI-driven insights
+      description: Automatically analyze event data to uncover trends, anomalies, and key takeaways.
+      tags: [Advanced Analytics & Reporting]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsightsRequest'
+      responses:
+        '200':
+          description: Generated insights and analysis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsightsResponse'
+
+  /reporting/benchmarking:
+    post:
+      summary: Benchmark event performance
+      description: Compare event performance against historical data and industry standards.
+      tags: [Advanced Analytics & Reporting]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BenchmarkingRequest'
+      responses:
+        '200':
+          description: Performance benchmarking results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BenchmarkingResponse'
+
+  # Model Management
+  /models/versions:
+    get:
+      summary: List model versions
+      description: Get available ML model versions.
+      tags: [Model Management]
+      responses:
+        '200':
+          description: Model versions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersionsResponse'
+
+  /models/deploy:
+    post:
+      summary: Deploy model version
+      description: Deploy a specific model version.
+      tags: [Model Management]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelDeployRequest'
+      responses:
+        '200':
+          description: Model deployment result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDeployResponse'
+
+  /models/performance:
+    get:
+      summary: Get model performance metrics
+      description: Retrieve performance metrics for deployed models.
+      tags: [Model Management]
+      parameters:
+        - name: model_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model performance metrics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelPerformanceResponse'
+
+  # A/B Testing
+  /ab-testing/experiments:
+    post:
+      summary: Create A/B test experiment
+      description: Create new A/B testing experiment for model comparison.
+      tags: [A/B Testing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ABTestExperimentRequest'
+      responses:
+        '200':
+          description: A/B test experiment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ABTestExperimentResponse'
+
+  /ab-testing/results:
+    get:
+      summary: Get A/B test results
+      description: Retrieve results from A/B testing experiments.
+      tags: [A/B Testing]
+      parameters:
+        - name: experiment_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A/B test results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ABTestResultsResponse'
+
+  # Health Check
+  /health:
+    get:
+      summary: Health check
+      description: Check service health and status of its components (ML models, data streams).
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+  # Request/Response schemas for Predictive Analytics
+    EventTimingRequest:
+      type: object
+      required:
+        - event_type
+        - target_audience
+        - location
+      properties:
+        event_type:
+          type: string
+          enum: [conference, workshop, webinar, networking, exhibition]
+        target_audience:
+          type: string
+        location:
+          type: string
+        duration_hours:
+          type: number
+        historical_data:
+          type: boolean
+          default: true
+
+    EventTimingResponse:
+      type: object
+      properties:
+        optimal_date:
+          type: string
+          format: date
+        optimal_time:
+          type: string
+          format: time
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        alternative_dates:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              time:
+                type: string
+                format: time
+              confidence_score:
+                type: number
+        reasoning:
+          type: string
+
+    AttendanceForecastRequest:
+      type: object
+      required:
+        - event_id
+        - current_registrations
+        - days_until_event
+      properties:
+        event_id:
+          type: string
+        current_registrations:
+          type: integer
+        days_until_event:
+          type: integer
+        marketing_spend:
+          type: number
+        event_type:
+          type: string
+        historical_similar_events:
+          type: array
+          items:
+            type: string
+
+    AttendanceForecastResponse:
+      type: object
+      properties:
+        predicted_final_attendance:
+          type: integer
+        confidence_interval:
+          type: object
+          properties:
+            lower_bound:
+              type: integer
+            upper_bound:
+              type: integer
+        growth_trajectory:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              predicted_registrations:
+                type: integer
+        factors_influencing:
+          type: array
+          items:
+            type: object
+            properties:
+              factor:
+                type: string
+              impact_score:
+                type: number
+
+    SuccessProbabilityRequest:
+      type: object
+      required:
+        - event_id
+        - event_metrics
+      properties:
+        event_id:
+          type: string
+        event_metrics:
+          type: object
+          properties:
+            registration_rate:
+              type: number
+            speaker_quality_score:
+              type: number
+            marketing_reach:
+              type: number
+            venue_rating:
+              type: number
+            ticket_price:
+              type: number
+            competition_level:
+              type: number
+
+    SuccessProbabilityResponse:
+      type: object
+      properties:
+        success_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        success_factors:
+          type: array
+          items:
+            type: object
+            properties:
+              factor:
+                type: string
+              contribution:
+                type: number
+        risk_factors:
+          type: array
+          items:
+            type: object
+            properties:
+              risk:
+                type: string
+              severity:
+                type: string
+                enum: [low, medium, high]
+              mitigation_suggestions:
+                type: array
+                items:
+                  type: string
+
+    EngagementPredictionRequest:
+      type: object
+      required:
+        - event_id
+        - sessions
+      properties:
+        event_id:
+          type: string
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              title:
+                type: string
+              speaker_id:
+                type: string
+              topic:
+                type: string
+              duration:
+                type: integer
+              scheduled_time:
+                type: string
+                format: date-time
+
+    EngagementPredictionResponse:
+      type: object
+      properties:
+        session_predictions:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              predicted_attendance:
+                type: integer
+              engagement_score:
+                type: number
+              popularity_rank:
+                type: integer
+              recommended_actions:
+                type: array
+                items:
+                  type: string
+
+    ROICalculationRequest:
+      type: object
+      required:
+        - event_id
+        - financial_data
+      properties:
+        event_id:
+          type: string
+        financial_data:
+          type: object
+          properties:
+            total_costs:
+              type: number
+            revenue_sources:
+              type: array
+              items:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  amount:
+                    type: number
+            current_registrations:
+              type: integer
+            ticket_price:
+              type: number
+
+    ROICalculationResponse:
+      type: object
+      properties:
+        predicted_roi:
+          type: number
+        break_even_point:
+          type: integer
+        profit_projection:
+          type: number
+        revenue_optimization_suggestions:
+          type: array
+          items:
+            type: string
+        cost_reduction_opportunities:
+          type: array
+          items:
+            type: string
+
+    # Sentiment Analysis schemas
+    SentimentAnalysisRequest:
+      type: object
+      required:
+        - text_data
+      properties:
+        text_data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              text:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+              source:
+                type: string
+                enum: [chat, feedback, social, survey]
+              user_id:
+                type: string
+
+    SentimentAnalysisResponse:
+      type: object
+      properties:
+        overall_sentiment:
+          type: object
+          properties:
+            score:
+              type: number
+              minimum: -1
+              maximum: 1
+            label:
+              type: string
+              enum: [positive, negative, neutral]
+            confidence:
+              type: number
+        individual_results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              sentiment_score:
+                type: number
+              sentiment_label:
+                type: string
+              confidence:
+                type: number
+              emotions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    emotion:
+                      type: string
+                    intensity:
+                      type: number
+        trending_topics:
+          type: array
+          items:
+            type: object
+            properties:
+              topic:
+                type: string
+              sentiment:
+                type: string
+              frequency:
+                type: integer
+
+    # Engagement Scoring schemas
+    EngagementScoringRequest:
+      type: object
+      required:
+        - user_interactions
+      properties:
+        user_interactions:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              interaction_type:
+                type: string
+                enum: [click, scroll, chat, poll_vote, question, network_connection]
+              timestamp:
+                type: string
+                format: date-time
+              duration:
+                type: integer
+              session_id:
+                type: string
+              additional_data:
+                type: object
+
+    EngagementScoringResponse:
+      type: object
+      properties:
+        user_scores:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              engagement_score:
+                type: number
+                minimum: 0
+                maximum: 100
+              engagement_level:
+                type: string
+                enum: [low, medium, high, very_high]
+              key_activities:
+                type: array
+                items:
+                  type: string
+              recommendations:
+                type: array
+                items:
+                  type: string
+        session_engagement:
+          type: object
+          properties:
+            session_id:
+              type: string
+            average_engagement:
+              type: number
+            peak_engagement_time:
+              type: string
+              format: date-time
+            engagement_trends:
+              type: array
+              items:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  score:
+                    type: number
+
+    # Audience Segmentation schemas
+    AudienceSegmentationRequest:
+      type: object
+      required:
+        - event_id
+        - attendee_data
+      properties:
+        event_id:
+          type: string
+        attendee_data:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              demographics:
+                type: object
+              behavior_data:
+                type: object
+              preferences:
+                type: object
+              engagement_history:
+                type: array
+                items:
+                  type: object
+
+    AudienceSegmentationResponse:
+      type: object
+      properties:
+        segments:
+          type: array
+          items:
+            type: object
+            properties:
+              segment_id:
+                type: string
+              segment_name:
+                type: string
+              description:
+                type: string
+              size:
+                type: integer
+              characteristics:
+                type: array
+                items:
+                  type: string
+              recommended_content:
+                type: array
+                items:
+                  type: string
+              members:
+                type: array
+                items:
+                  type: string
+        segmentation_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    # Behavioral Pattern schemas
+    BehavioralPatternRequest:
+      type: object
+      required:
+        - user_journeys
+      properties:
+        user_journeys:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              journey_steps:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    step:
+                      type: string
+                    timestamp:
+                      type: string
+                      format: date-time
+                    duration:
+                      type: integer
+                    outcome:
+                      type: string
+
+    BehavioralPatternResponse:
+      type: object
+      properties:
+        common_patterns:
+          type: array
+          items:
+            type: object
+            properties:
+              pattern_id:
+                type: string
+              pattern_name:
+                type: string
+              frequency:
+                type: integer
+              typical_sequence:
+                type: array
+                items:
+                  type: string
+              success_rate:
+                type: number
+        user_classifications:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              primary_pattern:
+                type: string
+              pattern_confidence:
+                type: number
+              predicted_next_actions:
+                type: array
+                items:
+                  type: string
+
+    # Matchmaking schemas
+    MatchmakingRequest:
+      type: object
+      required:
+        - user_id
+        - event_id
+      properties:
+        user_id:
+          type: string
+        event_id:
+          type: string
+        preferences:
+          type: object
+          properties:
+            industries:
+              type: array
+              items:
+                type: string
+            roles:
+              type: array
+              items:
+                type: string
+            experience_levels:
+              type: array
+              items:
+                type: string
+            networking_goals:
+              type: array
+              items:
+                type: string
+        max_matches:
+          type: integer
+          default: 10
+
+    MatchmakingResponse:
+      type: object
+      properties:
+        matches:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              match_score:
+                type: number
+                minimum: 0
+                maximum: 1
+              common_interests:
+                type: array
+                items:
+                  type: string
+              match_reasons:
+                type: array
+                items:
+                  type: string
+              suggested_meeting_times:
+                type: array
+                items:
+                  type: string
+                  format: date-time
+              conversation_starters:
+                type: array
+                items:
+                  type: string
+
+    # Conversation Starter schemas
+    ConversationStarterRequest:
+      type: object
+      required:
+        - user1_id
+        - user2_id
+      properties:
+        user1_id:
+          type: string
+        user2_id:
+          type: string
+        context:
+          type: object
+          properties:
+            event_id:
+              type: string
+            session_id:
+              type: string
+            common_interests:
+              type: array
+              items:
+                type: string
+            meeting_context:
+              type: string
+              enum: [networking_session, coffee_break, booth_visit, after_session]
+
+    ConversationStarterResponse:
+      type: object
+      properties:
+        conversation_starters:
+          type: array
+          items:
+            type: object
+            properties:
+              starter:
+                type: string
+              category:
+                type: string
+                enum: [professional, personal, event_related, industry_specific]
+              confidence:
+                type: number
+              follow_up_questions:
+                type: array
+                items:
+                  type: string
+
+    # Booth Suggestion schemas
+    BoothSuggestionRequest:
+      type: object
+      required:
+        - user_id
+        - event_id
+      properties:
+        user_id:
+          type: string
+        event_id:
+          type: string
+        user_profile:
+          type: object
+          properties:
+            industry:
+              type: string
+            role:
+              type: string
+            interests:
+              type: array
+              items:
+                type: string
+            goals:
+              type: array
+              items:
+                type: string
+        visited_booths:
+          type: array
+          items:
+            type: string
+
+    BoothSuggestionResponse:
+      type: object
+      properties:
+        suggested_booths:
+          type: array
+          items:
+            type: object
+            properties:
+              booth_id:
+                type: string
+              exhibitor_name:
+                type: string
+              relevance_score:
+                type: number
+                minimum: 0
+                maximum: 1
+              match_reasons:
+                type: array
+                items:
+                  type: string
+              suggested_questions:
+                type: array
+                items:
+                  type: string
+              optimal_visit_time:
+                type: string
+                format: date-time
+              expected_wait_time:
+                type: integer
+
+    # Schedule Optimization schemas
+    ScheduleOptimizationRequest:
+      type: object
+      required:
+        - event_id
+        - current_schedule
+        - capacity_constraints
+      properties:
+        event_id:
+          type: string
+        current_schedule:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              start_time:
+                type: string
+                format: date-time
+              duration:
+                type: integer
+              capacity:
+                type: integer
+              predicted_attendance:
+                type: integer
+        capacity_constraints:
+          type: object
+          properties:
+            max_concurrent_sessions:
+              type: integer
+            room_capacities:
+              type: object
+            resource_limitations:
+              type: array
+              items:
+                type: string
+
+    ScheduleOptimizationResponse:
+      type: object
+      properties:
+        optimized_schedule:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              recommended_start_time:
+                type: string
+                format: date-time
+              recommended_room:
+                type: string
+              optimization_score:
+                type: number
+              changes_made:
+                type: array
+                items:
+                  type: string
+        overall_improvement:
+          type: number
+        conflict_resolutions:
+          type: array
+          items:
+            type: object
+            properties:
+              conflict_type:
+                type: string
+              resolution:
+                type: string
+              impact:
+                type: string
+
+    # Capacity Management schemas
+    CapacityManagementRequest:
+      type: object
+      required:
+        - event_id
+        - session_id
+        - current_capacity
+      properties:
+        event_id:
+          type: string
+        session_id:
+          type: string
+        current_capacity:
+          type: integer
+        current_registrations:
+          type: integer
+        time_until_session:
+          type: integer
+        historical_data:
+          type: object
+
+    CapacityManagementResponse:
+      type: object
+      properties:
+        capacity_recommendations:
+          type: object
+          properties:
+            recommended_capacity:
+              type: integer
+            confidence_level:
+              type: number
+            expected_attendance:
+              type: integer
+            overflow_probability:
+              type: number
+        alternative_options:
+          type: array
+          items:
+            type: object
+            properties:
+              option:
+                type: string
+              feasibility:
+                type: number
+              impact:
+                type: string
+        real_time_adjustments:
+          type: array
+          items:
+            type: string
+
+    # Resource Allocation schemas
+    ResourceAllocationRequest:
+      type: object
+      required:
+        - event_id
+        - available_resources
+        - resource_requirements
+      properties:
+        event_id:
+          type: string
+        available_resources:
+          type: object
+          properties:
+            staff:
+              type: array
+              items:
+                type: object
+                properties:
+                  staff_id:
+                    type: string
+                  skills:
+                    type: array
+                    items:
+                      type: string
+                  availability:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start_time:
+                          type: string
+                          format: date-time
+                        end_time:
+                          type: string
+                          format: date-time
+            equipment:
+              type: array
+              items:
+                type: object
+                properties:
+                  equipment_id:
+                    type: string
+                  type:
+                    type: string
+                  availability:
+                    type: array
+                    items:
+                      type: object
+            rooms:
+              type: array
+              items:
+                type: object
+        resource_requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              staff_needed:
+                type: integer
+              equipment_needed:
+                type: array
+                items:
+                  type: string
+              priority:
+                type: string
+                enum: [low, medium, high, critical]
+
+    ResourceAllocationResponse:
+      type: object
+      properties:
+        allocation_plan:
+          type: object
+          properties:
+            staff_assignments:
+              type: array
+              items:
+                type: object
+                properties:
+                  staff_id:
+                    type: string
+                  assigned_sessions:
+                    type: array
+                    items:
+                      type: string
+                  utilization_rate:
+                    type: number
+            equipment_assignments:
+              type: array
+              items:
+                type: object
+                properties:
+                  equipment_id:
+                    type: string
+                  assigned_sessions:
+                    type: array
+                    items:
+                      type: string
+                  schedule:
+                    type: array
+                    items:
+                      type: object
+        optimization_metrics:
+          type: object
+          properties:
+            overall_efficiency:
+              type: number
+            resource_utilization:
+              type: number
+            cost_optimization:
+              type: number
+        unmet_requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              missing_resources:
+                type: array
+                items:
+                  type: string
+              suggested_alternatives:
+                type: array
+                items:
+                  type: string
+
+    # Content Recommendation schemas
+    ContentRecommendationRequest:
+      type: object
+      required:
+        - user_id
+        - event_id
+      properties:
+        user_id:
+          type: string
+        event_id:
+          type: string
+        user_preferences:
+          type: object
+          properties:
+            topics:
+              type: array
+              items:
+                type: string
+            session_types:
+              type: array
+              items:
+                type: string
+            experience_level:
+              type: string
+              enum: [beginner, intermediate, advanced, expert]
+            time_preferences:
+              type: array
+              items:
+                type: string
+        attended_sessions:
+          type: array
+          items:
+            type: string
+        interaction_history:
+          type: array
+          items:
+            type: object
+
+    ContentRecommendationResponse:
+      type: object
+      properties:
+        recommended_sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              title:
+                type: string
+              relevance_score:
+                type: number
+              recommendation_reasons:
+                type: array
+                items:
+                  type: string
+              optimal_order:
+                type: integer
+              prerequisites:
+                type: array
+                items:
+                  type: string
+        personalized_tracks:
+          type: array
+          items:
+            type: object
+            properties:
+              track_name:
+                type: string
+              sessions:
+                type: array
+                items:
+                  type: string
+              learning_objectives:
+                type: array
+                items:
+                  type: string
+              estimated_duration:
+                type: integer
+        content_gaps:
+          type: array
+          items:
+            type: object
+            properties:
+              gap_area:
+                type: string
+              suggested_content:
+                type: array
+                items:
+                  type: string
+
+    # Speaker Recommendation schemas
+    SpeakerRecommendationRequest:
+      type: object
+      required:
+        - event_id
+        - session_requirements
+      properties:
+        event_id:
+          type: string
+        session_requirements:
+          type: object
+          properties:
+            topic:
+              type: string
+            session_type:
+              type: string
+            target_audience:
+              type: string
+            duration:
+              type: integer
+            budget_range:
+              type: object
+              properties:
+                min:
+                  type: number
+                max:
+                  type: number
+        existing_speakers:
+          type: array
+          items:
+            type: string
+        event_constraints:
+          type: object
+          properties:
+            date_range:
+              type: object
+              properties:
+                start:
+                  type: string
+                  format: date
+                end:
+                  type: string
+                  format: date
+            location:
+              type: string
+            remote_options:
+              type: boolean
+
+    SpeakerRecommendationResponse:
+      type: object
+      properties:
+        recommended_speakers:
+          type: array
+          items:
+            type: object
+            properties:
+              speaker_id:
+                type: string
+              name:
+                type: string
+              expertise_match:
+                type: number
+              audience_fit:
+                type: number
+              availability_score:
+                type: number
+              predicted_success:
+                type: number
+              key_qualifications:
+                type: array
+                items:
+                  type: string
+              recent_topics:
+                type: array
+                items:
+                  type: string
+              estimated_fee:
+                type: number
+              booking_probability:
+                type: number
+        alternative_options:
+          type: array
+          items:
+            type: object
+            properties:
+              option_type:
+                type: string
+              description:
+                type: string
+              speakers:
+                type: array
+                items:
+                  type: string
+
+    # Event Creation Prediction schemas
+    EventCreationPredictionRequest:
+      type: object
+      required:
+        - organization_id
+        - market_context
+      properties:
+        organization_id:
+          type: string
+        market_context:
+          type: object
+          properties:
+            industry:
+              type: string
+            target_audience:
+              type: string
+            geographic_focus:
+              type: string
+            budget_range:
+              type: object
+              properties:
+                min:
+                  type: number
+                max:
+                  type: number
+        historical_events:
+          type: array
+          items:
+            type: object
+        current_trends:
+          type: array
+          items:
+            type: string
+        competitor_analysis:
+          type: boolean
+          default: true
+
+    EventCreationPredictionResponse:
+      type: object
+      properties:
+        suggested_events:
+          type: array
+          items:
+            type: object
+            properties:
+              event_concept:
+                type: string
+              target_audience:
+                type: string
+              optimal_timing:
+                type: string
+              predicted_attendance:
+                type: integer
+              success_probability:
+                type: number
+              key_features:
+                type: array
+                items:
+                  type: string
+              estimated_roi:
+                type: number
+              market_demand:
+                type: number
+              competition_level:
+                type: string
+                enum: [low, medium, high]
+        market_opportunities:
+          type: array
+          items:
+            type: object
+            properties:
+              opportunity:
+                type: string
+              market_size:
+                type: number
+              growth_potential:
+                type: number
+              recommended_approach:
+                type: string
+        trend_analysis:
+          type: object
+          properties:
+            emerging_topics:
+              type: array
+              items:
+                type: string
+            declining_interests:
+              type: array
+              items:
+                type: string
+            seasonal_patterns:
+              type: array
+              items:
+                type: object
+
+    # Trend Tracking schemas
+    TrendTrackingRequest:
+      type: object
+      required:
+        - industry
+        - time_horizon
+      properties:
+        industry:
+          type: string
+        time_horizon:
+          type: string
+          enum: [short_term, medium_term, long_term]
+        data_sources:
+          type: array
+          items:
+            type: string
+            enum: [social_media, news, research_papers, patent_filings, event_data]
+        geographic_scope:
+          type: string
+          enum: [global, regional, national, local]
+        trend_categories:
+          type: array
+          items:
+            type: string
+
+    TrendTrackingResponse:
+      type: object
+      properties:
+        identified_trends:
+          type: array
+          items:
+            type: object
+            properties:
+              trend_id:
+                type: string
+              trend_name:
+                type: string
+              trend_description:
+                type: string
+              emergence_date:
+                type: string
+                format: date
+              growth_rate:
+                type: number
+              maturity_level:
+                type: string
+                enum: [emerging, growing, mature, declining]
+              impact_score:
+                type: number
+              confidence_level:
+                type: number
+              related_keywords:
+                type: array
+                items:
+                  type: string
+              market_applications:
+                type: array
+                items:
+                  type: string
+        trend_intersections:
+          type: array
+          items:
+            type: object
+            properties:
+              trends:
+                type: array
+                items:
+                  type: string
+              intersection_description:
+                type: string
+              opportunity_score:
+                type: number
+        predictions:
+          type: array
+          items:
+            type: object
+            properties:
+              trend_id:
+                type: string
+              predicted_trajectory:
+                type: string
+              key_milestones:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    milestone:
+                      type: string
+                    expected_date:
+                      type: string
+                      format: date
+              market_impact:
+                type: string
+
+    # Churn Prediction schemas
+    ChurnPredictionRequest:
+      type: object
+      required:
+        - event_id
+        - attendee_data
+      properties:
+        event_id:
+          type: string
+        attendee_data:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              engagement_metrics:
+                type: object
+              attendance_history:
+                type: array
+                items:
+                  type: object
+              recent_interactions:
+                type: array
+                items:
+                  type: object
+              demographic_data:
+                type: object
+        time_horizon:
+          type: string
+          enum: [next_session, end_of_day, end_of_event]
+
+    ChurnPredictionResponse:
+      type: object
+      properties:
+        churn_predictions:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              churn_probability:
+                type: number
+                minimum: 0
+                maximum: 1
+              risk_level:
+                type: string
+                enum: [low, medium, high, critical]
+              key_risk_factors:
+                type: array
+                items:
+                  type: string
+              recommended_interventions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    intervention:
+                      type: string
+                    priority:
+                      type: string
+                    expected_impact:
+                      type: number
+              optimal_contact_time:
+                type: string
+                format: date-time
+        aggregate_insights:
+          type: object
+          properties:
+            overall_churn_rate:
+              type: number
+            high_risk_segments:
+              type: array
+              items:
+                type: string
+            common_churn_patterns:
+              type: array
+              items:
+                type: string
+            retention_opportunities:
+              type: array
+              items:
+                type: string
+
+    # Crisis Prediction schemas
+    CrisisPredictionRequest:
+      type: object
+      required:
+        - event_id
+        - monitoring_data
+      properties:
+        event_id:
+          type: string
+        monitoring_data:
+          type: object
+          properties:
+            real_time_metrics:
+              type: object
+            system_performance:
+              type: object
+            attendee_feedback:
+              type: array
+              items:
+                type: object
+            staff_reports:
+              type: array
+              items:
+                type: object
+            external_factors:
+              type: object
+        crisis_types:
+          type: array
+          items:
+            type: string
+            enum: [technical, logistical, safety, weather, security, health]
+
+    CrisisPredictionResponse:
+      type: object
+      properties:
+        crisis_predictions:
+          type: array
+          items:
+            type: object
+            properties:
+              crisis_type:
+                type: string
+              probability:
+                type: number
+              severity:
+                type: string
+                enum: [low, medium, high, critical]
+              predicted_timeline:
+                type: string
+              early_warning_signs:
+                type: array
+                items:
+                  type: string
+              prevention_measures:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    measure:
+                      type: string
+                    urgency:
+                      type: string
+                    resources_required:
+                      type: array
+                      items:
+                        type: string
+              contingency_plans:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    plan:
+                      type: string
+                    activation_trigger:
+                      type: string
+                    steps:
+                      type: array
+                      items:
+                        type: string
+        risk_assessment:
+          type: object
+          properties:
+            overall_risk_score:
+              type: number
+            critical_vulnerabilities:
+              type: array
+              items:
+                type: string
+            recommended_actions:
+              type: array
+              items:
+                type: object
+                properties:
+                  action:
+                    type: string
+                  priority:
+                    type: string
+                  deadline:
+                    type: string
+                    format: date-time
+
+    # Cultural Adaptation schemas
+    CulturalAdaptationRequest:
+      type: object
+      required:
+        - content
+        - target_culture
+      properties:
+        content:
+          type: object
+          properties:
+            text:
+              type: string
+            images:
+              type: array
+              items:
+                type: string
+            topics:
+              type: array
+              items:
+                type: string
+            format:
+              type: string
+        target_culture:
+          type: object
+          properties:
+            country:
+              type: string
+            region:
+              type: string
+            language:
+              type: string
+            cultural_context:
+              type: object
+        adaptation_scope:
+          type: array
+          items:
+            type: string
+            enum: [language, imagery, content, format, timing, etiquette]
+
+    CulturalAdaptationResponse:
+      type: object
+      properties:
+        adapted_content:
+          type: object
+          properties:
+            adapted_text:
+              type: string
+            content_modifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  original:
+                    type: string
+                  adapted:
+                    type: string
+                  reason:
+                    type: string
+            format_adjustments:
+              type: array
+              items:
+                type: string
+            timing_recommendations:
+              type: array
+              items:
+                type: object
+        cultural_considerations:
+          type: object
+          properties:
+            sensitivities:
+              type: array
+              items:
+                type: string
+            local_customs:
+              type: array
+              items:
+                type: string
+            communication_preferences:
+              type: array
+              items:
+                type: string
+            taboos_to_avoid:
+              type: array
+              items:
+                type: string
+        localization_score:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    # Market Analysis schemas
+    MarketAnalysisRequest:
+      type: object
+      required:
+        - market_scope
+        - analysis_type
+      properties:
+        market_scope:
+          type: object
+          properties:
+            geographic:
+              type: string
+            industry:
+              type: string
+            event_types:
+              type: array
+              items:
+                type: string
+            time_period:
+              type: object
+              properties:
+                start:
+                  type: string
+                  format: date
+                end:
+                  type: string
+                  format: date
+        analysis_type:
+          type: array
+          items:
+            type: string
+            enum: [size, growth, trends, competition, opportunities, threats]
+        data_sources:
+          type: array
+          items:
+            type: string
+        depth_level:
+          type: string
+          enum: [overview, detailed, comprehensive]
+
+    MarketAnalysisResponse:
+      type: object
+      properties:
+        market_overview:
+          type: object
+          properties:
+            market_size:
+              type: number
+            growth_rate:
+              type: number
+            key_segments:
+              type: array
+              items:
+                type: object
+                properties:
+                  segment:
+                    type: string
+                  size:
+                    type: number
+                  growth:
+                    type: number
+            market_maturity:
+              type: string
+              enum: [emerging, growing, mature, declining]
+        competitive_landscape:
+          type: object
+          properties:
+            market_leaders:
+              type: array
+              items:
+                type: object
+                properties:
+                  company:
+                    type: string
+                  market_share:
+                    type: number
+                  strengths:
+                    type: array
+                    items:
+                      type: string
+            emerging_players:
+              type: array
+              items:
+                type: string
+            competitive_intensity:
+              type: string
+              enum: [low, medium, high]
+        opportunities:
+          type: array
+          items:
+            type: object
+            properties:
+              opportunity:
+                type: string
+              market_potential:
+                type: number
+              timeline:
+                type: string
+              entry_barriers:
+                type: array
+                items:
+                  type: string
+        threats:
+          type: array
+          items:
+            type: object
+            properties:
+              threat:
+                type: string
+              impact:
+                type: string
+                enum: [low, medium, high]
+              probability:
+                type: number
+              mitigation_strategies:
+                type: array
+                items:
+                  type: string
+        market_trends:
+          type: array
+          items:
+            type: object
+            properties:
+              trend:
+                type: string
+              direction:
+                type: string
+                enum: [increasing, decreasing, stable]
+              impact:
+                type: string
+              timeline:
+                type: string
+
+    # Competitive Analysis schemas
+    CompetitiveAnalysisRequest:
+      type: object
+      required:
+        - target_competitors
+        - analysis_dimensions
+      properties:
+        target_competitors:
+          type: array
+          items:
+            type: string
+        analysis_dimensions:
+          type: array
+          items:
+            type: string
+            enum: [events, pricing, marketing, features, audience, performance]
+        time_period:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date
+            end:
+              type: string
+              format: date
+        include_benchmarking:
+          type: boolean
+          default: true
+
+    CompetitiveAnalysisResponse:
+      type: object
+      properties:
+        competitor_profiles:
+          type: array
+          items:
+            type: object
+            properties:
+              competitor:
+                type: string
+              strengths:
+                type: array
+                items:
+                  type: string
+              weaknesses:
+                type: array
+                items:
+                  type: string
+              market_position:
+                type: string
+              recent_activities:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    activity:
+                      type: string
+                    date:
+                      type: string
+                      format: date
+                    impact:
+                      type: string
+              performance_metrics:
+                type: object
+        competitive_gaps:
+          type: array
+          items:
+            type: object
+            properties:
+              gap_area:
+                type: string
+              opportunity_score:
+                type: number
+              required_capabilities:
+                type: array
+                items:
+                  type: string
+              investment_required:
+                type: string
+                enum: [low, medium, high]
+        strategic_recommendations:
+          type: array
+          items:
+            type: object
+            properties:
+              recommendation:
+                type: string
+              rationale:
+                type: string
+              priority:
+                type: string
+                enum: [low, medium, high]
+              expected_impact:
+                type: string
+        market_positioning:
+          type: object
+          properties:
+            current_position:
+              type: string
+            recommended_position:
+              type: string
+            differentiation_opportunities:
+              type: array
+              items:
+                type: string
+
+    # AI Assistant schemas
+    ConciergeRequest:
+      type: object
+      required:
+        - user_id
+        - query
+      properties:
+        user_id:
+          type: string
+        query:
+          type: string
+        context:
+          type: object
+          properties:
+            event_id:
+              type: string
+            session_id:
+              type: string
+            user_location:
+              type: string
+            user_type:
+              type: string
+              enum: [attendee, speaker, organizer, sponsor]
+            conversation_history:
+              type: array
+              items:
+                type: object
+        query_type:
+          type: string
+          enum: [information, navigation, troubleshooting, recommendation, booking]
+
+    ConciergeResponse:
+      type: object
+      properties:
+        response:
+          type: string
+        response_type:
+          type: string
+          enum: [text, action, redirect, escalation]
+        actions:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+              parameters:
+                type: object
+        follow_up_questions:
+          type: array
+          items:
+            type: string
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        escalation_required:
+          type: boolean
+        additional_resources:
+          type: array
+          items:
+            type: object
+            properties:
+              resource_type:
+                type: string
+              resource_link:
+                type: string
+              description:
+                type: string
+
+    # Smart Notification schemas
+    SmartNotificationRequest:
+      type: object
+      required:
+        - user_id
+        - notification_type
+        - message
+      properties:
+        user_id:
+          type: string
+        notification_type:
+          type: string
+          enum: [reminder, update, alert, recommendation, social]
+        message:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        user_preferences:
+          type: object
+          properties:
+            preferred_times:
+              type: array
+              items:
+                type: string
+            notification_frequency:
+              type: string
+            channels:
+              type: array
+              items:
+                type: string
+        context:
+          type: object
+          properties:
+            event_id:
+              type: string
+            session_id:
+              type: string
+            related_users:
+              type: array
+              items:
+                type: string
+
+    SmartNotificationResponse:
+      type: object
+      properties:
+        optimal_timing:
+          type: object
+          properties:
+            recommended_time:
+              type: string
+              format: date-time
+            confidence:
+              type: number
+            reasoning:
+              type: string
+            alternative_times:
+              type: array
+              items:
+                type: string
+                format: date-time
+        channel_recommendations:
+          type: array
+          items:
+            type: object
+            properties:
+              channel:
+                type: string
+              effectiveness_score:
+                type: number
+              delivery_time:
+                type: string
+                format: date-time
+        personalization:
+          type: object
+          properties:
+            personalized_message:
+              type: string
+            tone_adjustments:
+              type: array
+              items:
+                type: string
+            content_modifications:
+              type: array
+              items:
+                type: string
+        delivery_schedule:
+          type: array
+          items:
+            type: object
+            properties:
+              channel:
+                type: string
+              scheduled_time:
+                type: string
+                format: date-time
+              message:
+                type: string
+
+    # Model Management schemas
+    ModelVersionsResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            type: object
+            properties:
+              model_id:
+                type: string
+              model_name:
+                type: string
+              version:
+                type: string
+              status:
+                type: string
+                enum: [active, deprecated, testing, development]
+              performance_metrics:
+                type: object
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+
+    ModelDeployRequest:
+      type: object
+      required:
+        - model_id
+        - version
+        - deployment_config
+      properties:
+        model_id:
+          type: string
+        version:
+          type: string
+        deployment_config:
+          type: object
+          properties:
+            environment:
+              type: string
+              enum: [production, staging, development]
+            scaling_config:
+              type: object
+            rollout_strategy:
+              type: string
+              enum: [immediate, gradual, canary]
+            rollback_trigger:
+              type: object
+
+    ModelDeployResponse:
+      type: object
+      properties:
+        deployment_id:
+          type: string
+        status:
+          type: string
+          enum: [success, failed, in_progress]
+        deployment_time:
+          type: string
+          format: date-time
+        endpoints:
+          type: array
+          items:
+            type: string
+        monitoring_urls:
+          type: array
+          items:
+            type: string
+        rollback_info:
+          type: object
+          properties:
+            rollback_available:
+              type: boolean
+            previous_version:
+              type: string
+
+    ModelPerformanceResponse:
+      type: object
+      properties:
+        model_id:
+          type: string
+        performance_metrics:
+          type: object
+          properties:
+            accuracy:
+              type: number
+            precision:
+              type: number
+            recall:
+              type: number
+            f1_score:
+              type: number
+            latency:
+              type: number
+            throughput:
+              type: number
+        drift_detection:
+          type: object
+          properties:
+            drift_detected:
+              type: boolean
+            drift_score:
+              type: number
+            affected_features:
+              type: array
+              items:
+                type: string
+        recommendation:
+          type: string
+        last_updated:
+          type: string
+          format: date-time
+
+    # A/B Testing schemas
+    ABTestExperimentRequest:
+      type: object
+      required:
+        - experiment_name
+        - model_variants
+        - test_configuration
+      properties:
+        experiment_name:
+          type: string
+        model_variants:
+          type: array
+          items:
+            type: object
+            properties:
+              variant_name:
+                type: string
+              model_id:
+                type: string
+              model_version:
+                type: string
+              traffic_allocation:
+                type: number
+        test_configuration:
+          type: object
+          properties:
+            success_metrics:
+              type: array
+              items:
+                type: string
+            test_duration:
+              type: integer
+            significance_level:
+              type: number
+            minimum_sample_size:
+              type: integer
+            user_segmentation:
+              type: object
+    ABTestExperimentResponse:
+      type: object
+      properties:
+        experiment_id:
+          type: string
+        status:
+          type: string
+          enum: [created, running, completed, stopped]
+        start_time:
+          type: string
+          format: date-time
+        estimated_end_time:
+          type: string
+          format: date-time
+        dashboard_url:
+          type: string
+          format: uri
+
+    ABTestResultsResponse:
+      type: object
+      properties:
+        experiment_id:
+          type: string
+        status:
+          type: string
+          enum: [running, completed, inconclusive]
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              variant_name:
+                type: string
+              model_id:
+                type: string
+              is_winner:
+                type: boolean
+              performance:
+                type: object
+                description: Performance against the success metrics defined in the experiment.
+                additionalProperties:
+                  type: number
+              confidence_interval:
+                type: object
+                properties:
+                  lower_bound:
+                    type: number
+                  upper_bound:
+                    type: number
+              statistical_significance:
+                type: number
+                format: float
+                description: P-value indicating the significance of the results.
+        summary:
+          type: object
+          properties:
+            winner:
+              type: string
+              description: The name of the winning variant, if one is declared.
+            conclusion:
+              type: string
+              description: A human-readable summary of the test outcome.
+            recommended_action:
+              type: string
+              enum: [deploy_winner, continue_test, inconclusive, revert_to_control]
+
+    # Advanced Analytics & Reporting Schemas
+    InsightsRequest:
+      type: object
+      required:
+        - event_id
+        - data_sources
+      properties:
+        event_id:
+          type: string
+        data_sources:
+          type: array
+          items:
+            type: string
+            enum: [attendance, engagement, sentiment, networking, feedback]
+        analysis_period:
+          type: object
+          properties:
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+
+    InsightsResponse:
+      type: object
+      properties:
+        event_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        insights:
+          type: array
+          items:
+            type: object
+            properties:
+              insight_id:
+                type: string
+              title:
+                type: string
+                description: A concise summary of the finding.
+              description:
+                type: string
+                description: A detailed explanation of the insight and its implications.
+              category:
+                type: string
+                enum: [trend, anomaly, correlation, key_driver, recommendation]
+              severity:
+                type: string
+                enum: [low, medium, high, critical]
+              supporting_data:
+                type: object
+                description: Key data points or visualizations supporting the insight.
+
+    BenchmarkingRequest:
+      type: object
+      required:
+        - event_id
+        - comparison_group
+      properties:
+        event_id:
+          type: string
+        comparison_group:
+          type: string
+          enum: [past_events, industry_average, competitor_events]
+        metrics:
+          type: array
+          items:
+            type: string
+            enum: [attendance_rate, engagement_score, roi, sentiment, churn_rate]
+
+    BenchmarkingResponse:
+      type: object
+      properties:
+        event_id:
+          type: string
+        comparison_group:
+          type: string
+        benchmarks:
+          type: array
+          items:
+            type: object
+            properties:
+              metric:
+                type: string
+              event_value:
+                type: number
+              benchmark_value:
+                type: number
+              percentile:
+                type: number
+              interpretation:
+                type: string
+                enum: [below_average, average, above_average, top_performer]
+
+    # Health Check Schema
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                enum: [api_server, kafka_connection, redis_connection, tensorflow_serving, database]
+              status:
+                type: string
+                enum: [operational, degraded, outage]
+              details:
+                type: string
+                description: Additional details if the status is not operational.
