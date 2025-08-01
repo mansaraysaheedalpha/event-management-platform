@@ -15,7 +15,7 @@ services:
 
   real-time-service: 
     build:
-      context: .
+      context: ./real-time-service
       dockerfile: Dockerfile
     restart: always
     ports:
@@ -50,7 +50,33 @@ services:
     restart: always
     volumes:
       - redis-data:/data
-    # NOTE: The 'ports' section is removed for security in production.
+   # The FastAPI application
+  event-service:
+    build: .
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://event_management_user:mypassword@db:5432/event_manager_db
+      - REDIS_URL=redis://redis:6379/0
+   # NEW: Celery worker to run background tasks
+  celery_worker:
+    build: .
+    restart: always
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    volumes:
+      - ./app:/app
+    depends_on:
+      - event-service
+    environment:
+      - DATABASE_URL=postgresql://event_management_user:mypassword@db:5432/event_manager_db
+      - REDIS_URL=redis://redis:6379/0
+
 volumes: 
   postgres-data:
   redis-data:
