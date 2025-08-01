@@ -1,0 +1,21 @@
+# FastAPI framework and server
+python-dotenv
+fastapi
+uvicorn[standard]
+
+# Database and ORM
+sqlalchemy
+alembic
+psycopg2-binary
+
+# Data validation and settings management
+pydantic
+pydantic-settings
+
+# Security and JWT
+python-jose[cryptography]
+passlib[bcrypt]
+
+# For inter-service communication
+redis
+httpx

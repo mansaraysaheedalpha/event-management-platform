@@ -1,0 +1,1155 @@
+openapi: 3.0.3
+info:
+  title: Event Management Microservice API
+  version: 1.1.0
+  description: >
+     A world-class API for managing the full lifecycle of events using an Event Sourcing pattern.
+     It handles Events, Sessions, Speakers, Venues, Registrations, and reusable Event Blueprints.
+     All resources are treated as dynamic, bookable assets within a multi-tenant organization.
+servers:
+  - url: http://localhost:8000/api/events/v1 # Port updated for clarity
+    description: Local development server for Events Service
+# Add this new top-level section to document event publishing
+x-events:
+  description: "Events published by this service to the Redis message bus."
+  channels:
+    - name: "agenda-updates"
+      description: "Published when a session's details (time, room, etc.) are changed."
+      payloadSchema: "#/components/schemas/AgendaUpdateNotification"
+    - name: "capacity-updates"
+      description: "Published when a session's or event's attendance numbers change."
+      payloadSchema: "#/components/schemas/CapacityUpdateNotification"
+    - name: "sales-events"
+      description: "Published when ticket availability status changes (e.g., LOW_STOCK, SOLD_OUT)."
+      payloadSchema: "#/components/schemas/TicketAvailabilityUpdate" # You will need to add this schema
+    - name: "monetization-events"
+      description: "Published to trigger monetization actions like waitlist promotions."
+      payloadSchema:
+        type: object
+        properties:
+          type: { type: string, enum: ['SPOT_AVAILABLE'] }
+          sessionId: { type: string }
+    - name: "presentation-events"
+      description: "Published when a presentation has been successfully processed and is ready for use."
+      payloadSchema:
+        type: object
+        properties:
+          type: { type: string, enum: ['PRESENTATION_PROCESSED'] }
+          sessionId: { type: string, format: uuid }
+          slideUrls:
+            type: array
+            items:
+              type: string
+              format: uri
+security:
+  - BearerAuth: []
+tags:
+  - name: Events
+    description: Operations for managing events within an organization.
+  - name: Event History
+    description: Endpoints for retrieving the historical log of an event.
+  - name: Sessions
+    description: Operations for managing sessions within a specific event.
+  - name: Speakers
+    description:  Organization-level management of speakers as bookable resources.
+  - name: Venues
+    description: Organization-level management of venues as bookable resources.
+  - name: Event Blueprints 
+    description: Create and manage reusable templates for events.
+  - name: Presentations
+    description: Manages speakers presentation contents(files, or slides etc)
+  - name: Registrations
+    description: Operations related to attendee registration for events.
+  
+  - name: Public
+    description: Unauthenticated endpoints for public event discovery.
+  - name: Internal # NEW TAG
+    description: Endpoints for internal service-to-service communication. Not for public use.
+  - name: Ads
+    description: Operations for managing ad campaigns and content.
+  - name: Offers
+    description: Operations for managing upsell offers.
+
+
+paths:
+  # --- Public, Unauthenticated Endpoints ---
+  /public/events/{eventId}:    
+    get:
+      tags: [Public]
+      summary: Get public event details
+      operationId: getPublicEventById
+      description: Retrieves the publicly viewable details of a single event. Does not require authentication.
+      parameters:
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: Public event details.
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Event" } },
+            }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # --- Event Endpoints ---
+  /organizations/{orgId}/events:
+    get:
+      tags: [Events]
+      summary: List events for an organization
+      operationId: listEvents
+      description: Retrieves a paginated list of all events belonging to a specific organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200": { $ref: "#/components/responses/PaginatedEventsResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Events]
+      summary: Create a new event
+      operationId: createEvent
+      description: Creates a new event for the specified organization. The `createdByUserId` is automatically set from the JWT.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/EventRequest"
+      responses:
+        "201":
+          description: Event created successfully.
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Event" } },
+            }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /organizations/{orgId}/events/{eventId}/history:
+    get:
+      tags: [Event History]
+      summary: Get the historical event log for an event
+      operationId: getEventHistory
+      description: >
+        Retrieves a chronological log of all domain events that have occurred for a specific event.
+        This provides a complete audit trail and allows for "time travel".
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "A list of domain events for the specified event."
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DomainEvent"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+   # --- ENHANCED ENDPOINTS FOR SPEAKERS (DYNAMIC RESOURCE MANAGEMENT) ---
+  /organizations/{orgId}/speakers/availability:
+    get:
+      tags: [Speakers]
+      summary: Find available speakers
+      operationId: findAvailableSpeakers
+      description: >
+        Queries for speakers based on expertise, availability, and other criteria.
+      parameters:
+        - { name: orgId, in: path, required: true, schema: { type: string } }
+        - { name: expertise, in: query, schema: { type: string } }
+        - { name: available_from, in: query, schema: { type: string, format: "date-time" } }
+        - { name: available_to, in: query, schema: { type: string, format: "date-time" } }
+      responses:
+        "200":
+          description: "A list of available speakers matching the criteria."
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Speaker"
+  
+  # --- NEW ENDPOINTS FOR EVENT BLUEPRINTS ---
+  /organizations/{orgId}/blueprints:
+    post:
+      tags: [Event Blueprints]
+      summary: Create an event blueprint
+      operationId: createBlueprint
+      description: Creates a new reusable event template.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/BlueprintRequest"
+      responses:
+        "201":
+          description: "Blueprint created successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventBlueprint"
+    get:
+      tags: [Event Blueprints]
+      summary: List event blueprints
+      operationId: listBlueprints
+      description: Retrieves all available event blueprints for an organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+      responses:
+        "200":
+          description: "A list of event blueprints."
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventBlueprint"
+
+  /organizations/{orgId}/blueprints/{blueprintId}/instantiate:
+    post:
+      tags: [Event Blueprints]
+      summary: Instantiate an event from a blueprint
+      operationId: instantiateBlueprint
+      description: Creates a new, fully configured event from a saved blueprint.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - { name: blueprintId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        $ref: "#/components/requestBodies/InstantiateBlueprintRequest"
+      responses:
+        "201":
+          description: "New event created from blueprint successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+
+  /organizations/{orgId}/events/{eventId}:
+    get:
+      tags: [Events]
+      summary: Get a specific event
+      operationId: getEventById
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: Event details.
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Event" } },
+            }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Events]
+      summary: Partially update an event
+      operationId: updateEvent
+      description: Updates one or more properties of an event.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/EventRequest"
+      responses:
+        "200":
+          description: Event updated successfully.
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Event" } },
+            }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Events]
+      summary: Delete an event
+      operationId: deleteEvent
+      description: Soft-deletes an event.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "204": { description: "Event deleted successfully." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Session Endpoints ---
+  /organizations/{orgId}/events/{eventId}/sessions:
+    get:
+      tags: [Sessions]
+      summary: List sessions for an event
+      operationId: listSessions
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "A list of sessions for the event."
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Session" },
+                    },
+                },
+            }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Sessions]
+      summary: Create a new session
+      operationId: createSession
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/SessionRequest"
+      responses:
+        "201":
+          description: "Session created."
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Session" } },
+            }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  #--- NEW ENDPOINT FOR PRESENTATIONS --
+  /organizations/{orgId}/events/{eventId}/sessions/{sessionId}/presentation:
+    post:
+      tags: [Presentations]
+      summary: Upload a presentation for a session
+      operationId: uploadPresentation
+      description: >
+        Uploads a presentation file (e.g., PDF) for a specific session.
+        The service will process this file (e.g., convert to images), upload it to cloud storage,
+        and save the resulting slide URLs. This is a "one-time" upload per session.
+        If a presentation already exists, this will replace it.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+        - $ref: "#/components/parameters/SessionIdPath"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data: # Use multipart for file uploads
+            schema:
+              type: object
+              required: [presentationFile]
+              properties:
+                presentationFile:
+                  type: string
+                  format: binary
+                  description: The presentation file (e.g., PDF) to be uploaded.
+      responses:
+        "201":
+          description: "Presentation processed and created successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Presentation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Registration Endpoints ---
+  /organizations/{orgId}/events/{eventId}/registrations:
+    get:
+      tags: [Registrations]
+      summary: List event registrations
+      operationId: listRegistrations
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "A list of registrations for the event."
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Registration" },
+                    },
+                },
+            }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Registrations]
+      summary: Register for an event
+      operationId: createRegistration
+      description: >
+        Creates a registration for an event. If the user does not exist in the system, 
+        provide `first_name`, `last_name`, and `email` to create a guest user account. 
+        If `user_id` is provided, it links the registration to an existing user.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      requestBody:
+        $ref: "#/components/requestBodies/RegistrationRequest"
+      responses:
+        "201":
+          description: "Registration successful."
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Registration" } },
+            }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" } # e.g., already registered
+
+  # --- Organization-level Resource Endpoints (Speakers, Venues) ---
+  /organizations/{orgId}/speakers:
+    get:
+      tags: [Speakers]
+      summary: List speakers for an organization
+      operationId: listSpeakers
+      parameters: [$ref: "#/components/parameters/OrgIdPath"]
+      responses:
+        "200":
+          description: "A list of speakers available to the organization."
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Speaker" },
+                    },
+                },
+            }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Speakers]
+      summary: Create a new speaker
+      operationId: createSpeaker
+      parameters: [$ref: "#/components/parameters/OrgIdPath"]
+      requestBody:
+        $ref: "#/components/requestBodies/SpeakerRequest"
+      responses:
+        "201":
+          description: "Speaker created."
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Speaker" } },
+            }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /organizations/{orgId}/venues:
+    # Similar CRUD endpoints for Venues would follow... (GET, POST)
+    get:
+      tags: [Venues]
+      summary: List venues for an organization
+      operationId: listVenues
+      parameters: [$ref: "#/components/parameters/OrgIdPath"]
+      responses:
+        "200":
+          description: "A list of venues available to the organization."
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: array,
+                      items: { $ref: "#/components/schemas/Venue" },
+                    },
+                },
+            }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Venues]
+      summary: Create a new venue
+      operationId: createVenue
+      parameters: [$ref: "#/components/parameters/OrgIdPath"]
+      requestBody:
+        $ref: "#/components/requestBodies/VenueRequest"
+      responses:
+        "201":
+          description: "Venue created."
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/Venue" } },
+            }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+   # --- NEW INTERNAL ENDPOINT ---
+  /internal/notify/agenda-update:
+    post:
+      tags: [Internal]
+      summary: Notify of an agenda update
+      operationId: notifyAgendaUpdate
+      description: >
+        An internal endpoint called by this service to notify the Real-Time service
+        that an event's agenda has changed (e.g., session time, room, or cancellation).
+        This endpoint is protected by a shared secret API key.
+      security:
+        - InternalApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgendaUpdateNotification"
+      responses:
+        "202":
+          description: "Accepted. The notification has been received and will be processed."
+        "401":
+          description: "Unauthorized. The internal API key is missing or invalid."
+        "400":
+          description: "Bad Request. The payload is malformed."
+
+  /internal/ads/{adId}:
+    get:
+      tags: [Internal]
+      summary: Get ad content by ID
+      operationId: getAdContentById
+      description: >
+        An internal endpoint for the Real-Time service to fetch the content of
+        a specific ad before broadcasting it.
+      security:
+        - InternalApiKey: []
+      parameters:
+        - name: adId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Ad content retrieved successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdContent"
+        "401":
+          description: "Unauthorized."
+        "404":
+          description: "Not Found."
+
+  /internal/offers/{offerId}:
+    get:
+      tags: [Internal]
+      summary: Get offer content by ID
+      operationId: getOfferContentById
+      description: >
+        An internal endpoint for the Real-Time service to fetch the content of
+        a specific upsell offer before sending it to a user.
+      security:
+        - InternalApiKey: []
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Offer content retrieved successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OfferContent"
+        "401":
+          description: "Unauthorized."
+        "404":
+          description: "Not Found."
+
+  /internal/sessions/{sessionId}/waitlist-offer:
+    get:
+      tags: [Internal]
+      summary: Get the current waitlist offer for a session
+      operationId: getWaitlistOffer
+      description: >
+        An internal endpoint for the Real-Time service to fetch the details
+        of the offer to send to a user promoted from a waitlist.
+      security:
+        - InternalApiKey: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Waitlist offer details retrieved successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitlistOffer"
+        "401":
+          description: "Unauthorized."
+        "404":
+          description: "Not Found."
+
+  /internal/tickets/validate:
+    post:
+      tags: [Internal]
+      summary: Validate an event ticket
+      operationId: validateTicketInternal
+      description: >
+        An internal endpoint for the Real-Time service to verify a ticket code for a given event.
+      security:
+        - InternalApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventId: { type: string }
+                ticketCode: { type: string }
+                validationType: { type: string }
+      responses:
+        "200":
+          description: "Validation check complete."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          description: "Unauthorized."
+        "404":
+          description: "Not Found."
+  /internal/notify/capacity-update:
+    post:
+      tags: [Internal]
+      summary: Notify of a capacity update
+      operationId: notifyCapacityUpdate
+      description: >
+        An internal endpoint called by this service to notify the Real-Time service
+        that the attendee count for a session or event has changed.
+      security:
+        - InternalApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CapacityUpdateNotification"
+      responses:
+        "202":
+          description: "Accepted. The notification has been received."
+
+    # --- NEW ENDPOINT FOR PUBLISHING ---
+  /organizations/{orgId}/events/{eventId}/publish:
+    post:
+      tags: [Events]
+      summary: Publish a draft event
+      operationId: publishEvent
+      description: >
+        Changes the status of an event from 'draft' to 'published', making it publicly visible.
+        This is an immutable action.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "Event published successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "409":
+          description: "Conflict. The event is already published or archived."
+          
+  # --- NEW ENDPOINT FOR OFFLINE SYNC ---
+  /organizations/{orgId}/events/{eventId}/sync-bundle:
+    get:
+      tags: [Events]
+      summary: Get event data bundle for offline sync
+      operationId: getEventSyncBundle
+      description: >
+        Retrieves all necessary data for a single event (sessions, speakers, venues, etc.)
+        in one single payload, optimized for offline client synchronization.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "A complete data bundle for the event."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSyncBundle"
+# --- Reusable Components ---
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    InternalApiKey: # NEW SECURITY SCHEME
+      type: apiKey
+      in: header
+      name: X-Internal-Api-Key
+      description: A secret key shared between microservices for secure internal communication.
+
+
+  parameters:
+    OrgIdPath:
+      { name: orgId, in: path, required: true, schema: { type: string } }
+    EventIdPath:
+      { name: eventId, in: path, required: true, schema: { type: string } }
+    PageQueryParam:
+      { name: page, in: query, schema: { type: integer, default: 1 } }
+    LimitQueryParam:
+      { name: limit, in: query, schema: { type: integer, default: 20 } }
+    SessionIdPath: 
+      { name: sessionId, in: path, required: true, schema: { type: string } }
+      
+  requestBodies:
+    BlueprintRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name: { type: string }
+              description: { type: string }
+              template: { type: object }
+    InstantiateBlueprintRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name: { type: string, description: "The name for the new event." }
+              start_date: { type: string, format: "date-time", description: "The start date for the new event." }
+    EventRequest:
+      required: true
+      content:
+        {
+          application/json:
+            { schema: { $ref: "#/components/schemas/EventRequest" } },
+        }
+    SessionRequest:
+      required: true
+      content:
+        {
+          application/json:
+            { schema: { $ref: "#/components/schemas/SessionRequest" } },
+        }
+    RegistrationRequest:
+      required: true
+      content:
+        {
+          application/json:
+            { schema: { $ref: "#/components/schemas/RegistrationRequest" } },
+        }
+    SpeakerRequest:
+      required: true
+      content:
+        {
+          application/json:
+            { schema: { $ref: "#/components/schemas/SpeakerRequest" } },
+        }
+    VenueRequest:
+      required: true
+      content:
+        {
+          application/json:
+            { schema: { $ref: "#/components/schemas/VenueRequest" } },
+        }
+
+  responses:
+    PaginatedEventsResponse:
+      description: A paginated list of events.
+      content:
+        application/json:
+          schema:
+            properties:
+              data:
+                { type: array, items: { $ref: "#/components/schemas/Event" } }
+              pagination: { $ref: "#/components/schemas/Pagination" }
+    BadRequest:
+      {
+        description: "400 Bad Request",
+        content:
+          {
+            application/json:
+              { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+          },
+      }
+    Unauthorized:
+      {
+        description: "401 Unauthorized",
+        content:
+          {
+            application/json:
+              { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+          },
+      }
+    Forbidden:
+      {
+        description: "403 Forbidden",
+        content:
+          {
+            application/json:
+              { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+          },
+      }
+    NotFound:
+      {
+        description: "404 Not Found",
+        content:
+          {
+            application/json:
+              { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+          },
+      }
+    Conflict:
+      {
+        description: "409 Conflict",
+        content:
+          {
+            application/json:
+              { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+          },
+      }
+
+  schemas:
+    # --- Primary Data Models ---
+    Event:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        organization_id: { type: string, readOnly: true }
+        name: { type: string, example: "Global AI Summit" }
+        version: # <-- ADD THIS
+          type: integer
+          description: "The current version number of the event state, incremented with each change."
+          readOnly: true
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [draft, published, archived], description: "The current publication status of the event." }
+        start_date: { type: string, format: "date-time",  description: "The event start timestamp in UTC format (ISO 8601)." }
+        end_date: { type: string, format: "date-time", description: "The event end timestamp in UTC format (ISO 8601)."}
+        venue_id: { type: string, nullable: true }
+        is_public: { type: boolean, default: false }
+        createdAt: { type: string, format: "date-time", readOnly: true }
+        updatedAt: { type: string, format: "date-time", readOnly: true } # <-- ADD THIS
+     # --- NEW DomainEvent SCHEMA ---
+    DomainEvent:
+      type: object
+      required: [id, eventType, timestamp, version]
+      properties:
+        id: { type: string, readOnly: true }
+        eventType:
+          type: string
+          description: "The type of event that occurred."
+          example: "EventRenamed"
+        timestamp:
+          type: string
+          format: "date-time"
+          description: "The exact UTC time the event occurred."
+        version:
+          type: integer
+          description: "The version of the aggregate state after this event was applied."
+        userId:
+          type: string
+          description: "The ID of the user who initiated the event."
+        data:
+          type: object
+          description: "The payload containing the specific details of the event."
+          example: { "newName": "The Ultimate AI Summit" }
+  
+    EventBlueprint:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string, example: "Annual Sales Kick-off" }
+        description: { type: string }
+        template:
+          type: object
+          description: "The template containing the structure of the event."
+    Session:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        event_id: { type: string, readOnly: true }
+        title: { type: string, example: "The Future of LLMs" }
+        speaker_ids: { type: array, items: { type: string } }
+        start_time: { type: string, format: "date-time", description: "The session start timestamp in UTC format (ISO 8601)." }
+    Registration:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        event_id: { type: string, readOnly: true }
+        user_id:
+          {
+            type: string,
+            readOnly: true,
+            description: "The User ID of the attendee.",
+          }
+        status: { type: string, enum: [confirmed, cancelled, checked_in] }
+        ticket_type_id: { type: string, nullable: true }
+        createdAt: { type: string, format: "date-time", readOnly: true }
+    Speaker: # <-- ENHANCED for Dynamic Resource Management
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string, example: "Dr. Evelyn Reed" }
+        bio: { type: string, nullable: true }
+        expertise:
+          type: array
+          items:
+            type: string
+          example: ["AI", "Machine Learning", "Python"]
+        bookings:
+          type: array
+          readOnly: true
+          items:
+            type: object
+            properties:
+              session_id: { type: string }
+              start_time: { type: string, format: "date-time" }
+              end_time: { type: string, format: "date-time" }
+    Venue:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        organization_id: { type: string, readOnly: true }
+        name: { type: string, example: "Grand Convention Center" }
+        address: { type: string, nullable: true }
+        # other venue fields...
+
+    # --- Request Payloads ---
+    EventRequest:
+      type: object
+      required: [name, start_date, end_date]
+      properties:
+        name: { type: string, example: "Global AI Summit" }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [draft, published], default: "draft" }
+        is_public: { type: boolean, default: false }
+        start_date: { type: string, format: "date-time", description: "The event start timestamp in UTC format (ISO 8601)."}
+        end_date: { type: string, format: "date-time",  description: "The event end timestamp in UTC format (ISO 8601)." }
+        venue_id: { type: string, nullable: true }
+    SessionRequest:
+      type: object
+      required: [title, start_time]
+      properties:
+        title: { type: string, example: "The Future of LLMs" }
+        speaker_ids: { type: array, items: { type: string } }
+        start_time: { type: string, format: "date-time",  description: "The session start timestamp in UTC format (ISO 8601)." }
+    RegistrationRequest:
+      type: object
+      properties:
+        user_id:
+          { type: string, description: "ID of an existing user to register." }
+        first_name:
+          {
+            type: string,
+            description: "Required if registering a new guest.",
+            example: "Guest",
+          }
+        last_name:
+          {
+            type: string,
+            description: "Required if registering a new guest.",
+            example: "User",
+          }
+        email:
+          {
+            type: string,
+            format: email,
+            description: "Required if registering a new guest.",
+          }
+        ticket_type_id: { type: string, nullable: true }
+      oneOf:
+        - required: [user_id]
+        - required: [first_name, last_name, email]
+    SpeakerRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, example: "Dr. Evelyn Reed" }
+        bio: { type: string, nullable: true }
+    VenueRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, example: "Grand Convention Center" }
+        address: { type: string, nullable: true }
+     # --- NEW SCHEMA for Internal Notification ---
+    AgendaUpdateNotification:
+      type: object
+      required: [event_id, update_type, session_data]
+      properties:
+        event_id:
+          type: string
+          description: The ID of the event that was updated.
+        update_type:
+          type: string
+          enum: [SESSION_UPDATED, SESSION_CANCELED, SESSION_ADDED]
+        session_data:
+          description: The full data of the session that was affected.
+          $ref: "#/components/schemas/Session"
+    Presentation:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        session_id: { type: string, readOnly: true }
+        slide_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: "An ordered list of public URLs for each slide image."
+        createdAt: { type: string, format: "date-time", readOnly: true }
+    AdContent:
+      type: object
+      properties:
+        id: { type: string }
+        event_id: { type: string }
+        content:
+          type: object
+          properties:
+            type: { type: string, enum: [BANNER, VIDEO] }
+            media_url: { type: string, format: uri }
+            click_url: { type: string, format: uri }
+    OfferContent:
+      type: object
+      required:
+        - id
+        - event_id
+        - title
+        - price
+        - currency
+        - offer_type
+      properties:
+        id: { type: string, description: "The unique ID of the offer." }
+        event_id: { type: string, description: "The event this offer is associated with." }
+        title: { type: string, example: "Exclusive VIP Upgrade" }
+        description: { type: string, example: "Get backstage access and a free drink!" }
+        price: 
+          type: number
+          format: double
+          description: "The final, discounted price for the user."
+          example: 19.99
+        original_price:
+          type: number
+          format: double
+          description: "The original price, to show the value of the discount."
+          example: 39.99
+        currency:
+          type: string
+          description: "The ISO 4217 currency code for the price."
+          example: "USD"
+        offer_type:
+          type: string
+          enum: [TICKET_UPGRADE, EXCLUSIVE_CONTENT, MERCHANDISE, SERVICE]
+          description: "The category of the upsell item."
+        image_url:
+          type: string
+          format: uri
+          description: "A URL for an attractive image representing the offer."
+        expires_at:
+          type: string
+          format: date-time
+          description: "The timestamp when this specific offer becomes invalid."
+    WaitlistOffer:
+      type: object
+      properties:
+        title: { type: string, example: "Your Spot is Ready!" }
+        message: { type: string, example: "A spot has opened up for you in the session 'The Future of AI'. Click below to join now." }
+        join_token:
+          type: string
+          format: jwt
+          description: "A short-lived, single-use token the user can use to join the session."
+        expires_at:
+          type: string
+          format: date-time
+          description: "The timestamp when this specific offer to join becomes invalid."
+    ValidationResult:
+      type: object
+      properties:
+        isValid: { type: boolean }
+        ticketCode: { type: string }
+        validatedAt: { type: string, format: "date-time" }
+        user:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+            avatarUrl: { type: string, format: "uri", nullable: true }
+        accessLevel: { type: string, example: "VIP" }
+        errorReason: { type: string, nullable: true, example: "Already checked in." }
+    CapacityUpdateNotification:
+      type: object
+      required: [event_id, resource_type, resource_id, current_level, capacity]
+      properties:
+        event_id: { type: string }
+        resource_type: { type: string, enum: [event, session, venue] }
+        resource_id: { type: string }
+        current_level: { type: integer }
+        capacity: { type: integer }
+    TicketAvailabilityUpdate:
+      type: object
+      properties:
+        eventId: { type: string }
+        ticketTypeId: { type: string }
+        status: { type: string, enum: [AVAILABLE, SOLD_OUT, LOW_STOCK] }
+        ticketsRemaining: { type: integer }
+     # --- NEW SCHEMA FOR THE SYNC BUNDLE ---
+    EventSyncBundle:
+      type: object
+      properties:
+        event:
+          $ref: "#/components/schemas/Event"
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        speakers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Speaker"
+        venues:
+          type: array
+          items:
+            $ref: "#/components/schemas/Venue"
+    # --- Helper Schemas ---
+    ErrorResponse:
+      type: object
+      properties:
+        message: { type: string }
+        code: { type: string }
+    Pagination:
+      type: object
+      properties:
+        totalItems: { type: integer }
+        totalPages: { type: integer }
+        currentPage: { type: integer }

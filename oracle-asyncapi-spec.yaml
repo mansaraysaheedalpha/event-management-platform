@@ -9,29 +9,7 @@ info:
   contact:
     name: Oracle API Support
     email: oracle-support@eventplatform.com
-
-
-# Add this new top-level section to document event publishing
-x-events:
-  description: "Events published by this service to the Redis message bus."
-  channels:
-    - name: "agenda-updates"
-      description: "Published when a session's details (time, room, etc.) are changed."
-      payloadSchema: "#/components/schemas/AgendaUpdateNotification"
-    - name: "capacity-updates"
-      description: "Published when a session's or event's attendance numbers change."
-      payloadSchema: "#/components/schemas/CapacityUpdateNotification"
-    - name: "sales-events"
-      description: "Published when ticket availability status changes (e.g., LOW_STOCK, SOLD_OUT)."
-      payloadSchema: "#/components/schemas/TicketAvailabilityUpdate" # You will need to add this schema
-    - name: "monetization-events"
-      description: "Published to trigger monetization actions like waitlist promotions."
-      payloadSchema:
-        type: object
-        properties:
-          type: { type: string, enum: ['SPOT_AVAILABLE'] }
-          sessionId: { type: string }
-          
+        
 servers:
   production:
     url: kafka.eventplatform.com:9092
