@@ -1,15 +1,17 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+//src/invitations/invitation.service.ts
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma.service';
-import { Role } from '@prisma/client';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { MailerService } from '@nestjs-modules/mailer';
 
 interface CreateInvitationData {
   email: string;
-  role: Role;
+  role: string;
   organizationId: string;
   invitedById: string;
 }
@@ -20,39 +22,34 @@ interface AcceptInvitationData {
   password: string;
 }
 
-interface Invitation {
-  id: string;
-  email: string;
-  token: string;
-  role: Role;
-  expiresAt: Date;
-  createdAt: Date;
-  organizationId: string;
-  invitedById: string;
-}
-
 @Injectable()
 export class InvitationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
     private readonly mailerService: MailerService,
   ) {}
 
   async create(data: CreateInvitationData) {
-    // 1. Generate a secure random token
-    const rawToken = randomBytes(32).toString('hex');
+    const role = await this.prisma.role.findUnique({
+      where: {
+        name_organizationId: {
+          name: data.role,
+          organizationId: data.organizationId,
+        },
+      },
+    });
+    if (!role)
+      throw new NotFoundException(
+        `Role '${data.role}' not found in this organization.`,
+      );
 
-    // 2. Hash it before saving to the DB
+    const rawToken = randomBytes(32).toString('hex');
     const hashedToken = await bcrypt.hash(rawToken, 10);
 
-    // 3. Save invitation in the DB
     const invitation = await this.prisma.invitation.create({
       data: {
         email: data.email,
         token: hashedToken,
-        role: data.role,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // expires in 7 days
         organization: {
           connect: { id: data.organizationId },
@@ -60,6 +57,7 @@ export class InvitationsService {
         invitedBy: {
           connect: { id: data.invitedById },
         },
+        role: { connect: { id: role.id } },
       },
       include: {
         organization: true,
@@ -100,42 +98,14 @@ export class InvitationsService {
   }
 
   async accept(token: string, data: AcceptInvitationData) {
-    // 1. Find all non-expired invitations.
-    const unexpiredInvitations = await this.prisma.invitation.findMany({
-      where: {
-        expiresAt: { gte: new Date() },
-      },
-    });
-
-    if (!unexpiredInvitations.length) {
-      throw new UnauthorizedException('Invalid or expired invitation token.');
-    }
-
-    // 2. Find the specific invitation that matches the provided token.
-    let matchedInvitation: Invitation | null = null;
-    for (const invitation of unexpiredInvitations) {
-      const isMatch = await bcrypt.compare(token, invitation.token);
-      if (isMatch) {
-        matchedInvitation = invitation;
-        break;
-      }
-    }
-
-    if (!matchedInvitation) {
-      throw new UnauthorizedException('Invalid or expired invitation token.');
-    }
-
-    // Now we know the token is valid and we have the correct invitation record.
-    // The rest of your logic was nearly perfect.
+    const matchedInvitation = await this.findAndValidateInvitation(token);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // 3. Check if user already exists, or create them.
       let user = await tx.user.findUnique({
         where: { email: matchedInvitation.email },
       });
 
       if (!user) {
-        // User does not exist, create them.
         const hashedPassword = await bcrypt.hash(data.password, 10);
         user = await tx.user.create({
           data: {
@@ -147,26 +117,37 @@ export class InvitationsService {
         });
       }
 
-      // 4. Create the membership link.
-      await tx.membership.create({
+      const membership = await tx.membership.create({
         data: {
           userId: user.id,
           organizationId: matchedInvitation.organizationId,
-          role: matchedInvitation.role,
+          roleId: matchedInvitation.roleId,
         },
+        include: { role: true },
       });
 
-      // 5. Delete the invitation so it cannot be used again.
-      await tx.invitation.delete({
-        where: { id: matchedInvitation.id },
-      });
+      await tx.invitation.delete({ where: { id: matchedInvitation.id } });
 
-      return { user };
+      return { user, membership };
     });
-    const user = result;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...safeUser } = user.user;
 
-    return safeUser;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, ...safeUser } = result.user;
+    return { user: safeUser, membership: result.membership };
+  }
+
+  // Helper to ensure the invitation is found and includes the role
+  private async findAndValidateInvitation(token: string) {
+    const unexpiredInvitations = await this.prisma.invitation.findMany({
+      where: { expiresAt: { gte: new Date() } },
+      include: { role: true },
+    });
+
+    for (const invitation of unexpiredInvitations) {
+      const isMatch = await bcrypt.compare(token, invitation.token);
+      if (isMatch) return invitation;
+    }
+
+    throw new UnauthorizedException('Invalid or expired invitation token.');
   }
 }

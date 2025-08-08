@@ -12,5 +12,4 @@ class EventSyncBundle(BaseModel):
     speakers: List[Speaker] = []
     venue: Optional[Venue] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True }

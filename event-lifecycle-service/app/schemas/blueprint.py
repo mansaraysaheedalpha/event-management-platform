@@ -28,8 +28,7 @@ class EventBlueprint(BlueprintBase):
     organization_id: str
     is_archived: bool
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class InstantiateBlueprintRequest(BaseModel):

@@ -2,12 +2,15 @@ from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, text
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 from app.models.session_speaker import session_speaker_association
+import uuid
 
 
 class Session(Base):
     __tablename__ = "sessions"
 
-    id = Column(String, primary_key=True)
+    id = Column(
+        String, primary_key=True, default=lambda: f"evt_{uuid.uuid4().hex[:12]}"
+    )
     event_id = Column(String, ForeignKey("events.id"), nullable=False, index=True)
     title = Column(String, nullable=False)
     start_time = Column(DateTime, nullable=False)

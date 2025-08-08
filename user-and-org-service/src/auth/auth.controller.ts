@@ -38,7 +38,7 @@ export class AuthController {
   ) {
     const loginResult = await this.authService.login(loginDTO);
 
-    if ('requires2FA' in loginResult && loginResult.requires2FA) {
+    if ('requires2FA' in loginResult) {
       return loginResult;
     }
 
@@ -112,12 +112,12 @@ export class AuthController {
     @Body() acceptInvitationDto: AcceptInvitationDTO,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const user = await this.invitationService.accept(
+    const { user, membership } = await this.invitationService.accept(
       invitationToken,
       acceptInvitationDto,
     );
 
-    const tokens = await this.authService.getTokensForUser(user);
+    const tokens = await this.authService.getTokensForUser(user, membership);
     res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
       secure: true,
@@ -128,7 +128,7 @@ export class AuthController {
     return {
       message: `Welcome! You are now a member.`,
       access_token: tokens.access_token,
-      user: user,
+      user,
     };
   }
 

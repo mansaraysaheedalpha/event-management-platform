@@ -7,5 +7,4 @@ class Presentation(BaseModel):
     session_id: str
     slide_urls: List[str]
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

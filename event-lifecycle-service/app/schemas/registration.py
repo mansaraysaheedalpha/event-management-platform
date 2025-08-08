@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from enum import Enum
 from datetime import datetime
@@ -12,22 +12,21 @@ class RegistrationStatus(str, Enum):
 
 class RegistrationBase(BaseModel):
     user_id: Optional[str] = None
-    first_name: Optional[str] = Field(None, example="Guest")
-    last_name: Optional[str] = Field(None, example="User")
-    email: Optional[str] = Field(None, example="guest@example.com")
+    first_name: Optional[str] = Field(None, json_schema_extra={"example":"Guest"})
+    last_name: Optional[str] = Field(None, json_schema_extra={"example":"User"})
+    email: Optional[str] = Field(None, json_schema_extra={"example":"guest@example.com"})
 
 
 class RegistrationCreate(RegistrationBase):
     # This validator enforces the `oneOf` logic from your spec
-    @validator("user_id", always=True)
-    def check_user_or_guest_details(cls, v, values):
-        if v is None and values.get("email") is None:
-            raise ValueError(
-                "Either user_id or guest details (first_name, last_name, email) must be provided"
-            )
-        if v is not None and values.get("email") is not None:
+    @model_validator(mode="before")
+    def check_user_or_guest_details(cls, values):
+        user_id, email = values.get("user_id"), values.get("email")
+        if not user_id and not email:
+            raise ValueError("Either user_id or guest details must be provided")
+        if user_id and email:
             raise ValueError("Provide either user_id or guest details, not both")
-        return v
+        return values
 
 
 class RegistrationUpdate(BaseModel):
@@ -45,5 +44,4 @@ class Registration(BaseModel):
     ticket_code: str
     checked_in_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

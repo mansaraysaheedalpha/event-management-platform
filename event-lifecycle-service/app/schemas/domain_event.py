@@ -11,5 +11,4 @@ class DomainEvent(BaseModel):
     user_id: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

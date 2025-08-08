@@ -15,7 +15,8 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { TwoFactorService } from 'src/two-factor/two-factor.service';
 import { AuditService } from 'src/audit/audit.service';
 import { PermissionsService } from 'src/permissions/permissions.service';
-import { Role } from '@prisma/client';
+import { User, Membership, Role as PrismaRole } from '@prisma/client';
+import { JwtPayload } from 'src/common/interfaces/auth.interface';
 
 interface Token {
   id: string;
@@ -24,9 +25,17 @@ interface Token {
   expiresAt: Date;
 }
 
+type UserForToken = Pick<
+  User,
+  'id' | 'email' | 'tier' | 'preferredLanguage' | 'sponsorId'
+>;
+
+// The specific membership data needed to generate tokens
+type MembershipForToken = Membership & { role: PrismaRole };
+
 type LoginResponse =
   | { requires2FA: true; userId: string }
-  | { requires2FA?: false; access_token: string; refresh_token: string };
+  | { access_token: string; refresh_token: string };
 
 @Injectable()
 export class AuthService {
@@ -43,10 +52,19 @@ export class AuthService {
   async login(loginDTO: LoginDTO): Promise<LoginResponse> {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: loginDTO.email },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        isTwoFactorEnabled: true,
+        preferredLanguage: true,
+        tier: true,
+        sponsorId: true,
         memberships: {
           select: {
+            userId: true,
             organizationId: true,
+            roleId: true,
             role: true,
           },
         },
@@ -88,10 +106,14 @@ export class AuthService {
   }
 
   async login2FA(userId: string, twoFactorCode: string) {
-    // The only change is adding the 'include' for the role object here
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        preferredLanguage: true,
+        tier: true,
+        sponsorId: true,
         memberships: {
           include: {
             role: true,
@@ -136,10 +158,15 @@ export class AuthService {
   }
 
   async refreshTokenService(userId: string, incomingRefreshToken: string) {
-    // The only change is adding the 'include' for the role object here
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        hashedRefreshToken: true,
+        preferredLanguage: true,
+        tier: true,
+        sponsorId: true,
         memberships: {
           include: {
             role: true,
@@ -152,10 +179,7 @@ export class AuthService {
       throw new ForbiddenException('Access Denied');
     }
 
-    const payload = this.jwtService.decode(incomingRefreshToken) as {
-      jti: string;
-      orgId: string;
-    };
+    const payload = this.jwtService.decode(incomingRefreshToken);
     const refreshTokenId = payload.jti;
 
     const isRefreshTokenMatch = await bcrypt.compare(
@@ -231,55 +255,49 @@ export class AuthService {
     };
   }
 
-  async getTokensForUser(
-    user: { id: string; email: string },
-    membership: {
-      organizationId: string;
-      role: Role;
-    },
-  ) {
-    // 1. Generate a secure, random string to act as the core refresh token value.
+  async getTokensForUser(user: UserForToken, membership: MembershipForToken) {
+    // 1. Generate a secure, random string for the refresh token ID.
     const refreshTokenId = randomBytes(32).toString('hex');
 
-    // Fetch all permissions for the given role
+    // 2. Fetch all permissions for the given role.
     const roleWithPermissions = await this.prisma.role.findUnique({
       where: { id: membership.role.id },
       include: { permissions: { select: { name: true } } },
     });
-
     const permissions =
       roleWithPermissions?.permissions.map((p) => p.name) || [];
 
-    const accessTokenPayload = {
+    const accessTokenPayload: JwtPayload = {
       sub: user.id,
       email: user.email,
       orgId: membership.organizationId,
       role: membership.role.name,
-      permissions: permissions, // // <-- Permissions are now dynamically fetched and added
-      preferredLanguage: 
+      permissions: permissions,
+      tier: (user.tier as 'default' | 'vip') || 'default',
+      preferredLanguage: user.preferredLanguage || 'en',
+      sponsorId: user.sponsorId || undefined,
     };
 
     const refreshTokenPayload = {
       sub: user.id,
-      jti: refreshTokenId, // "JWT ID", we embed our random string here.
-      orgId: membership.organizationId, // Include orgId to maintain context on refresh
+      jti: refreshTokenId,
+      orgId: membership.organizationId,
     };
 
-    // 3. Sign both tokens with their respective secrets and expirations.
-    const accessToken = this.jwtService.sign(accessTokenPayload, {
-      secret: this.configService.get<string>('JWT_SECRET'),
-      expiresIn: '15m',
-    });
+    // 4. Sign both tokens.
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessTokenPayload, {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: '15m',
+      }),
+      this.jwtService.signAsync(refreshTokenPayload, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: '7d',
+      }),
+    ]);
 
-    const refreshToken = this.jwtService.sign(refreshTokenPayload, {
-      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      expiresIn: '7d',
-    });
-
-    // 4. Hash the standalone random string, NOT the whole JWT.
+    // 5. Hash the refresh token ID and update the user record.
     const hashedRefreshToken = await bcrypt.hash(refreshTokenId, 10);
-
-    // 5. Update the database with the new hash.
     await this.prisma.user.update({
       where: { id: user.id },
       data: { hashedRefreshToken: hashedRefreshToken },

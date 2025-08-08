@@ -4,8 +4,8 @@ from app.core.config import settings
 
 
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.version,
+    title="GlobalConnect Event-Lifecycle Microservice",
+    version="1.0.0",
     description="""
         🚀 **GlobalConnect Event Management Service**
         

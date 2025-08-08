@@ -15,28 +15,48 @@ const allPermissions = [
   { name: 'chat:send', description: 'Can send messages in session chat' },
   { name: 'chat:edit:own', description: 'Can edit their own messages' },
   { name: 'chat:delete:own', description: 'Can delete their own messages' },
-  { name: 'chat:delete:any', description: 'Can delete any message (moderator)' },
+  {
+    name: 'chat:delete:any',
+    description: 'Can delete any message (moderator)',
+  },
   // DMs
   { name: 'dm:send', description: 'Can send direct messages' },
 ];
 
 const roles = {
   OWNER: [
-    'poll:create', 'poll:manage', 'poll:vote',
-    'qna:ask', 'qna:upvote', 'qna:moderate',
-    'chat:send', 'chat:edit:own', 'chat:delete:own', 'chat:delete:any',
+    'poll:create',
+    'poll:manage',
+    'poll:vote',
+    'qna:ask',
+    'qna:upvote',
+    'qna:moderate',
+    'chat:send',
+    'chat:edit:own',
+    'chat:delete:own',
+    'chat:delete:any',
     'dm:send',
   ],
   ADMIN: [
-    'poll:create', 'poll:manage', 'poll:vote',
-    'qna:ask', 'qna:upvote', 'qna:moderate',
-    'chat:send', 'chat:edit:own', 'chat:delete:own', 'chat:delete:any',
+    'poll:create',
+    'poll:manage',
+    'poll:vote',
+    'qna:ask',
+    'qna:upvote',
+    'qna:moderate',
+    'chat:send',
+    'chat:edit:own',
+    'chat:delete:own',
+    'chat:delete:any',
     'dm:send',
   ],
   MEMBER: [
     'poll:vote',
-    'qna:ask', 'qna:upvote',
-    'chat:send', 'chat:edit:own', 'chat:delete:own',
+    'qna:ask',
+    'qna:upvote',
+    'chat:send',
+    'chat:edit:own',
+    'chat:delete:own',
     'dm:send',
   ],
 };
@@ -52,7 +72,7 @@ async function main() {
   console.log('Seeding system roles...');
   for (const roleName in roles) {
     const permissionsForRole = roles[roleName];
-    
+
     // Find the permission records that match the names
     const permissionsToConnect = await prisma.permission.findMany({
       where: { name: { in: permissionsForRole } },
@@ -60,22 +80,36 @@ async function main() {
     });
 
     // Create or update the system role
-    await prisma.role.upsert({
-      where: { name_organizationId: { name: roleName, organizationId: null } },
-      update: {
-        permissions: {
-          set: permissionsToConnect, // Update permissions
-        },
-      },
-      create: {
+    const existingRole = await prisma.role.findFirst({
+      where: {
         name: roleName,
         isSystemRole: true,
-        organizationId: null, // System roles are not tied to an org
-        permissions: {
-          connect: permissionsToConnect,
-        },
       },
     });
+
+    if (existingRole) {
+      // 2. If it exists, update it
+      await prisma.role.update({
+        where: { id: existingRole.id },
+        data: {
+          permissions: {
+            set: permissionsToConnect, // Overwrite existing permissions
+          },
+        },
+      });
+    } else {
+      // 3. If it doesn't exist, create it
+      await prisma.role.create({
+        data: {
+          name: roleName,
+          isSystemRole: true,
+          // organizationId is omitted, so it defaults to null
+          permissions: {
+            connect: permissionsToConnect,
+          },
+        },
+      });
+    }
   }
   console.log('System roles seeded.');
 }

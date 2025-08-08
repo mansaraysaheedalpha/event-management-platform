@@ -1,3 +1,4 @@
+// In src/auth/guards/roles.guard.ts
 import {
   CanActivate,
   ExecutionContext,
@@ -5,7 +6,6 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { PrismaService } from 'src/prisma.service';
 import { Request } from 'express';
@@ -38,7 +38,7 @@ export class RolesGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredRoles = this.reflector.get<Role[]>(
+    const requiredRoles = this.reflector.get<string[]>(
       ROLES_KEY,
       context.getHandler(),
     );
@@ -48,8 +48,6 @@ export class RolesGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<RequestWithOrgId>();
-
-    // With our new interface, these accesses are now 100% type-safe
     const userId = request.user?.sub;
     const organizationId =
       request.params?.orgId ||
@@ -69,6 +67,9 @@ export class RolesGuard implements CanActivate {
           organizationId,
         },
       },
+      include: {
+        role: true,
+      },
     });
 
     if (!membership) {
@@ -77,6 +78,6 @@ export class RolesGuard implements CanActivate {
       );
     }
 
-    return requiredRoles.includes(membership.role);
+    return requiredRoles.includes(membership.role.name);
   }
 }

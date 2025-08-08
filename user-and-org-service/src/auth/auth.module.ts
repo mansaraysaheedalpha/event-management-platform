@@ -12,6 +12,7 @@ import { InvitationsModule } from 'src/invitations/invitations.module';
 import { TwoFactorModule } from 'src/two-factor/two-factor.module';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { AuditModule } from 'src/audit/audit.module';
+import { PermissionsModule } from 'src/permissions/permissions.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AuditModule } from 'src/audit/audit.module';
     MailerModule,
     TwoFactorModule,
     AuditModule,
+    PermissionsModule,
   ],
   controllers: [AuthController],
   providers: [

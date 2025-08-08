@@ -6,8 +6,8 @@ class AdBase(BaseModel):
     name: str = Field(..., example="Homepage Banner Q3")
     event_id: Optional[str] = Field(None, example="evt_abc")
     content_type: str = Field(..., example="BANNER")
-    media_url: str = Field(..., example="https://example.com/ads/banner.jpg")
-    click_url: str = Field(..., example="https://example.com/product")
+    media_url: str = Field(..., json_schema_extra={"example": "https://example.com/ads/banner.jpg"})
+    click_url: str = Field(..., json_schema_extra={"example": "https://example.com/product"})
 
 
 class AdCreate(AdBase):
@@ -27,5 +27,4 @@ class Ad(AdBase):
     organization_id: str
     is_archived: bool
 
-    class Config:
-        from_attributes = True
+    model_config = { "form_attributes": True}

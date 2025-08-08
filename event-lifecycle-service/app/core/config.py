@@ -2,21 +2,50 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # This will automatically load the DATABASE_URL from the .env file
-
-    DATABASE_URL: str
-    JWT_SECRET: str
-    INTERNAL_API_KEY: str
-    REDIS_URL: str = "redis://localhost:6379"
-    app_name: str = "GlobalConnect Event Management Service"
-    version: str = "1.1.0"
-    api_v1_prefix: str = "/api/events/v1"
-    # ADD THESE for AWS S3
-    AWS_ACCESS_KEY_ID: str = "YOUR_AWS_ACCESS_KEY"
-    AWS_SECRET_ACCESS_KEY: str = "YOUR_AWS_SECRET_KEY"
-    AWS_S3_BUCKET_NAME: str = "your-s3-bucket-name"
-    AWS_S3_REGION: str = "your-aws-region"
+    # This tells Pydantic to load variables from the .env file
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    # The environment mode: 'local' or 'prod'
+    ENV: str = "prod"
 
+    # --- Production URLs (for inside Docker) ---
+    DATABASE_URL_PROD: str
+    REDIS_URL_PROD: str
+    KAFKA_BOOTSTRAP_SERVERS_PROD: str
+
+    # --- Local Development URLs (for running locally) ---
+    DATABASE_URL_LOCAL: str
+    REDIS_URL_LOCAL: str
+    KAFKA_BOOTSTRAP_SERVERS_LOCAL: str
+
+    # Other secrets
+    JWT_SECRET: str
+    INTERNAL_API_KEY: str
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    AWS_S3_BUCKET_NAME: str
+    AWS_S3_REGION: str
+
+    # --- Dynamic Properties ---
+    # These properties will intelligently return the correct URL based on the ENV
+    @property
+    def DATABASE_URL(self) -> str:
+        return (
+            self.DATABASE_URL_LOCAL if self.ENV == "local" else self.DATABASE_URL_PROD
+        )
+
+    @property
+    def REDIS_URL(self) -> str:
+        return self.REDIS_URL_LOCAL if self.ENV == "local" else self.REDIS_URL_PROD
+
+    @property
+    def KAFKA_BOOTSTRAP_SERVERS(self) -> str:
+        return (
+            self.KAFKA_BOOTSTRAP_SERVERS_LOCAL
+            if self.ENV == "local"
+            else self.KAFKA_BOOTSTRAP_SERVERS_PROD
+        )
+
+
+# Create a single instance of the settings
 settings = Settings()

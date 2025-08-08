@@ -1,14 +1,13 @@
 // In src/invitations/dto/create-invitation.dto.ts
 
-import { IsEmail, IsNotEmpty, IsEnum } from 'class-validator';
-import { Role } from '@prisma/client';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 export class CreateInvitationDto {
   @IsEmail()
   @IsNotEmpty()
   email: string;
 
-  @IsEnum(Role)
+  @IsString()
   @IsNotEmpty()
-  role: Role;
+  role: string;
 }
