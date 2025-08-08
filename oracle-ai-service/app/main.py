@@ -1,9 +1,9 @@
 from fastapi import FastAPI
-from app.api.v1.api import api_router
+from app.features import api
 
 app = FastAPI(title="Oracle Microservice API", version="1.0.0")
 
-app.include_router(api_router, prefix="/oracle/v1")
+app.include_router(api.api_router, prefix="/oracle")
 
 
 @app.get("/health")
