@@ -1,3 +1,4 @@
+//src/gamification/gamification.module.ts
 import { Module } from '@nestjs/common';
 import { GamificationService } from './gamification.service';
 import { TeamsModule } from './teams/teams.module';

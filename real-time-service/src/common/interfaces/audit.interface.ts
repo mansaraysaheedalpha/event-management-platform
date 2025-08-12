@@ -1,3 +1,4 @@
+//src/common/interfaces/audit.interface.ts
 /**
  * Structure for recording actions into your audit logging system.
  * Helps track who did what, when, and in what context (e.g. session or org).

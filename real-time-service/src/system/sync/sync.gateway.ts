@@ -1,3 +1,4 @@
+//src/system/sync/sync.gateway.ts
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { Inject, Logger, forwardRef } from '@nestjs/common';

@@ -1,3 +1,4 @@
+//src/ops/audit/audit-log.dto.ts
 /**
  * Data Transfer Object (DTO) for an audit log entry.
  * Used to structure audit log data exchanged between services and clients.

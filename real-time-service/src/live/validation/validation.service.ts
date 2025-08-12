@@ -1,3 +1,4 @@
+//src/live/validation/validation.service.ts
 const ANALYTICS_CHECKIN_TOPIC = 'platform.analytics.check-in.v1';
 import { HttpService } from '@nestjs/axios';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';

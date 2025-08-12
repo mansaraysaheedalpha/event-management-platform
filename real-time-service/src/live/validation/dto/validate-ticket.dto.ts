@@ -1,3 +1,4 @@
+//src/live/validation/dto/validate-ticket.dto.ts
 import { IsEnum, IsNotEmpty, IsString, IsUUID } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 

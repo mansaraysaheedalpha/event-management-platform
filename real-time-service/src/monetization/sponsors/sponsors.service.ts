@@ -1,3 +1,4 @@
+//src/monetization/sponsors/sponsors.service.ts
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { SponsorsGateway } from './sponsors.gateway';

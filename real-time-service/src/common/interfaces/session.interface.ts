@@ -1,3 +1,4 @@
+//src/common/interfaces/session.interface.ts
 /**
  * Attached to any socket or event to provide context about the current session.
  */

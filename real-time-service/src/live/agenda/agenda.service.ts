@@ -1,3 +1,4 @@
+//src/agenda/agenda.service.ts
 export enum AgendaUpdateType {
   SESSION_UPDATED = 'SESSION_UPDATED',
   SESSION_CANCELED = 'SESSION_CANCELED',

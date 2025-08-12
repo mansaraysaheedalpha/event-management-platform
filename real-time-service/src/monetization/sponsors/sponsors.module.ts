@@ -1,3 +1,4 @@
+//src/monetization/sponsors/sponsors.module.ts
 import { Module } from '@nestjs/common';
 import { SponsorsService } from './sponsors.service';
 import { SponsorsGateway } from './sponsors.gateway';

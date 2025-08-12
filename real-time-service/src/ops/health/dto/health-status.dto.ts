@@ -1,13 +1,14 @@
+//src/ops/health/dto/health-status.dto.ts
 import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
 
 /**
  * Enum representing the possible statuses of a microservice.
  */
 enum ServiceStatus {
-  OPERATIONAL = 'OPERATIONAL',     // Everything is working fine
-  DEGRADED = 'DEGRADED',           // Service is slow or partially broken
-  DOWNTIME = 'DOWNTIME',           // Completely down or unavailable
-  MAINTENANCE = 'MAINTENANCE',     // Intentionally under maintenance
+  OPERATIONAL = 'OPERATIONAL', // Everything is working fine
+  DEGRADED = 'DEGRADED', // Service is slow or partially broken
+  DOWNTIME = 'DOWNTIME', // Completely down or unavailable
+  MAINTENANCE = 'MAINTENANCE', // Intentionally under maintenance
 }
 
 /**

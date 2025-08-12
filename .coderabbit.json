@@ -1,0 +1,12 @@
+{
+  "review": {
+    "rules": {
+      "maxLineLength": 300,
+      "noConsoleLog": true
+    }
+  },
+  "comments": {
+    "tone": "friendly",
+    "language": "en"
+  }
+}

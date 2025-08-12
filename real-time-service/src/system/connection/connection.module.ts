@@ -1,3 +1,4 @@
+//src/system/connection/connection.module.ts
 import { Module } from '@nestjs/common';
 import { ConnectionService } from './connection.service';
 import { ConnectionGateway } from './connection.gateway';

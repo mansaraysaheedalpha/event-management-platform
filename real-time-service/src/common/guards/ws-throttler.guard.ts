@@ -1,3 +1,4 @@
+//src/common/guards/ws-throttler.guard.ts
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthenticatedSocket } from '../interfaces/auth.interface';

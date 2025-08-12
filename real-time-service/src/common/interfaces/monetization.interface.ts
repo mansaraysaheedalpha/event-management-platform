@@ -1,3 +1,4 @@
+//src/common/interfaces/monetization.interface.ts
 export interface WaitlistNotificationPayload {
   sessionId: string;
   title: string;

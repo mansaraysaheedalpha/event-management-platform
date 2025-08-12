@@ -1,3 +1,4 @@
+//src/live/validation/dto/validate-result.dto.ts
 import { Type } from 'class-transformer';
 /**
  * Contains minimal info about the user who owns a validated ticket.

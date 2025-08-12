@@ -1,3 +1,4 @@
+//src/comm/chat/dto/delete-message.dto.ts
 import { IsNotEmpty, IsUUID } from 'class-validator';
 
 /**

@@ -1,3 +1,4 @@
+//src/comm/polls/polls.module.ts
 import { Module } from '@nestjs/common';
 import { PollsService } from './polls.service';
 import { GamificationModule } from 'src/gamification/gamification.module';

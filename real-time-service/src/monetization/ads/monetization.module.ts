@@ -1,3 +1,4 @@
+//src/monetization/ads/monetization.module.ts
 import { Module } from '@nestjs/common';
 import { MonetizationService } from './monetization.service';
 import { WaitlistModule } from '../waitlist/waitlist.module';

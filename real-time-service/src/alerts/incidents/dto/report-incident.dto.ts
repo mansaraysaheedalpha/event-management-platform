@@ -1,3 +1,4 @@
+//src/alerts/incidents/dto/report-incident.dto.ts
 import {
   IsEnum,
   IsNotEmpty,
@@ -7,7 +8,7 @@ import {
 } from 'class-validator';
 
 // Match the enums defined in the Prisma schema
-enum IncidentType {
+export enum IncidentType {
   HARASSMENT = 'HARASSMENT',
   MEDICAL = 'MEDICAL',
   TECHNICAL = 'TECHNICAL',
@@ -15,7 +16,7 @@ enum IncidentType {
   ACCESSIBILITY = 'ACCESSIBILITY',
 }
 
-enum IncidentSeverity {
+export enum IncidentSeverity {
   LOW = 'LOW',
   MEDIUM = 'MEDIUM',
   HIGH = 'HIGH',

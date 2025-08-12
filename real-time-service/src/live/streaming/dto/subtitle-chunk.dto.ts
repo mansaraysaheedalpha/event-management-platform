@@ -1,3 +1,4 @@
+//src/live/streaming/dto/subtitle-chunk.dto.ts
 import {
   IsInt,
   IsISO8601,

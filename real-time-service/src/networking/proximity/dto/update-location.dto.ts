@@ -1,4 +1,5 @@
-import { IsLatitude, IsLongitude } from 'class-validator';
+//src/networking/proximity/dto/proximity-location.dto.ts
+import { IsLatitude, IsLongitude, IsNotEmpty, IsUUID } from 'class-validator';
 
 export class UpdateLocationDto {
   @IsLatitude()
@@ -6,4 +7,8 @@ export class UpdateLocationDto {
 
   @IsLongitude()
   longitude: number;
+
+  @IsUUID('4')
+  @IsNotEmpty()
+  idempotencyKey: string;
 }

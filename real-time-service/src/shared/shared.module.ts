@@ -1,3 +1,4 @@
+//src/shared/shared.module.ts
 import { Module, Global } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { IdempotencyService } from './services/idempotency.service';

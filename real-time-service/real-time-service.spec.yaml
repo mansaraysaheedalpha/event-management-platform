@@ -78,12 +78,14 @@ channels:
         oneOf:
           - $ref: '#/components/messages/sendChatMessage'
           - $ref: '#/components/messages/reactToMessage'
+          - $ref: '#/components/messages/editChatMessage'
     subscribe:
       summary: Receive new chat messages and moderation events.
       operationId: receiveChatMessage
       message:
         oneOf:
           - $ref: '#/components/messages/chatMessage'
+          - $ref: '#/components/messages/chatMessageUpdated'
           - $ref: '#/components/messages/chatMessageDeleted'
           - $ref: '#/components/messages/chatTranslated'
 
@@ -132,9 +134,14 @@ channels:
       sessionId: { $ref: '#/components/parameters/sessionId' }
     description: Channel for live polls, surveys, and sponsored giveaways with real-time results.
     publish:
-      summary: Cast a vote in an active poll.
+      summary:  Cast a vote or manage a poll/giveaway.
       operationId: voteOnPoll
-      message: { $ref: '#/components/messages/submitPollVote' }
+      message:
+         oneOf:
+          - $ref: '#/components/messages/submitPollVote'
+          - $ref: '#/components/messages/createPoll'
+          - $ref: '#/components/messages/managePoll' 
+          - $ref: '#/components/messages/startGiveaway'
     subscribe:
       summary: Receive poll status updates and real-time results.
       operationId: receivePollUpdate
@@ -342,6 +349,11 @@ channels:
     parameters:
       eventId: { $ref: '#/components/parameters/eventId' }
     description: Channel for the live event leaderboard and team competitions.
+    publish: # <-- ADD THIS PUBLISH BLOCK
+      summary: Request the current leaderboard state.
+      operationId: requestLeaderboard
+      message:
+        name: 'leaderboard.request'
     subscribe:
       summary: Receive real-time updates to the individual and team leaderboards.
       operationId: receiveLeaderboardUpdate
@@ -349,6 +361,26 @@ channels:
         oneOf:
           - $ref: '#/components/messages/leaderboardUpdated'
           - $ref: '#/components/messages/teamLeaderboardUpdated'
+
+  /comm/sessions/{sessionId}/teams:
+    publish:
+      summary: Create, join, or leave a team.
+      message:
+        oneOf:
+          - name: 'team.create'
+            payload: { $ref: '#/components/schemas/createTeamPayload' }
+          - name: 'team.join'
+            payload: { $ref: '#/components/schemas/joinTeamPayload' }
+          - name: 'team.leave'
+            payload: { $ref: '#/components/schemas/leaveTeamPayload' }
+    subscribe:
+      summary: Receive updates about teams and their members.
+      message:
+        oneOf:
+          - name: 'team.created'
+            payload: { $ref: '#/components/schemas/team' }
+          - name: 'team.roster.updated'
+            payload: { $ref: '#/components/schemas/team' }
   # -------------------------------------------------------------------
   # Namespace: /monetization (Real-Time Monetization)
   # -------------------------------------------------------------------
@@ -382,6 +414,11 @@ channels:
     parameters:
       eventId: { $ref: '#/components/parameters/eventId' }
     description: Channel for real-time waitlist management and auto-promotion.
+    publish: # <-- ADD THIS
+      summary: Join the waitlist for a session.
+      message:
+        name: 'monetization.waitlist.join'
+        payload: { $ref: '#/components/schemas/joinWaitlistPayload' }
     subscribe:
       summary: Receive waitlist status updates and promotion notifications.
       operationId: receiveWaitlistUpdate
@@ -395,6 +432,10 @@ channels:
     parameters:
       sponsorId: { $ref: '#/components/parameters/sponsorId' }
     description: Private channel for sponsors to receive real-time lead capture and intent signals.
+    publish: # <-- ADD THIS
+      summary: Join the sponsor's private lead stream.
+      message:
+        name: 'sponsor.leads.join'
     subscribe:
       summary: Receive notifications of new leads and updates to their intent score.
       operationId: receiveLeadUpdate
@@ -588,6 +629,12 @@ components:
     chatMessage:
       name: 'newMessage'
       payload: { $ref: '#/components/schemas/chatMessage' }
+    editChatMessage: 
+      name: 'chat.message.edit'
+      payload: { $ref: '#/components/schemas/editMessagePayload' }
+    chatMessageUpdated: 
+      name: 'chat.message.updated'
+      payload: { $ref: '#/components/schemas/chatMessage' }
     chatMessageDeleted:
       name: 'messageDeleted'
       payload: { $ref: '#/components/schemas/messageDeleted' }
@@ -635,6 +682,15 @@ components:
     pollClosed:
       name: 'pollClosed'
       payload: { $ref: '#/components/schemas/pollClosed' }
+    createPoll:
+      name: 'poll.create'
+      payload: { $ref: '#/components/schemas/createPollPayload' }
+    managePoll:
+      name: 'poll.manage'
+      payload: { $ref: '#/components/schemas/managePollPayload' }
+    startGiveaway: 
+      name: 'poll.giveaway.start'
+      payload: { $ref: '#/components/schemas/startGiveawayPayload' }
 
     # Direct Messages
     sendDirectMessage:
@@ -1080,6 +1136,20 @@ components:
             isModerated:
               type: boolean
               default: false
+
+    editMessagePayload: # <-- ADD THIS NEW SCHEMA
+      type: object
+      required: [messageId, newText, idempotencyKey]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        newText:
+          type: string
+          maxLength: 1000
+        idempotencyKey:
+          type: string
+          format: uuid
 
     messageDeleted:
       type: object
@@ -1867,6 +1937,45 @@ components:
         badgeName: { type: string, example: "Networker" }
         description: { type: string, example: "You made 5 new connections!" }
         imageUrl: { type: string, format: uri }
+
+      # --- NEW SCHEMAS FOR TEAMS FEATURE ---
+    team:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        creator: { $ref: '#/components/schemas/userSummary' }
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/userSummary'
+
+    createTeamPayload:
+      type: object
+      required: [name, idempotencyKey]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        idempotencyKey:
+          type: string
+          format: uuid
+
+    joinTeamPayload:
+      type: object
+      required: [teamId]
+      properties:
+        teamId:
+          type: string
+          format: uuid
+
+    leaveTeamPayload:
+      type: object
+      required: [teamId]
+      properties:
+        teamId:
+          type: string
+          format: uuid
         
     ### THEME 3 SCHEMAS ###
     capturedLead:
@@ -2280,6 +2389,11 @@ components:
         sessionId:
           type: string
           format: uuid
+
+    joinWaitlistPayload:
+      type: object
+      properties:
+        idempotencyKey: { type: string, format: uuid }
 
     # Operations & Security Schemas
     auditLog:

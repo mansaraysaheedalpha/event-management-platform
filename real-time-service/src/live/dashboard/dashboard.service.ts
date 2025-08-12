@@ -1,3 +1,4 @@
+//src/live/dashboard/dashboard.service.ts
 export interface DashboardData {
   totalMessages: number;
   totalVotes: number;

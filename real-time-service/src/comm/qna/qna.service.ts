@@ -1,9 +1,11 @@
+//src/comm/polls/qna.service.ts
 import {
   ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { AskQuestionDto } from './dto/ask-question.dto';
@@ -23,10 +25,13 @@ import { AnswerQuestionDto } from './dto/answer-question.dto';
 import { GamificationService } from 'src/gamification/gamification.service';
 import { Prisma } from '@prisma/client';
 import { TagQuestionDto } from './dto/tag-question.dto';
+import { QnaGateway } from './qna.gateway';
 
 @Injectable()
 export class QnaService {
   private readonly logger = new Logger(QnaService.name);
+  private readonly MODERATION_ALERT_WINDOW_SECONDS = 60;
+  private readonly MODERATION_ALERT_THRESHOLD = 10;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -35,6 +40,8 @@ export class QnaService {
     private readonly httpService: HttpService,
     private readonly publisherService: PublisherService,
     private readonly gamificationService: GamificationService,
+    @Inject(forwardRef(() => QnaGateway))
+    private readonly qnaGateway: QnaGateway,
   ) {}
 
   /**
@@ -53,7 +60,6 @@ export class QnaService {
     sessionId: string,
     dto: AskQuestionDto,
   ) {
-    // --- IDEMPOTENCY CHECK ---
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -80,7 +86,6 @@ export class QnaService {
         isAnonymous: dto.isAnonymous ?? false,
         sessionId,
         authorId: userId,
-        // Default status is 'pending' as per the schema
       },
       include: {
         // We include the author's reference data for the response
@@ -94,28 +99,75 @@ export class QnaService {
       },
     });
 
-    // --- NEW HEATMAP LOGIC ---
-    void this.publisherService.publish('heatmap-events', { sessionId });
-    // --- END NEW LOGIC ---
+    void this._checkModerationVelocity(sessionId);
 
-    // --- NEW GAMIFICATION LOGIC ---
+    void this.publisherService.publish('heatmap-events', { sessionId });
+
     void this.gamificationService.awardPoints(
       userId,
       sessionId,
       'QUESTION_ASKED',
     );
-    // --- END OF NEW LOGIC ---
 
-    // REFINED: Use the helper and correct event type
     void this._publishAnalyticsEvent('QUESTION_ASKED', { sessionId });
 
-    // --- NEW: PUBLISH TO STREAM for the Oracle AI ---
     void this.publisherService.publish(
       'platform.events.qna.question.v1',
       question,
     );
 
     return question;
+  }
+
+  /**
+   * Checks the rate of incoming questions for a session and fires an alert if a threshold is exceeded.
+   */
+  private async _checkModerationVelocity(sessionId: string) {
+    const redisKey = `qna:velocity:${sessionId}`;
+    const now = Date.now();
+    const windowStart = now - this.MODERATION_ALERT_WINDOW_SECONDS * 1000;
+
+    const pipeline = this.redis.multi();
+    pipeline.zadd(redisKey, now, `${now}-${Math.random()}`);
+    pipeline.zremrangebyscore(redisKey, '-inf', windowStart);
+    pipeline.zcard(redisKey);
+    pipeline.expire(redisKey, this.MODERATION_ALERT_WINDOW_SECONDS + 60);
+
+    const results = await pipeline.exec();
+
+    if (!results) {
+      this.logger.error(
+        `Redis transaction for moderation velocity check failed for session ${sessionId}.`,
+      );
+      return;
+    }
+
+    const zcardResult = results[2];
+
+    if (zcardResult[0]) {
+      this.logger.error(
+        'Redis ZCARD command failed in moderation check.',
+        zcardResult[0],
+      );
+      return;
+    }
+
+    const questionCountInWindow = zcardResult[1] as number;
+
+    if (questionCountInWindow > this.MODERATION_ALERT_THRESHOLD) {
+      this.logger.warn(
+        `High Q&A volume detected in session ${sessionId}: ${questionCountInWindow} questions in the last minute.`,
+      );
+
+      const alertPayload = {
+        type: 'HIGH_VOLUME',
+        count: questionCountInWindow,
+        threshold: this.MODERATION_ALERT_THRESHOLD,
+        timeWindow: this.MODERATION_ALERT_WINDOW_SECONDS,
+      };
+
+      this.qnaGateway.broadcastModerationAlert(sessionId, alertPayload);
+    }
   }
 
   /**
@@ -127,7 +179,14 @@ export class QnaService {
    * @returns The question with its updated upvote count.
    */
   async upvoteQuestion(userId: string, dto: UpvoteQuestionDto) {
-    // TODO: Implement idempotency check using Redis for the dto.idempotencyKey
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException(
+        'Duplicate request. This upvote has already been processed.',
+      );
+    }
 
     const { questionId } = dto;
 
@@ -507,6 +566,14 @@ export class QnaService {
    * This is a protected action for moderators.
    */
   async tagQuestion(dto: TagQuestionDto) {
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException(
+        'This tagging action has already been processed.',
+      );
+    }
     await this.prisma.question.update({
       where: { id: dto.questionId },
       data: {

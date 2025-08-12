@@ -1,3 +1,4 @@
+//src/system/connection/connection.gatway.ts
 import { WebSocketGateway } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { ConnectionService } from './connection.service';

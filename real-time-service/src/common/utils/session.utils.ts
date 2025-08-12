@@ -1,5 +1,5 @@
 // This is our "type guard" function.
-
+//src/common/utils/session.utils.ts
 import { SessionMetadata } from '../interfaces/session.interface';
 
 /**
