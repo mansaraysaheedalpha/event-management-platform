@@ -1,3 +1,4 @@
+//src/common/utils/auth.utils.ts
 import { Socket } from 'socket.io';
 import { AuthenticatedSocket, JwtPayload } from '../interfaces/auth.interface';
 import { UnauthorizedException } from '@nestjs/common';

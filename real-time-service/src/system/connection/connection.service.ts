@@ -1,3 +1,4 @@
+//src/system/connection/connection.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 

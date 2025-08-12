@@ -1,3 +1,4 @@
+//src/ops/health/health.service.ts
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { HealthGateway } from './health.gateway';

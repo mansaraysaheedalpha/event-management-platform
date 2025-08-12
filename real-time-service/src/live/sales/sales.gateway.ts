@@ -1,3 +1,4 @@
+//src/live/sales/sales.gatway.ts
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { Logger } from '@nestjs/common';

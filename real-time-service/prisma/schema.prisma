@@ -182,6 +182,9 @@ model DirectMessage {
   deliveredAt    DateTime?
   isRead         Boolean  @default(false)
   readAt         DateTime?
+  isEdited       Boolean  @default(false) 
+  editedAt       DateTime?  
+  metadata      Json?      @default("{}")  
   senderId       String
   sender         UserReference @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   conversationId String

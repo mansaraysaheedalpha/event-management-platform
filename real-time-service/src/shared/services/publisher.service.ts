@@ -1,3 +1,4 @@
+//src/shared/services/publisher.service.ts
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../redis.constants';

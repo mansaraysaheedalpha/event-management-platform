@@ -1,3 +1,4 @@
+//src/comm/dm/dto/read-receipt.dto.ts
 import { IsNotEmpty, IsUUID } from 'class-validator';
 
 /**
@@ -9,4 +10,8 @@ export class ReadReceiptDto {
   @IsNotEmpty()
   @IsUUID('4')
   messageId: string;
+
+  @IsUUID('4')
+  @IsNotEmpty()
+  idempotencyKey: string;
 }

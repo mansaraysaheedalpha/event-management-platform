@@ -1,3 +1,4 @@
+//src/comm/chat/chat.service.ts
 import {
   ConflictException,
   ForbiddenException,
@@ -10,28 +11,36 @@ import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Inject } from '@nestjs/common';
+import { REDIS_CLIENT, SYNC_EVENTS_CHANNEL } from 'src/shared/redis.constants';
 import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
 import { ReactToMessageDto } from './dto/react-to-message.dto';
 import { GamificationService } from 'src/gamification/gamification.service';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { DeleteMessageDto } from './dto/delete-message.dto';
 
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
-  private readonly EDIT_WINDOW_SECONDS = 300; // 5 minutes
+  private readonly EDIT_WINDOW_SECONDS: number;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotencyService: IdempotencyService,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis, // <-- INJECT REDIS
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly publisherService: PublisherService,
     private readonly gamificationService: GamificationService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.EDIT_WINDOW_SECONDS = this.configService.get<number>(
+      'CHAT_EDIT_WINDOW_SECONDS',
+      300,
+    );
+  }
 
   /**
    * Sends a chat message in a session after idempotency and session checks.
@@ -163,44 +172,57 @@ export class ChatService {
       throw new ConflictException('Duplicate edit request.');
     }
 
-    const message = await this.prisma.message.findUnique({
-      where: { id: dto.messageId },
+    const updatedMessage = await this.prisma.$transaction(async (tx) => {
+      const message = await tx.message.findUnique({
+        where: { id: dto.messageId },
+      });
+      if (!message) {
+        throw new NotFoundException('Message not found.');
+      }
+      if (message.authorId !== userId) {
+        throw new ForbiddenException('You can only edit your own messages.');
+      }
+
+      const timeSinceSent =
+        (new Date().getTime() - message.timestamp.getTime()) / 1000;
+      if (timeSinceSent > this.EDIT_WINDOW_SECONDS) {
+        throw new ForbiddenException(
+          `Messages can only be edited within ${
+            this.EDIT_WINDOW_SECONDS / 60
+          } minutes.`,
+        );
+      }
+
+      // **FIX STARTS HERE**
+      // The `isEdited` and `editedAt` properties belong inside the metadata object.
+      const existingMetadata = (message.metadata || {}) as Record<string, any>;
+      const newMetadata = {
+        ...existingMetadata,
+        isEdited: true,
+        editedAt: new Date().toISOString(), // Use ISO string for JSON compatibility
+      };
+
+      return tx.message.update({
+        where: { id: dto.messageId },
+        data: {
+          text: dto.newText,
+          // The incorrect top-level properties have been removed.
+          // All edit-related flags are now correctly placed in the metadata field.
+          metadata: newMetadata,
+        },
+        include: {
+          author: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
+      // **FIX ENDS HERE**
     });
 
-    if (!message) {
-      throw new NotFoundException('Message not found.');
-    }
-
-    if (message.authorId !== userId) {
-      throw new ForbiddenException('You can only edit your own messages.');
-    }
-
-    const timeSinceSent =
-      (new Date().getTime() - message.timestamp.getTime()) / 1000;
-    if (timeSinceSent > this.EDIT_WINDOW_SECONDS) {
-      throw new ForbiddenException(
-        `Messages can only be edited within ${this.EDIT_WINDOW_SECONDS / 60} minutes.`,
-      );
-    }
-
-    const updatedMessage = this.prisma.message.update({
-      where: { id: dto.messageId },
-      data: {
-        text: dto.newText,
-        metadata: { isEdited: true, editedAt: new Date() }, // Using metadata for flags
-      },
-      include: {
-        author: { select: { id: true, firstName: true, lastName: true } },
-      },
-    });
-
-    // --- NEW LOGIC: PUBLISH SYNC EVENT FOR UPDATE ---
-    const syncPayload = {
+    void this.publisherService.publish(SYNC_EVENTS_CHANNEL, {
       resource: 'MESSAGE',
       action: 'UPDATED',
       payload: updatedMessage,
-    };
-    void this.publisherService.publish('sync-events', syncPayload);
+    });
+
     return updatedMessage;
   }
 
@@ -216,9 +238,17 @@ export class ChatService {
    */
   async deleteMessage(
     deleterId: string,
-    messageId: string,
+    dto: DeleteMessageDto,
     permissions: string[] = [],
   ) {
+    const { messageId, idempotencyKey } = dto;
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException(
+        'This delete request has already been processed.',
+      );
+    }
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
     });
@@ -371,21 +401,16 @@ export class ChatService {
    * will remove the reaction.
    */
   async reactToMessage(userId: string, dto: ReactToMessageDto) {
-    const { messageId, emoji } = dto;
+    const { messageId, emoji, idempotencyKey } = dto;
 
-    const existingReaction = await this.prisma.messageReaction.findUnique({
-      where: {
-        userId_messageId_emoji: {
-          userId,
-          messageId,
-          emoji,
-        },
-      },
-    });
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException('This reaction has already been processed.');
+    }
 
-    if (existingReaction) {
-      // If the reaction exists, the user is toggling it off.
-      await this.prisma.messageReaction.delete({
+    await this.prisma.$transaction(async (tx) => {
+      const existingReaction = await tx.messageReaction.findUnique({
         where: {
           userId_messageId_emoji: {
             userId,
@@ -394,37 +419,47 @@ export class ChatService {
           },
         },
       });
-      this.logger.log(
-        `User ${userId} removed reaction '${emoji}' from message ${messageId}`,
-      );
-    } else {
-      // If it doesn't exist, create it.
-      // We wrap this in a try/catch to handle the rare case where the message might be deleted
-      // between the client's action and our database operation.
-      try {
-        await this.prisma.messageReaction.create({
-          data: {
-            userId,
-            messageId,
-            emoji,
+
+      if (existingReaction) {
+        // If the reaction exists, the user is toggling it off.
+        await this.prisma.messageReaction.delete({
+          where: {
+            userId_messageId_emoji: {
+              userId,
+              messageId,
+              emoji,
+            },
           },
         });
         this.logger.log(
-          `User ${userId} added reaction '${emoji}' to message ${messageId}`,
+          `User ${userId} removed reaction '${emoji}' from message ${messageId}`,
         );
-      } catch (error) {
-        // P2003: Foreign key constraint failed (e.g., the messageId doesn't exist)
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2003'
-        ) {
-          throw new NotFoundException(
-            `Message with ID ${messageId} not found.`,
+      } else {
+        try {
+          await this.prisma.messageReaction.create({
+            data: {
+              userId,
+              messageId,
+              emoji,
+            },
+          });
+          this.logger.log(
+            `User ${userId} added reaction '${emoji}' to message ${messageId}`,
           );
+        } catch (error) {
+          // P2003: Foreign key constraint failed (e.g., the messageId doesn't exist)
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2003'
+          ) {
+            throw new NotFoundException(
+              `Message with ID ${messageId} not found.`,
+            );
+          }
+          throw error;
         }
-        throw error;
       }
-    }
+    });
 
     // After changing a reaction, fetch the updated message with aggregated reaction counts
     return this._getMessageWithReactions(messageId);

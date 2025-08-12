@@ -1,3 +1,4 @@
+//src/gamification/teams/teams.gateway.ts
 import {
   ConnectedSocket,
   MessageBody,
@@ -80,10 +81,7 @@ export class TeamsGateway {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
-      const updatedTeam = await this.teamsService.joinTeam(
-        user.sub,
-        dto.teamId,
-      );
+      const updatedTeam = await this.teamsService.joinTeam(user.sub, dto);
       this.server
         .to(`session:${sessionId}`)
         .emit('team.roster.updated', updatedTeam);
@@ -109,10 +107,7 @@ export class TeamsGateway {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
-      const updatedTeam = await this.teamsService.leaveTeam(
-        user.sub,
-        dto.teamId,
-      );
+      const updatedTeam = await this.teamsService.leaveTeam(user.sub, dto);
       this.server
         .to(`session:${sessionId}`)
         .emit('team.roster.updated', updatedTeam);

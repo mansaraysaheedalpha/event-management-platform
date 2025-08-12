@@ -1,3 +1,4 @@
+//src/comm/polls/dto/manage-polls.dto.ts
 import { IsIn, IsNotEmpty, IsString, IsUUID } from 'class-validator';
 
 /**

@@ -1,3 +1,4 @@
+//src/ops/heatmap/heatmap.gateway.ts
 import {
   ConnectedSocket,
   SubscribeMessage,

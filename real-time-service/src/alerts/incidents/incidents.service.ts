@@ -1,3 +1,4 @@
+//src/alerts/incidents/incident.service.ts
 import {
   ConflictException,
   ForbiddenException,
@@ -26,7 +27,6 @@ export class IncidentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotencyService: IdempotencyService,
-    @Inject(forwardRef(() => IncidentsGateway))
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     @Inject(forwardRef(() => IncidentsGateway))
@@ -80,6 +80,20 @@ export class IncidentsService {
     this.logger.log(
       `New incident ${newIncident.id} reported by user ${reporterId}`,
     );
+
+    // Publish an audit event for the new incident report
+    const auditPayload: AuditLogPayload = {
+      action: 'INCIDENT_REPORTED',
+      actingUserId: reporterId,
+      organizationId: metadata.organizationId,
+      sessionId: sessionId,
+      details: {
+        incidentId: newIncident.id,
+        type: newIncident.type,
+        severity: newIncident.severity,
+      },
+    };
+    void this._publishAuditEvent(auditPayload);
 
     // Trigger the gateway to broadcast the new incident to admins
     this.incidentsGateway.broadcastNewIncident(newIncident);

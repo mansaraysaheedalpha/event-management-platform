@@ -1,3 +1,4 @@
+//src/comm/dm/dto/send-dm.dto.ts
 import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 /**

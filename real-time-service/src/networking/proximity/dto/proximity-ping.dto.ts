@@ -1,3 +1,4 @@
+//src/networking/proximity/dto/proximity-ping.dto.ts
 import {
   IsNotEmpty,
   IsOptional,
@@ -15,4 +16,8 @@ export class ProximityPingDto {
   @MaxLength(255)
   @IsOptional()
   message?: string;
+
+  @IsUUID('4')
+  @IsNotEmpty()
+  idempotencyKey: string;
 }

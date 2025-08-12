@@ -1,3 +1,4 @@
+//src/live/live.module
 import { Module } from '@nestjs/common';
 import { AgendaModule } from './agenda/agenda.module';
 import { ContentModule } from './content/content.module';

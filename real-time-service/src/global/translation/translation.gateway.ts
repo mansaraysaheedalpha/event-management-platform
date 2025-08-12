@@ -1,3 +1,4 @@
+//src/global/translation/translation.gateway
 import {
   MessageBody,
   SubscribeMessage,

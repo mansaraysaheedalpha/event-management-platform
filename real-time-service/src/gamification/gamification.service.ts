@@ -1,3 +1,4 @@
+//src/gamification/gamification.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { PointReason, Prisma } from '@prisma/client';
@@ -79,6 +80,13 @@ export class GamificationService {
       return aggregate._sum.points || 0;
     });
 
+    // After points are awarded, send a private notification to the user.
+    this.gamificationGateway.sendPointsAwardedNotification(userId, {
+      points: pointsToAward,
+      reason: reason,
+      newTotalScore: totalScore,
+    });
+
     void this._checkAndGrantAchievements(userId, sessionId, totalScore, reason);
     void this.gamificationGateway.broadcastLeaderboardUpdate(sessionId);
     return totalScore;
@@ -146,52 +154,61 @@ export class GamificationService {
 
   /**
    * Calculates and returns the team leaderboard for a given session.
+   * This is a highly efficient query that avoids the N+1 problem.
    */
   async getTeamLeaderboard(sessionId: string, limit = 10) {
-    // 1. Find all teams in the session
-    const teams = await this.prisma.team.findMany({
+    // This single, advanced Prisma query does all the work:
+    // 1. It finds all teams for the session.
+    // 2. For each team, it goes through the members.
+    // 3. For each member, it sums up all the points they've earned in this session.
+    // 4. It sums up the scores of all members to get a total team score.
+    const teamsWithScores = await this.prisma.team.findMany({
       where: { sessionId },
       include: {
+        _count: {
+          select: { members: true },
+        },
         members: {
-          select: {
-            userId: true, // Get the IDs of all members in each team
+          include: {
+            user: {
+              include: {
+                _count: {
+                  select: {
+                    gamificationPointEntries: {
+                      where: { sessionId },
+                    },
+                  },
+                },
+                gamificationPointEntries: {
+                  where: { sessionId },
+                  select: { points: true },
+                },
+              },
+            },
           },
         },
       },
     });
 
-    if (teams.length === 0) {
-      return []; // No teams, empty leaderboard
-    }
+    // Now we process the results in memory, which is extremely fast
+    const teamScores = teamsWithScores.map((team) => {
+      const totalScore = team.members.reduce((sum, member) => {
+        const userScore = member.user.gamificationPointEntries.reduce(
+          (userSum, entry) => userSum + entry.points,
+          0,
+        );
+        return sum + userScore;
+      }, 0);
 
-    // 2. For each team, calculate the total score by summing up the points of all its members
-    const teamScores = await Promise.all(
-      teams.map(async (team) => {
-        const memberIds = team.members.map((member) => member.userId);
+      return {
+        teamId: team.id,
+        name: team.name,
+        memberCount: team._count.members,
+        score: totalScore,
+      };
+    });
 
-        if (memberIds.length === 0) {
-          return { teamId: team.id, name: team.name, score: 0 };
-        }
-
-        const aggregate = await this.prisma.gamificationPointEntry.aggregate({
-          _sum: {
-            points: true,
-          },
-          where: {
-            sessionId,
-            userId: { in: memberIds },
-          },
-        });
-
-        return {
-          teamId: team.id,
-          name: team.name,
-          score: aggregate._sum.points || 0,
-        };
-      }),
-    );
-
-    // 3. Sort the teams by score in descending order and return the top entries
+    // Sort the teams by score and return the top entries
     return teamScores
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)

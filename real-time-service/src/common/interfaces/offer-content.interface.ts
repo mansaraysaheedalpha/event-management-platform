@@ -1,3 +1,4 @@
+//src/common/interfaces/offer-content.interface.ts
 /**
  * Represents a special event-related offer like ticket discount or promo item.
  */

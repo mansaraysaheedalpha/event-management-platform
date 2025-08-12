@@ -1,3 +1,4 @@
+//src/comm/dm/dm.gateway.ts
 import {
   ConnectedSocket,
   MessageBody,
@@ -13,6 +14,10 @@ import { DmService } from './dm.service';
 import { SendDmDto } from './dto/send-dm.dto';
 import { ReadReceiptDto } from './dto/read-receipt.dto';
 import { DeliveryReceiptDto } from './dto/delivery-receipt.dto';
+import { EditDmDto } from './dto/edit-dm.dto';
+import { PrismaService } from 'src/prisma.service';
+import { getErrorMessage } from 'src/common/utils/error.utils';
+import { DeleteDmDto } from './dto/delete-dm.dto';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -22,7 +27,10 @@ export class DmGateway {
   private readonly logger = new Logger(DmGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly dmService: DmService) {}
+  constructor(
+    private readonly dmService: DmService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Handles incoming direct message sending requests.
@@ -156,5 +164,65 @@ export class DmGateway {
 
     // Acknowledge the receipt from the reader's client.
     return { success: true };
+  }
+
+  // **FIXED METHOD**
+  @SubscribeMessage('dm.message.edit')
+  async handleEditMessage(
+    @MessageBody() dto: EditDmDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    try {
+      // Destructure the new, richer result from our improved service
+      const { updatedMessage, participantIds } =
+        await this.dmService.editMessage(user.sub, dto);
+
+      // No more database calls from the gateway! We use the IDs from the service.
+      if (participantIds) {
+        for (const participantId of participantIds) {
+          this.server
+            .to(`user:${participantId}`)
+            .emit('dm.message.updated', updatedMessage);
+        }
+      }
+
+      // Use the correct nested object for the response
+      return { success: true, messageId: updatedMessage.id };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      this.logger.error(
+        `Failed to edit message for user ${user.sub}:`,
+        errorMessage,
+      );
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  @SubscribeMessage('dm.message.delete')
+  async handleDeleteMessage(
+    @MessageBody() dto: DeleteDmDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    try {
+      const { deletedMessageId, conversation } =
+        await this.dmService.deleteMessage(user.sub, dto);
+
+      for (const participant of conversation.participants) {
+        this.server
+          .to(`user:${participant.userId}`)
+          .emit('dm.message.deleted', { messageId: deletedMessageId });
+      }
+
+      return { success: true, deletedMessageId };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      this.logger.error(
+        `Failed to delete message for user ${user.sub}:`,
+        errorMessage,
+      );
+      return { success: false, error: errorMessage };
+    }
   }
 }

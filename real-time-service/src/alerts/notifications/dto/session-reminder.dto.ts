@@ -1,3 +1,4 @@
+//src/alerts/notifications/dto/session-reminder.dto.ts
 interface SessionDetails {
   id: string;
   title: string;
