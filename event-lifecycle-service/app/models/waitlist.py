@@ -1,3 +1,4 @@
+# app/models/waitlist.py
 import uuid
 from sqlalchemy import Column, String, ForeignKey, DateTime, func
 from app.db.base_class import Base

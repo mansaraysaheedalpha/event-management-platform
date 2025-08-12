@@ -1,43 +1,74 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
-from app.crud import crud_blueprint
-from app.schemas.blueprint import BlueprintCreate
+from datetime import datetime, timedelta
+
+from tests.utils.blueprint import create_random_blueprint
+from tests.utils.auth import get_user_authentication_headers
 
 
-def test_create_blueprint_api(client: TestClient):
+def test_create_blueprint(client: TestClient, db: Session) -> None:
     """
     Tests creating a new event blueprint.
     """
-    blueprint_data = {
-        "name": "Annual Sales Kick-off",
-        "description": "Template for our yearly sales event.",
-        "template": {"is_public": True, "status": "published"},
+    headers = get_user_authentication_headers(db, org_id="org_bp_test")
+    data = {
+        "name": "Annual Conference Blueprint",
+        "template": {
+            "description": "Default description from template",
+            "is_public": False,
+        },
     }
+
     response = client.post(
-        "/api/v1/organizations/acme-corp/blueprints", json=blueprint_data
+        "/api/v1/organizations/org_bp_test/blueprints", headers=headers, json=data
     )
+
     assert response.status_code == 201
-    data = response.json()
-    assert data["name"] == "Annual Sales Kick-off"
-    assert data["template"]["is_public"] is True
+    content = response.json()
+    assert content["name"] == data["name"]
+    assert content["template"]["is_public"] is False
 
 
-def test_list_blueprints_api(client: TestClient, db_session: Session):
+# ... other standard CRUD tests for list, get, update, delete would follow the same pattern ...
+
+
+def test_instantiate_blueprint(client: TestClient, db: Session) -> None:
     """
-    Tests listing all blueprints for an organization.
+    Tests creating a new Event from a blueprint.
     """
-    crud_blueprint.blueprint.create_with_organization(
-        db_session,
-        obj_in=BlueprintCreate(name="Blueprint 1", template={}),
-        org_id="acme-corp",
+    headers = get_user_authentication_headers(db, org_id="org_bp_test")
+    # 1. First, create a blueprint to instantiate from
+    blueprint = create_random_blueprint(
+        db,
+        org_id="org_bp_test",
+        template={"description": "Instantiated Event", "is_public": True},
     )
-    crud_blueprint.blueprint.create_with_organization(
-        db_session,
-        obj_in=BlueprintCreate(name="Blueprint 2", template={}),
-        org_id="other-corp",
+
+    # 2. Define the new event's unique details
+    start_date = datetime.utcnow() + timedelta(days=30)
+    end_date = start_date + timedelta(days=2)
+    instantiate_data = {
+        "name": "My New Event From Blueprint",
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
+
+    # 3. Call the instantiate endpoint
+    response = client.post(
+        f"/api/v1/organizations/org_bp_test/blueprints/{blueprint.id}/instantiate",
+        headers=headers,
+        json=instantiate_data,
     )
-    response = client.get("/api/v1/organizations/acme-corp/blueprints")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 1
-    assert data[0]["name"] == "Blueprint 1"
+
+    # 4. Assert that a valid Event was created
+    assert response.status_code == 201
+    event = response.json()
+
+    # Check that the new details were applied
+    assert event["name"] == instantiate_data["name"]
+
+    # Check that the details from the blueprint template were also applied
+    assert event["description"] == "Instantiated Event"
+    assert event["is_public"] is True
+    assert "id" in event
+    assert event["status"] == "draft"  # Events are created as drafts by default

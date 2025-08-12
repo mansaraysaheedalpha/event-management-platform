@@ -1,3 +1,4 @@
+#app/crud/base.py
 import uuid
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from pydantic import BaseModel

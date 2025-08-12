@@ -1,3 +1,4 @@
+# app/models/ad.py
 import uuid
 from sqlalchemy import Column, String, text, ForeignKey
 from app.db.base_class import Base

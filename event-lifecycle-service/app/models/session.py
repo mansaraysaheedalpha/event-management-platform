@@ -1,3 +1,4 @@
+#app/models/session.py
 from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, text
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base

@@ -1,3 +1,4 @@
+# app/models/blueprint.py
 import uuid
 from sqlalchemy import Column, String, text
 from sqlalchemy.dialects.postgresql import JSONB

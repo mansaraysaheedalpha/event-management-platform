@@ -1,3 +1,4 @@
+#app/schemas/event_sync_bundle.py
 from pydantic import BaseModel
 from typing import List, Optional
 from .event import Event

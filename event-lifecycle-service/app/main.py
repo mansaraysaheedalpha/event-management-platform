@@ -1,3 +1,4 @@
+#app/main.py
 from fastapi import FastAPI
 from app.api.v1.api import api_router
 from app.core.config import settings

@@ -1,3 +1,4 @@
+# app/models/venue.py
 import uuid
 from sqlalchemy import Column, String, text
 from app.db.base_class import Base

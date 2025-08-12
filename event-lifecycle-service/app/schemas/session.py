@@ -1,3 +1,4 @@
+#app/schemas/session.py
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
@@ -12,7 +13,7 @@ class Session(BaseModel):
     end_time: datetime
     speakers: List[Speaker] = []
 
-    model_config = { "form_attributes": True }
+    model_config = { "from_attributes": True }
 
 
 class SessionCreate(BaseModel):

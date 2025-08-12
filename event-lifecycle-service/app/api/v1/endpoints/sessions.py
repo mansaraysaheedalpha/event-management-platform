@@ -1,3 +1,4 @@
+# app/api/v1/endpoints/sessions.py
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session

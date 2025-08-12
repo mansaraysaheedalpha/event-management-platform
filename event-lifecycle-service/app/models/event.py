@@ -1,3 +1,4 @@
+#app/models/event.py
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, text
 from app.db.base_class import Base
 import uuid

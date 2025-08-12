@@ -1,3 +1,4 @@
+#app/core/kafka_producer.py
 import json
 from kafka import KafkaProducer
 from app.core.config import settings

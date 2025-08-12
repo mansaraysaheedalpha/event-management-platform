@@ -1,3 +1,4 @@
+# app/models/session_speaker.py
 from sqlalchemy import Table, Column, String, ForeignKey
 from app.db.base_class import Base
 

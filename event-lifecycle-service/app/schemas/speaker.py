@@ -1,3 +1,4 @@
+#app/schemas/speaker.py
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
@@ -27,4 +28,4 @@ class Speaker(SpeakerBase):
     organization_id: str
     is_archived: bool
 
-    model_config = {"form_attributes": True}
+    model_config = {"from_attributes": True}

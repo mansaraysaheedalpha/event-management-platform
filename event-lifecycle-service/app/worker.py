@@ -1,3 +1,4 @@
+#app/workers.py
 from celery import Celery
 from app.core.config import settings
 

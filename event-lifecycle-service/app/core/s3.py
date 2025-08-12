@@ -1,3 +1,4 @@
+#app/core/s3.py
 import boto3
 from botocore.exceptions import NoCredentialsError
 from app.core.config import settings
