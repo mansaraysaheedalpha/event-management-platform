@@ -36,17 +36,33 @@ import { ConnectionModule } from './system/connection/connection.module';
       }),
       inject: [ConfigService], // 2. Explicitly inject the ConfigService
     }),
-    PrismaModule,
-    CommModule,
-    SharedModule,
-    LiveModule,
-    OpsModule,
-    MonetizationModule,
-    GlobalModule,
-    AlertsModule,
-    SystemModule,
-    GamificationModule,
-    NetworkingModule,
+    PrismaModule.forRootAsync({
+      imports: [ConfigModule],
+      // FIX: Removed 'async' because there is no 'await' inside.
+      useFactory: (configService: ConfigService) => {
+        const databaseUrl =
+          configService.get<string>('NODE_ENV') === 'test'
+            ? configService.getOrThrow<string>('TEST_DATABASE_URL')
+            : configService.getOrThrow<string>('DATABASE_URL');
+
+        return {
+          database: {
+            url: databaseUrl,
+          },
+        };
+      },
+      inject: [ConfigService],
+    }),
+    //CommModule,
+    //SharedModule,
+    //LiveModule,
+    //OpsModule,
+    //MonetizationModule,
+    //GlobalModule,
+    //AlertsModule,
+    //SystemModule,
+    //GamificationModule,
+    //NetworkingModule,
     ConnectionModule,
     ThrottlerModule.forRoot([
       {

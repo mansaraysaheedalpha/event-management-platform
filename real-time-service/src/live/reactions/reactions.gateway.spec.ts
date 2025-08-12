@@ -3,8 +3,6 @@ import { ReactionsGateway } from './reactions.gateway';
 import { ReactionsService } from './reactions.service';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
-import { Server } from 'socket.io';
-import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 
 jest.mock('src/common/utils/auth.utils');
 const mockGetAuthenticatedUser = getAuthenticatedUser as jest.Mock;
