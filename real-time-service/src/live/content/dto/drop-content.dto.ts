@@ -1,13 +1,15 @@
+//src/content/dto/drop-content.dto.ts
 import {
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
-enum ContentType {
+export enum ContentType {
   DOCUMENT = 'DOCUMENT',
   LINK = 'LINK',
   VIDEO = 'VIDEO',
@@ -30,4 +32,7 @@ export class DropContentDto {
   @IsOptional()
   @MaxLength(1000)
   description?: string;
+
+  @IsUUID('4')
+  idempotencyKey: string;
 }

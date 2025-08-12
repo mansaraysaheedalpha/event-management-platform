@@ -1,3 +1,4 @@
+//src/gamification/teams/teams.service.ts
 import {
   ConflictException,
   Injectable,
@@ -7,6 +8,8 @@ import {
 import { PrismaService } from 'src/prisma.service';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { CreateTeamDto } from './dto/create-team.dto';
+import { JoinTeamDto } from './dto/join-team.dto';
+import { LeaveTeamDto } from './dto/leave-team.dto';
 
 @Injectable()
 export class TeamsService {
@@ -76,7 +79,15 @@ export class TeamsService {
   /**
    * Adds a user to a team.
    */
-  async joinTeam(userId: string, teamId: string) {
+  async joinTeam(userId: string, dto: JoinTeamDto) {
+    const { teamId, idempotencyKey } = dto;
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException(
+        'This join action has already been processed.',
+      );
+    }
     // A user might be a member of another team in the same session.
     // First, we must ensure they leave any existing team in this session.
     const team = await this.prisma.team.findUnique({
@@ -119,7 +130,15 @@ export class TeamsService {
   /**
    * Removes a user from a team.
    */
-  async leaveTeam(userId: string, teamId: string) {
+  async leaveTeam(userId: string, dto: LeaveTeamDto) {
+    const { teamId, idempotencyKey } = dto;
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException(
+        'This leave action has already been processed.',
+      );
+    }
     await this.prisma.teamMembership.delete({
       where: {
         userId_teamId: { userId, teamId },

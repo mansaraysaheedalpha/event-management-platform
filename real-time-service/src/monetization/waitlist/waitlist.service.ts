@@ -1,6 +1,8 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+//src/monetization/waitlist/waitlist.service.ts
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
+import { IdempotencyService } from 'src/shared/services/idempotency.service';
 
 /**
  * The `WaitlistService` manages a FIFO waitlist for event sessions using Redis.
@@ -26,7 +28,10 @@ export class WaitlistService {
   private static readonly WAITLIST_KEY_PREFIX = 'waitlist:';
   private readonly logger = new Logger(WaitlistService.name);
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly idempotencyService: IdempotencyService,
+  ) {}
 
   /**
    * Builds a Redis key for the waitlist associated with a session.
@@ -46,7 +51,18 @@ export class WaitlistService {
    * @param userId - The ID of the user to be added
    * @returns Promise that resolves once the user is added
    */
-  async addUserToWaitlist(sessionId: string, userId: string): Promise<void> {
+  async addUserToWaitlist(
+    sessionId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException(
+        'This waitlist join request has already been processed.',
+      );
+    }
     const redisKey = this.getRedisKey(sessionId);
     try {
       await this.redis.rpush(redisKey, userId);

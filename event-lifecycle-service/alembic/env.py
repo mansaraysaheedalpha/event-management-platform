@@ -6,8 +6,8 @@ from logging.config import fileConfig
 
 from sqlalchemy import create_engine
 from sqlalchemy import pool
-from app.models.base import Base  # <-- ADD THIS IMPORT
-from app.config import settings  # <-- ADD THIS IMPORT
+from app.models.base import Base  
+from app.core.config import settings  
 
 from alembic import context
 

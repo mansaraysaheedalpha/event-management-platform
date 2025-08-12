@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+//src/comm/chat/dto/send-message.dto.ts
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * DTO for sending a chat message.

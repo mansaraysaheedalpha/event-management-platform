@@ -1,3 +1,4 @@
+//src/common/interfaces/auth.interface.ts
 import { Socket } from 'socket.io';
 
 /**

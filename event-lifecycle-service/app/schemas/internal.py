@@ -1,3 +1,4 @@
+#app/schemas/internal.py
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
@@ -26,9 +27,7 @@ class AdContent(BaseModel):
     media_url: str
     click_url: str
 
-    class Config:
-        from_attributes = True
-        populate_by_name = True
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 # --- Notifications (Now with Enums and proper types) ---

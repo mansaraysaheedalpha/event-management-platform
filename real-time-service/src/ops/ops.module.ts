@@ -1,3 +1,4 @@
+//src/ops/ops.module.ts
 import { Module } from '@nestjs/common';
 import { AuditModule } from './audit/audit.module';
 import { SecurityModule } from './security/security.module';

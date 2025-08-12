@@ -1,3 +1,4 @@
+//src/content/content.gateway.ts
 import { PresentationState } from 'src/common/interfaces/presentation-state.interface';
 export interface RequestStateResponse {
   success: boolean;

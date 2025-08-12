@@ -1,3 +1,4 @@
+#app/models/speaker.py
 import uuid
 from sqlalchemy import Column, String, text
 from sqlalchemy.orm import relationship

@@ -1,3 +1,4 @@
+//src/monetization/waitlist/waitlist.module.ts
 import { Module } from '@nestjs/common';
 import { WaitlistService } from './waitlist.service';
 

@@ -1,3 +1,4 @@
+//src/comm/chat/chat.gateway.ts
 import {
   ConnectedSocket,
   MessageBody,
@@ -6,7 +7,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { ChatService } from './chat.service';
@@ -57,12 +58,17 @@ export class ChatGateway {
       this.server.to(publicRoom).emit('chat.message.new', newMessage);
       return { success: true, messageId: newMessage.id };
     } catch (error) {
-      const errorMessage = getErrorMessage(error);
       this.logger.error(
         `Failed to send message for user ${user.sub}:`,
-        errorMessage,
+        getErrorMessage(error),
       );
-      return { success: false, error: errorMessage };
+      if (error instanceof HttpException) {
+        return {
+          success: false,
+          error: { message: error.message, statusCode: error.getStatus() },
+        };
+      }
+      return { success: false, error: 'An internal server error occurred.' };
     }
   }
 
@@ -90,12 +96,15 @@ export class ChatGateway {
     } catch (error) {
       this.logger.error(
         `Failed to edit message for user ${user.sub}:`,
-        (error as Error).message,
+        getErrorMessage(error),
       );
-      return {
-        success: false,
-        error: (error as Error).message,
-      };
+      if (error instanceof HttpException) {
+        return {
+          success: false,
+          error: { message: error.message, statusCode: error.getStatus() },
+        };
+      }
+      return { success: false, error: 'An internal server error occurred.' };
     }
   }
 
@@ -117,11 +126,7 @@ export class ChatGateway {
     try {
       // The service handles the complex permission logic
       const { deletedMessageId, sessionId } =
-        await this.chatService.deleteMessage(
-          user.sub,
-          dto.messageId,
-          user.permissions, // Pass user's permissions to the service
-        );
+        await this.chatService.deleteMessage(user.sub, dto, user.permissions);
 
       const publicRoom = `session:${sessionId}`;
       const payload = { messageId: deletedMessageId };
@@ -131,12 +136,15 @@ export class ChatGateway {
     } catch (error) {
       this.logger.error(
         `Failed to delete message for user ${user.sub}:`,
-        (error as Error).message,
+        getErrorMessage(error),
       );
-      return {
-        success: false,
-        error: (error as Error).message,
-      };
+      if (error instanceof HttpException) {
+        return {
+          success: false,
+          error: { message: error.message, statusCode: error.getStatus() },
+        };
+      }
+      return { success: false, error: 'An internal server error occurred.' };
     }
   }
 
@@ -174,7 +182,13 @@ export class ChatGateway {
         `Failed to process reaction for user ${user.sub}:`,
         getErrorMessage(error),
       );
-      return { success: false, error: getErrorMessage(error) };
+      if (error instanceof HttpException) {
+        return {
+          success: false,
+          error: { message: error.message, statusCode: error.getStatus() },
+        };
+      }
+      return { success: false, error: 'An internal server error occurred.' };
     }
   }
 }

@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+// In src/organizations/organizations.service.ts
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from 'src/prisma.service';
 import { CreateNewOrganizationDTO } from './dto/create-new-organization.dto';
@@ -54,11 +59,9 @@ export class OrganizationsService {
   async updateMemberRole(
     orgId: string,
     userId: string,
-    newRole: Role,
+    newRoleName: string,
     actingUserId: string,
   ) {
-    // 1. First, find the membership or throw a clear error if it doesn't exist.
-    // This is more explicit than a generic try...catch.
     const membership = await this.prisma.membership.findUniqueOrThrow({
       where: {
         userId_organizationId: {
@@ -66,16 +69,22 @@ export class OrganizationsService {
           organizationId: orgId,
         },
       },
+      include: { role: true },
     });
 
-    // 2. Add business logic: Prevent an owner from changing another owner's role.
-    if (membership.role === 'OWNER') {
+    if (membership.role.name === 'OWNER') {
       throw new ForbiddenException(
         'Cannot change the role of an organization owner.',
       );
     }
 
-    // 3. Now, perform the update, confident that the record exists.
+    const newRole = await this.prisma.role.findUnique({
+      where: {
+        name_organizationId: { name: newRoleName, organizationId: orgId },
+      },
+    });
+    if (!newRole) throw new NotFoundException(`Role  not found.`);
+
     await this.prisma.membership.update({
       where: {
         userId_organizationId: {
@@ -84,7 +93,7 @@ export class OrganizationsService {
         },
       },
       data: {
-        role: newRole,
+        role: { connect: { id: newRole.id } },
       },
     });
 
@@ -134,11 +143,19 @@ export class OrganizationsService {
         },
       });
 
+      const ownerRole = await tx.role.findFirst({
+        where: { name: 'OWNER', isSystemRole: true },
+      });
+      if (!ownerRole)
+        throw new Error(
+          'System role OWNER not found. Please seed the database.',
+        );
+
       await tx.membership.create({
         data: {
           userId: existingUser.id,
           organizationId: newOrg.id,
-          role: 'OWNER',
+          roleId: ownerRole.id,
         },
       });
 

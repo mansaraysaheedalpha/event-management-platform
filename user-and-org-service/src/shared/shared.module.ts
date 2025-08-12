@@ -9,10 +9,10 @@ import {
 const redisProvider = {
   provide: REDIS_CLIENT,
   useFactory: () => {
-    // This configuration should ideally come from a ConfigService
+    const isProd = process.env.NODE_ENV === 'production';
     return new Redis({
-      host: 'localhost', // The name of our docker service is 'redis' but we connect via localhost
-      port: 6379,
+      host: isProd ? process.env.REDIS_HOST : 'localhost',
+      port: isProd ? Number(process.env.REDIS_PORT) : 6379,
     });
   },
 };
@@ -20,6 +20,6 @@ const redisProvider = {
 @Global() // Makes the providers available everywhere without importing SharedModule
 @Module({
   providers: [redisProvider, IdempotencyService],
-  exports: [IdempotencyService], // Export the service for injection
+  exports: [IdempotencyService, REDIS_CLIENT], // Export the service for injection
 })
 export class SharedModule {}

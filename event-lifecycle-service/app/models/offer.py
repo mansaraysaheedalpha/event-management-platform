@@ -1,3 +1,4 @@
+# app/models/offer.py
 import uuid
 from sqlalchemy import Column, String, text, ForeignKey, Float, DateTime
 from app.db.base_class import Base

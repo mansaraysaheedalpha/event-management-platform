@@ -1,3 +1,4 @@
+#/app/models/domain_event.py
 import uuid
 from sqlalchemy import Column, String, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB

@@ -1,3 +1,4 @@
+//src/live/sales/dto/ticket-availability.dto.ts
 export class TicketAvailabilityDto {
   eventId: string;
   ticketTypeId: string;

@@ -1,3 +1,4 @@
+//src/comm/qna/qna.gateway.ts
 import {
   ConnectedSocket,
   MessageBody,
@@ -5,6 +6,7 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
+import { Inject, forwardRef } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
@@ -31,7 +33,10 @@ export class QnaGateway {
   @WebSocketServer()
   server: Server;
 
-  constructor(private readonly qnaService: QnaService) {}
+  constructor(
+    @Inject(forwardRef(() => QnaService))
+    private readonly qnaService: QnaService,
+  ) {}
 
   /**
    * Handles incoming client requests to ask a new question.
@@ -150,10 +155,9 @@ export class QnaGateway {
       this.logger.warn(
         `User ${user.sub} attempted to moderate without permission.`,
       );
-      return {
-        success: false,
-        error: 'Forbidden: You do not have permission to perform this action.',
-      };
+      throw new ForbiddenException(
+        'You do not have permission to perform this action.',
+      );
     }
 
     try {
@@ -220,10 +224,9 @@ export class QnaGateway {
       this.logger.warn(
         `User ${user.sub} attempted to answer a question without permission.`,
       );
-      return {
-        success: false,
-        error: 'Forbidden: You do not have permission to answer questions.',
-      };
+      throw new ForbiddenException(
+        'You do not have permission to answer questions.',
+      );
     }
 
     if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
@@ -300,5 +303,17 @@ export class QnaGateway {
       );
       return { success: false, error: getErrorMessage(error) };
     }
+  }
+
+  /**
+   * Broadcasts a moderation alert to the private moderation room for a session.
+   * This is a public method called by the QnaService.
+   */
+  public broadcastModerationAlert(sessionId: string, payload: any) {
+    const moderationRoom = `session:${sessionId}:moderation`;
+    const eventName = 'moderation.alert';
+
+    this.server.to(moderationRoom).emit(eventName, payload);
+    this.logger.log(`Broadcasted moderation alert to room: ${moderationRoom}`);
   }
 }

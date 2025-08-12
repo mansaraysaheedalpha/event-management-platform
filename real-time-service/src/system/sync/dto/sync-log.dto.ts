@@ -1,3 +1,4 @@
+//src/system/sync/dto/sync-log.dto.ts
 import { Prisma } from '@prisma/client';
 import { IsString, IsDate, IsEnum, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';

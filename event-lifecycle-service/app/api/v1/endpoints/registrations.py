@@ -1,3 +1,4 @@
+#app/api/v1/endpoints/registrations.py
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -42,7 +43,7 @@ def create_registration(
         )
 
     # --- IMPLEMENTED: Duplicate registration check ---
-    existing_registration = crud_registeration.registration.get_by_user_or_email(
+    existing_registration = crud_registration.registration.get_by_user_or_email(
         db,
         event_id=eventId,
         user_id=registration_in.user_id,

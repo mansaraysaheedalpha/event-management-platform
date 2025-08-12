@@ -1,3 +1,4 @@
+//src/ops/security/security.gateway.ts
 import {
   ConnectedSocket,
   SubscribeMessage,
@@ -9,7 +10,11 @@ import { ForbiddenException, Inject, Logger, forwardRef } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { SecurityService } from './security.service';
-import { SecurityAlertPayload } from 'src/common/interfaces/security.interface';
+import {
+  AccessControlUpdatePayload,
+  SecurityAlertPayload,
+  SessionConflictPayload,
+} from 'src/common/interfaces/security.interface';
 
 /**
  * Gateway for handling real-time security event communication over WebSockets.
@@ -75,5 +80,17 @@ export class SecurityGateway {
     const securityRoom = `security:${payload.organizationId}`;
     this.server.to(securityRoom).emit('ops.security.alert', payload);
     this.logger.log(`Broadcasted security alert to room: ${securityRoom}`);
+  }
+
+  public broadcastAccessControlUpdate(payload: AccessControlUpdatePayload) {
+    const securityRoom = `security:${payload.organizationId}`;
+    this.server
+      .to(securityRoom)
+      .emit('ops.security.access_control_update', payload);
+  }
+
+  public broadcastSessionConflict(payload: SessionConflictPayload) {
+    const securityRoom = `security:${payload.organizationId}`;
+    this.server.to(securityRoom).emit('ops.security.session_conflict', payload);
   }
 }

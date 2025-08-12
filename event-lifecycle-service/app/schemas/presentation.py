@@ -1,3 +1,4 @@
+#app/schemas/presentation.py
 from pydantic import BaseModel, Field
 from typing import List
 
@@ -7,5 +8,4 @@ class Presentation(BaseModel):
     session_id: str
     slide_urls: List[str]
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

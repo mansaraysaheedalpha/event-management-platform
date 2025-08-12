@@ -1,5 +1,6 @@
 import { IsString, MinLength } from 'class-validator';
 
+//src/auth/dto/perform-reset.dto.ts
 export class PerformPasswordResetDTO {
   @IsString()
   reset_token: string;

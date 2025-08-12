@@ -1,3 +1,4 @@
+# app/models/registration.py
 import uuid
 from sqlalchemy import Column, String, ForeignKey, text, Enum, DateTime
 from sqlalchemy.orm import relationship

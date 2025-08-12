@@ -1,3 +1,4 @@
+//src/gamification/gamification.gateway.ts
 import {
   ConnectedSocket,
   SubscribeMessage,
@@ -103,5 +104,14 @@ export class GamificationGateway {
     this.logger.log(
       `Sent achievement notification '${achievement.badgeName}' to user ${targetUserId}`,
     );
+  }
+
+  /**
+   * Sends a private notification to a user when they are awarded points.
+   */
+  public sendPointsAwardedNotification(targetUserId: string, payload: any) {
+    const userRoom = `user:${targetUserId}`;
+    const eventName = 'gamification.points.awarded';
+    this.server.to(userRoom).emit(eventName, payload);
   }
 }

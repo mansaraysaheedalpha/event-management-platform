@@ -1,3 +1,4 @@
+//src/networking/suggestions/suggestions.service.ts
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AiSuggestionPayload, SuggestionsGateway } from './suggestions.gateway';

@@ -1,3 +1,4 @@
+//src/monetization/ads/monetization.gateway.ts
 /**
  * Interface describing the payload for waitlist spot notifications.
  */
@@ -14,6 +15,7 @@ import {
   WebSocketServer,
   SubscribeMessage,
   ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { Inject, Logger, forwardRef } from '@nestjs/common';
@@ -136,6 +138,7 @@ export class MonetizationGateway {
    */
   @SubscribeMessage('monetization.waitlist.join')
   async handleJoinWaitlist(
+    @MessageBody() dto: { idempotencyKey: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ success: boolean; message?: string; error?: string }> {
     let user: { sub?: string } | undefined;
@@ -164,7 +167,11 @@ export class MonetizationGateway {
     }
 
     try {
-      await this.waitlistService.addUserToWaitlist(sessionId, user.sub);
+      await this.waitlistService.addUserToWaitlist(
+        sessionId,
+        user.sub,
+        dto.idempotencyKey,
+      );
       return {
         success: true,
         message: 'You have been added to the waitlist.',

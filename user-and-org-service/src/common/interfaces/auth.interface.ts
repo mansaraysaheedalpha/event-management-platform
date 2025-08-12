@@ -1,0 +1,10 @@
+export interface JwtPayload {
+  sub: string; // User ID
+  email: string;
+  orgId: string; // Active organization context
+  role: string;
+  permissions: string[];
+  tier?: 'default' | 'vip';
+  preferredLanguage?: string;
+  sponsorId?: string;
+}

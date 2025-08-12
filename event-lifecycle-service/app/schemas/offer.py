@@ -1,19 +1,20 @@
+#app/schemas/offer.py
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
 
 class OfferBase(BaseModel):
-    event_id: str = Field(..., example="evt_abc")
-    title: str = Field(..., example="Exclusive VIP Upgrade")
+    event_id: str = Field(..., json_schema_extra={"example":"evt_abc"})
+    title: str = Field(..., json_schema_extra={"example":"Exclusive VIP Upgrade"})
     description: Optional[str] = Field(
-        None, example="Get backstage access and a free drink!"
+        None, json_schema_extra={"example":"Get backstage access and a free drink!"}
     )
-    price: float = Field(..., example=19.99)
-    original_price: Optional[float] = Field(None, example=39.99)
+    price: float = Field(..., json_schema_extra={"example":19.99})
+    original_price: Optional[float] = Field(None, json_schema_extra={"example":39.99})
     currency: str = "USD"
-    offer_type: str = Field(..., example="TICKET_UPGRADE")
-    image_url: Optional[str] = Field(None, example="https://example.com/vip.jpg")
+    offer_type: str = Field(..., json_schema_extra={"example":"TICKET_UPGRADE"})
+    image_url: Optional[str] = Field(None, json_schema_extra={"example":"https://example.com/vip.jpg"})
     expires_at: Optional[datetime] = None
 
 
@@ -36,5 +37,4 @@ class Offer(OfferBase):
     organization_id: str
     is_archived: bool
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

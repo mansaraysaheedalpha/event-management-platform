@@ -1,3 +1,4 @@
+//src/networking/proximity/proximity.gateway/.ts
 import {
   ConnectedSocket,
   MessageBody,

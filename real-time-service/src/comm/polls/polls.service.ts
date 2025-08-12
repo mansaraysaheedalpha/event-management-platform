@@ -1,3 +1,4 @@
+//src/comm/polls/polls.service.ts
 import {
   ConflictException,
   ForbiddenException,
@@ -322,12 +323,13 @@ export class PollsService {
       });
 
       const finalResults = await this.getPollWithResults(dto.pollId);
+      const metadata = await this._getSessionMetadata(poll.sessionId);
 
       // --- NEW LOGIC: PUBLISH AUDIT EVENT ---
       const auditPayload: AuditLogPayload = {
         action: 'POLL_CLOSED',
         actingUserId: hostId,
-        organizationId: 'placeholder-org-id', // We'll resolve placeholders later
+        organizationId: metadata.organizationId,
         sessionId: poll.sessionId,
         details: {
           pollId: poll.id,
@@ -451,6 +453,12 @@ export class PollsService {
    * Selects a random winner from users who voted for a specific poll option.
    */
   async selectGiveawayWinner(dto: StartGiveawayDto, adminId: string) {
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException('Duplicate request.');
+    }
     // 1. Get all users who voted for the winning option
     const voters = await this.prisma.pollVote.findMany({
       where: {

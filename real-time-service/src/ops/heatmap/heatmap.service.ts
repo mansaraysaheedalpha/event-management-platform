@@ -1,3 +1,4 @@
+//src/ops/heatmap/heatmap.service.ts
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';

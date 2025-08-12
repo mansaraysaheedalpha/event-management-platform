@@ -1,3 +1,4 @@
+//src/comm/chat/dto/edit-message.dto.ts
 import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 /**

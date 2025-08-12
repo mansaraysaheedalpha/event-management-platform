@@ -1,3 +1,4 @@
+//src/networking/proximity/proximity.service.ts
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';

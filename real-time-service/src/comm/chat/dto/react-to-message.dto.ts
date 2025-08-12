@@ -1,3 +1,4 @@
+//src/comm/chat/dto/react-to-message.dto.ts
 import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class ReactToMessageDto {

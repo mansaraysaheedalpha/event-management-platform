@@ -1,3 +1,4 @@
+//src/live/streaming/streaming.controller.ts
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { InternalApiKeyGuard } from 'src/common/guards/internal-api-key.guard';
 import { StreamingGateway } from './streaming.gateway';

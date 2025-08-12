@@ -14,9 +14,7 @@ model Permission {
   id          String @id @default(cuid())
   name        String @unique // e.g., "poll:create", "qna:moderate"
   description String
-
   roles Role[]
-
   @@map("permissions")
 }
 
@@ -27,13 +25,10 @@ model Role {
   isSystemRole   Boolean      @default(false) // True for default roles
   organizationId String?      // Null for system roles, set for custom org roles
   organization   Organization? @relation(fields: [organizationId], references: [id])
-
   permissions Permission[]
   memberships Membership[]
   invitations Invitation[]
 
-
-  // A role name must be unique within an organization, or unique for system roles.
   @@unique([name, organizationId])
   @@map("roles")
 }
@@ -63,6 +58,9 @@ model User {
   sentInvitations           Invitation[]           @relation("SentInvitations")
   passwordResetTokens       PasswordResetToken[]
   preferredLanguage         String?                 @default("en")
+
+  tier                      String?                 @default("default") // e.g., 'default', 'vip'
+  sponsorId                 String? // Nullable, as not every user is a sponsor
 }
 
 model Organization {
@@ -93,7 +91,7 @@ model Invitation {
   email          String
   token          String    @unique
   roleId         String
-  role           Role     @relation(fields: [roleId], references: [id])
+  role           Role @relation(fields: [roleId], references: [id])
   expiresAt      DateTime
   createdAt      DateTime  @default(now())
 

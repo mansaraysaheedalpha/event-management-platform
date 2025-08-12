@@ -1,3 +1,4 @@
+//src/alerts/incidents/dto/incident.dto.ts
 /**
  * Lightweight representation of the user who reported an incident.
  * Used for embedding basic reporter info in the incident response.

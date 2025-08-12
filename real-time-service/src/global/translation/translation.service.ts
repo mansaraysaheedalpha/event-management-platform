@@ -1,3 +1,4 @@
+//src/global/translation/translation.service.ts
 import { HttpService } from '@nestjs/axios';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -6,7 +7,6 @@ import { PrismaService } from 'src/prisma.service';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { firstValueFrom } from 'rxjs';
 
-// NEW: Define the shape of the expected API response
 interface GoogleTranslateResponse {
   data: {
     translations: {
@@ -14,6 +14,12 @@ interface GoogleTranslateResponse {
     }[];
   };
 }
+
+// **FIX**: A new type to indicate if the API call succeeded
+type TranslationResult = {
+  text: string;
+  isSuccess: boolean;
+};
 
 /**
  * Service for handling message translation using Google Translate API
@@ -23,7 +29,7 @@ interface GoogleTranslateResponse {
 @Injectable()
 export class TranslationService {
   private readonly logger = new Logger(TranslationService.name);
-  private readonly CACHE_TTL = 3600; // Cache translations for 1 hour
+  private readonly CACHE_TTL = 3600;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -38,45 +44,43 @@ export class TranslationService {
    * @param targetLanguage - Language to translate the message into
    * @returns The translated message text
    */
+
   async getTranslation(
     messageId: string,
     targetLanguage: string,
   ): Promise<string> {
     const cacheKey = `translation:${messageId}:${targetLanguage}`;
-
-    // 1. Check cache first
     const cachedTranslation = await this.redis.get(cacheKey);
     if (cachedTranslation) {
-      this.logger.log(
-        `Cache hit for translation of message ${messageId} to ${targetLanguage}`,
-      );
+      this.logger.log(`Cache hit for message ${messageId}`);
       return cachedTranslation;
     }
 
-    this.logger.log(
-      `Cache miss for translation of message ${messageId}. Fetching from DB and API.`,
-    );
-
-    // 2. On cache miss, get the original message from our database
+    this.logger.log(`Cache miss for message ${messageId}. Fetching...`);
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       select: { text: true },
     });
-
     if (!message) {
       throw new NotFoundException('Original message not found.');
     }
 
-    // 3. Call the external translation API
-    const translatedText = await this._fetchFromExternalApi(
+    const translationResult = await this._fetchFromExternalApi(
       message.text,
       targetLanguage,
     );
 
-    // 4. Store the new translation in the cache for next time
-    await this.redis.set(cacheKey, translatedText, 'EX', this.CACHE_TTL);
+    // **FIX**: Only store the translation in the cache if the API call was successful.
+    if (translationResult.isSuccess) {
+      await this.redis.set(
+        cacheKey,
+        translationResult.text,
+        'EX',
+        this.CACHE_TTL,
+      );
+    }
 
-    return translatedText;
+    return translationResult.text;
   }
 
   /**
@@ -88,7 +92,7 @@ export class TranslationService {
   private async _fetchFromExternalApi(
     text: string,
     target: string,
-  ): Promise<string> {
+  ): Promise<TranslationResult> {
     const apiKey = this.configService.get<string>('TRANSLATION_API_KEY');
     const apiUrl = `https://translation.googleapis.com/language/translate/v2`;
 
@@ -96,18 +100,16 @@ export class TranslationService {
       const response = await firstValueFrom(
         this.httpService.post<GoogleTranslateResponse>(
           apiUrl,
-          {
-            q: text,
-            target: target,
-          },
+          { q: text, target: target },
           { params: { key: apiKey } },
         ),
       );
-      return response.data.data.translations[0].translatedText;
+      const translatedText = response.data.data.translations[0].translatedText;
+      return { text: translatedText, isSuccess: true }; // Return success object
     } catch (error) {
       this.logger.error('Failed to fetch from Translation API', error);
-      // Fallback to original text if translation fails
-      return text;
+      // **FIX**: Return failure object with original text
+      return { text: text, isSuccess: false };
     }
   }
 }

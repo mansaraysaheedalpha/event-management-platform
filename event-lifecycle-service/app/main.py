@@ -1,11 +1,12 @@
+#app/main.py
 from fastapi import FastAPI
 from app.api.v1.api import api_router
 from app.core.config import settings
 
 
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.version,
+    title="GlobalConnect Event-Lifecycle Microservice",
+    version="1.0.0",
     description="""
         🚀 **GlobalConnect Event Management Service**
         

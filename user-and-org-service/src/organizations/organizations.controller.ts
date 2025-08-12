@@ -32,7 +32,7 @@ export class OrganizationsController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Post(':orgId/invitations')
-  @Roles(Role.OWNER)
+  @Roles('OWNER', 'ADMIN')
   async createInvitation(
     @Param('orgId') orgId: string,
     @Body() createInvitationDto: CreateInvitationDto,
@@ -48,14 +48,14 @@ export class OrganizationsController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Get(':orgId/members')
-  @Roles(Role.ADMIN, Role.OWNER, Role.MEMBER)
+  @Roles('ADMIN', 'OWNER', 'MEMBER')
   async GetAllMembers(@Param('orgId') orgId: string) {
     return await this.orgService.listMembers(orgId);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Delete(':orgId/members/:memberId')
-  @Roles(Role.ADMIN, Role.OWNER)
+  @Roles('ADMIN', 'OWNER')
   @HttpCode(204)
   async RemoveAMember(
     @Req() req: { user: { sub: string } },
@@ -72,7 +72,7 @@ export class OrganizationsController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Put(':orgId/members/:userId/role')
-  @Roles(Role.OWNER)
+  @Roles('OWNER')
   async UpdateRole(
     @Req() req: { user: { sub: string } },
     @Param('orgId') orgId: string,
@@ -83,7 +83,7 @@ export class OrganizationsController {
     return await this.orgService.updateMemberRole(
       orgId,
       userId,
-      updateMemberRoleDto.newRole,
+      updateMemberRoleDto.newRole.name,
       actingUserId,
     );
   }
@@ -107,14 +107,14 @@ export class OrganizationsController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Get(':orgId')
-  @Roles(Role.ADMIN, Role.OWNER, Role.MEMBER)
+  @Roles('ADMIN', 'OWNER', 'MEMBER')
   async FindOneOrg(@Param('orgId') orgId: string) {
     return await this.orgService.findOrg(orgId);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Put(':orgId')
-  @Roles(Role.OWNER)
+  @Roles('OWNER')
   async UpdateOrg(
     @Param('orgId') orgId: string,
     @Body() updateOrgDto: UpdateOrganizationDTO,
@@ -124,7 +124,7 @@ export class OrganizationsController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Delete(':orgId')
-  @Roles(Role.OWNER)
+  @Roles('OWNER')
   @HttpCode(204)
   async DeleteOrg(@Param('orgId') orgId: string) {
     return await this.orgService.deleteOrg(orgId);

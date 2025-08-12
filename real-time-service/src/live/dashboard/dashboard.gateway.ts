@@ -1,3 +1,4 @@
+//src/live/dashboard/dashboard.gateway.ts
 import {
   ConnectedSocket,
   SubscribeMessage,

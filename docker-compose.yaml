@@ -1,85 +1,158 @@
-
 services:
+  # --- CORE INFRASTRUCTURE ---
   postgres-db:
     image: postgres:15
-    container_name: event-manager_db
+    container_name: postgres-db
     restart: always
-    environment: 
+    environment:
       POSTGRES_USER: event_management_user
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: event_manager_db
-    ports: 
-       - "5432:5432"
+    ports:
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  real-time-service: 
-    build:
-      context: ./real-time-service
-      dockerfile: Dockerfile
+  user-org-db:
+    image: postgres:15
+    container_name: user-org-db
     restart: always
+    environment:
+      POSTGRES_USER: user_org_user
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: user_org_db
     ports:
-      - "3002:3002" # Expose the app port, not the DB port
-    depends_on:
-      real-time-db:
-        condition: service_healthy # Wait for the DB to be ready
-      redis:
-        condition: service_started
-    env_file:
-      - .env # Load environment variables from a .env file
+      - "5434:5432" # <-- Use a different host port (5434) to avoid conflicts
+    volumes:
+      - user-org-data:/var/lib/postgresql/data
   real-time-db:
     image: postgres:15
     container_name: real-time-db
     restart: always
     environment:
-      # FIX: Secrets are now loaded from environment variables
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_USER: ${POSTGRES_USER} # Assuming from your .env file
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
     volumes:
       - real-time-data:/var/lib/postgresql/data
-    healthcheck: # <-- NEW: Healthcheck
+    healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    # NOTE: The 'ports' section is removed for security in production.
   redis:
-    image: redis:alpine
-    container_name: event_manager_redis
+    image: redis:7-alpine
+    container_name: redis
     restart: always
+    ports:
+      - "6379:6379"
     volumes:
       - redis-data:/data
-   # The FastAPI application
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.2
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.2
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      
+  # --- APPLICATION SERVICES ---
   event-service:
-    build: .
+    build:
+      context: ./event-lifecycle-service # CORRECTED CONTEXT
+    container_name: event-service-api
     restart: always
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app
+      - ./event-lifecycle-service/app:/app
     depends_on:
-      - db
+      - postgres-db
       - redis
     environment:
-      - DATABASE_URL=postgresql://event_management_user:mypassword@db:5432/event_manager_db
+      - DATABASE_URL=postgresql://event_management_user:mypassword@postgres-db:5432/event_manager_db
       - REDIS_URL=redis://redis:6379/0
-   # NEW: Celery worker to run background tasks
-  celery_worker:
-    build: .
+
+  event-celery-worker:
+    build:
+      context: ./event-lifecycle-service # CORRECTED CONTEXT
+    container_name: event-service-celery
     restart: always
     command: celery -A app.worker.celery_app worker --loglevel=info
     volumes:
-      - ./app:/app
+      - ./event-lifecycle-service/app:/app
     depends_on:
       - event-service
+      - redis
     environment:
-      - DATABASE_URL=postgresql://event_management_user:mypassword@db:5432/event_manager_db
+      - DATABASE_URL=postgresql://event_management_user:mypassword@postgres-db:5432/event_manager_db
       - REDIS_URL=redis://redis:6379/0
+
+  oracle-api:
+    build:
+      context: ./oracle-ai-service
+    container_name: oracle-api
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./oracle-ai-service/app:/app
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+
+  oracle-consumer:
+    build:
+      context: ./oracle-ai-service
+    container_name: oracle-consumer
+    restart: always
+    command: python run_consumer.py
+    volumes:
+      - ./oracle-ai-service/app:/app
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+
+  real-time-service: 
+    build:
+      context: ./real-time-service
+    container_name: real-time-service
+    restart: always
+    ports:
+      - "3002:3002"
+    depends_on:
+      real-time-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+    env_file:
+      - .env
 
 volumes: 
   postgres-data:
   redis-data:
   real-time-data:
-  
-
+  user-org-data:

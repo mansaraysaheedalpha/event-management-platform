@@ -1,3 +1,4 @@
+#app/crud/base.py
 import uuid
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     def create_with_organization(
         self, db: Session, *, obj_in: CreateSchemaType, org_id: str
     ) -> ModelType:
+        # The model's `default` will now handle the ID generation
         obj_in_data = obj_in.model_dump()
         db_obj = self.model(**obj_in_data, organization_id=org_id)
         db.add(db_obj)
@@ -58,7 +60,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db_obj
 
     def archive(self, db: Session, *, id: str) -> ModelType:
-        obj = db.query(self.model).get(id)
+        obj = db.get(self.model, id)
         setattr(obj, "is_archived", True)
         db.add(obj)
         db.commit()

@@ -1,3 +1,4 @@
+//src/common/guards/internal-api-key.guard.ts
 import {
   Injectable,
   CanActivate,

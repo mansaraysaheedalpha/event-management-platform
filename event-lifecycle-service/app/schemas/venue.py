@@ -3,8 +3,8 @@ from typing import Optional
 
 
 class VenueBase(BaseModel):
-    name: str = Field(..., example="Grand Convention Center")
-    address: Optional[str] = Field(None, example="123 Innovation Drive, Tech City")
+    name: str = Field(..., json_schema_extra={"example":"Grand Convention Center"})
+    address: Optional[str] = Field(None, json_schema_extra={"example":"123 Innovation Drive, Tech City"})
 
 
 class VenueCreate(VenueBase):
@@ -21,5 +21,4 @@ class Venue(VenueBase):
     organization_id: str
     is_archived: bool
 
-    class Config:
-        from_attributes = True
+    model_config = {"form_attributes": True}

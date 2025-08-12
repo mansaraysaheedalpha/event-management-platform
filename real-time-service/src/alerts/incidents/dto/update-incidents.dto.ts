@@ -1,3 +1,4 @@
+//src/alerts/incidents/dto/update-incident.dto.ts
 import {
   IsEnum,
   IsOptional,
@@ -8,7 +9,7 @@ import {
 
 // Match the enums defined in the Prisma schema
 // We exclude 'REPORTED' as this is the initial state
-enum IncidentUpdateStatus {
+export enum IncidentUpdateStatus {
   ACKNOWLEDGED = 'ACKNOWLEDGED',
   INVESTIGATING = 'INVESTIGATING',
   RESOLVED = 'RESOLVED',

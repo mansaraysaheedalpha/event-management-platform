@@ -1,3 +1,4 @@
+#app/schemas/event_sync_bundle.py
 from pydantic import BaseModel
 from typing import List, Optional
 from .event import Event
@@ -12,5 +13,4 @@ class EventSyncBundle(BaseModel):
     speakers: List[Speaker] = []
     venue: Optional[Venue] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True }

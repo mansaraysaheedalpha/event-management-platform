@@ -1,25 +1,62 @@
+//src/comm/dm/dm.service.ts
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
+import { ConfigService } from '@nestjs/config';
 import { DeliveryReceiptDto } from './dto/delivery-receipt.dto';
 import { ReadReceiptDto } from './dto/read-receipt.dto';
 import { SendDmDto } from './dto/send-dm.dto';
 import { PublisherService } from 'src/shared/services/publisher.service';
+import { DeleteDmDto } from './dto/delete-dm.dto';
+import { EditDmDto } from './dto/edit-dm.dto';
+import { Prisma } from '@prisma/client';
+
+const directMessageWithSenderPayload =
+  Prisma.validator<Prisma.DirectMessageDefaultArgs>()({
+    include: {
+      sender: { select: { id: true, firstName: true, lastName: true } },
+    },
+  });
+
+type DirectMessageWithSender = Prisma.DirectMessageGetPayload<
+  typeof directMessageWithSenderPayload
+>;
+
+type EditDmResult = {
+  updatedMessage: DirectMessageWithSender; // Use the strong type instead of 'any'
+  participantIds: string[];
+};
+// Define a strong return type for the delete operation
+type DeleteDmResult = {
+  deletedMessageId: string;
+  conversation: {
+    participants: { userId: string }[];
+  };
+};
 
 @Injectable()
 export class DmService {
   private readonly logger = new Logger(DmService.name);
+  private readonly EDIT_WINDOW_SECONDS: number;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotencyService: IdempotencyService,
     private readonly publisherService: PublisherService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.EDIT_WINDOW_SECONDS = this.configService.get<number>(
+      'CHAT_EDIT_WINDOW_SECONDS',
+      300,
+    );
+  }
 
   /**
    * Sends a direct message from the sender to the recipient.
@@ -81,13 +118,20 @@ export class DmService {
    * @returns The updated direct message or null if no update was needed.
    */
   async markAsDelivered(recipientId: string, dto: DeliveryReceiptDto) {
-    const { messageId } = dto;
+    const { messageId, idempotencyKey } = dto;
+
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException(
+        'Duplicate request. This message has already been marked delievered.',
+      );
+    }
 
     const result = await this.prisma.directMessage.updateMany({
       where: {
         id: messageId,
         isDelivered: false,
-        // --- CORRECTED LOGIC ---
         conversation: {
           participants: {
             some: {
@@ -142,17 +186,23 @@ export class DmService {
    * @returns The updated direct message or null if no update was needed.
    */
   async markAsRead(readerId: string, dto: ReadReceiptDto) {
-    const { messageId } = dto;
+    const { messageId, idempotencyKey } = dto;
 
+    const canProceed =
+      await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) {
+      throw new ConflictException(
+        'Duplicate request. This message has already been read.',
+      );
+    }
     const result = await this.prisma.directMessage.updateMany({
       where: {
         id: messageId,
         isRead: false,
-        // --- CORRECTED LOGIC ---
         conversation: {
           participants: {
             some: {
-              id: readerId, // Filter by the 'id' field of the related UserReference
+              id: readerId,
             },
           },
         },
@@ -179,7 +229,6 @@ export class DmService {
       where: { id: messageId },
     });
 
-    // --- ADD SYNC EVENT ---
     if (updatedMessage) {
       const syncPayload = {
         resource: 'DIRECT_MESSAGE',
@@ -189,6 +238,128 @@ export class DmService {
       void this.publisherService.publish('sync-events', syncPayload);
     }
     return updatedMessage;
+  }
+
+  // **FIXED and IMPROVED METHOD**
+  async editMessage(userId: string, dto: EditDmDto): Promise<EditDmResult> {
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException('Duplicate edit request.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const message = await tx.directMessage.findUnique({
+        where: { id: dto.messageId },
+        include: {
+          conversation: {
+            select: { participants: { select: { id: true } } },
+          },
+        },
+      });
+
+      if (!message) {
+        throw new NotFoundException('Message not found.');
+      }
+      if (message.senderId !== userId) {
+        throw new ForbiddenException('You can only edit your own messages.');
+      }
+
+      const timeSinceSent =
+        (new Date().getTime() - message.timestamp.getTime()) / 1000;
+      if (timeSinceSent > this.EDIT_WINDOW_SECONDS) {
+        throw new ForbiddenException(
+          `Messages can only be edited within ${
+            this.EDIT_WINDOW_SECONDS / 60
+          } minutes.`,
+        );
+      }
+
+      const existingMetadata = (message.metadata || {}) as Record<string, any>;
+      const newMetadata = {
+        ...existingMetadata,
+        isEdited: true,
+        editedAt: new Date().toISOString(),
+      };
+
+      const updatedMessage = await tx.directMessage.update({
+        where: { id: dto.messageId },
+        data: {
+          text: dto.newText,
+          metadata: newMetadata,
+        },
+        // This 'include' matches the payload we defined at the top
+        include: {
+          sender: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
+
+      const participantIds = message.conversation.participants.map((p) => p.id);
+
+      const syncPayload = {
+        resource: 'DIRECT_MESSAGE',
+        action: 'UPDATED',
+        payload: updatedMessage,
+      };
+      void this.publisherService.publish('sync-events', syncPayload);
+
+      return { updatedMessage, participantIds };
+    });
+  }
+
+  async deleteMessage(
+    userId: string,
+    dto: DeleteDmDto,
+  ): Promise<DeleteDmResult> {
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException('Duplicate delete request.');
+    }
+
+    const message = await this.prisma.directMessage.findUnique({
+      where: { id: dto.messageId },
+      include: {
+        conversation: {
+          select: {
+            participants: {
+              select: {
+                id: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message not found.');
+    }
+    if (message.senderId !== userId) {
+      throw new ForbiddenException('You can only delete your own messages.');
+    }
+
+    await this.prisma.directMessage.delete({ where: { id: dto.messageId } });
+
+    const participantUserIds = message.conversation.participants.map((p) => ({
+      userId: p.id,
+    }));
+
+    const result = {
+      deletedMessageId: message.id,
+      conversation: { participants: participantUserIds },
+    };
+
+    const syncPayload = {
+      resource: 'DIRECT_MESSAGE',
+      action: 'DELETED',
+      payload: { id: message.id, conversationId: message.conversationId },
+    };
+    void this.publisherService.publish('sync-events', syncPayload);
+
+    return result;
   }
 
   /**

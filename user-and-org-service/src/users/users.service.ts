@@ -1,3 +1,4 @@
+//src/users/users.service.ts
 import {
   Injectable,
   ConflictException,
@@ -9,8 +10,6 @@ import { PrismaService } from 'src/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { UpdateProfileDTO } from './dto/update-profile.dto';
 import { MailerService } from '@nestjs-modules/mailer';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { User } from '@prisma/client';
 
@@ -19,12 +18,8 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private mailerService: MailerService,
-    private jwtService: JwtService,
-    private configService: ConfigService,
   ) {}
   async create(registerUserDto: RegisterUserDto) {
-    console.log('--Inside of UsersService--');
-    //  Check if user exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email: registerUserDto.email },
     });
@@ -33,28 +28,21 @@ export class UsersService {
       console.log('User email exists already');
       throw new ConflictException('User with this email already exists');
     }
-    console.log('User email is unique proceeding..');
+
     // : Password hashing
     const saltRounds = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(
       registerUserDto.password,
       saltRounds,
     );
-    console.log('Hashed password already');
-
-    //Use prisma transaction to create User, Organization and Membership
-    // ensures that all three operations succeed or none of them do
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create the organization record in the database
       const newOrg = await tx.organization.create({
         data: {
           name: registerUserDto.organization_name,
         },
       });
-      console.log('Organization created, ', newOrg.id);
 
-      // Create user record in the database
       const newUser = await tx.user.create({
         data: {
           email: registerUserDto.email,
@@ -63,19 +51,24 @@ export class UsersService {
           password: hashedPassword,
         },
       });
-      console.log('User created, ', newUser.id);
 
-      // Create the membership between the User and the organization
+      const ownerRole = await tx.role.findFirst({
+        where: { name: 'OWNER', isSystemRole: true },
+      });
+      if (!ownerRole)
+        throw new Error(
+          'System role OWNER not found. Please seed the database.',
+        );
+
       await tx.membership.create({
         data: {
           userId: newUser.id,
           organizationId: newOrg.id,
-          role: 'OWNER',
+          roleId: ownerRole.id,
         },
       });
       console.log('Membership Link created: ');
-
-      // Remove password before returning the data
+      
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password, ...newUserToReturn } = newUser;
 
@@ -158,7 +151,7 @@ export class UsersService {
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        pendingEmail: newEmail,
+        newEmail,
         emailChangeToken: hashedToken,
         emailChangeTokenExpiresAt: expiresAt,
       },
@@ -182,7 +175,7 @@ export class UsersService {
     // This is a more complex flow, so let's find the user in a more robust way
     const user = await this.findUserByEmailChangeToken(token);
 
-    if (!user || !user.pendingEmail) {
+    if (!user || !user.newEmail) {
       throw new UnauthorizedException('Invalid or expired token.');
     }
 
@@ -202,9 +195,9 @@ export class UsersService {
     // C. Send the FINAL confirmation email to the NEW address
     const finalUrl = `http://localhost:3001/users/email-change/finalize/${finalRawToken}`;
     await this.mailerService.sendMail({
-      to: user.pendingEmail,
+      to: user.newEmail,
       subject: 'Finalize Your Email Address Change',
-      html: `<p>Please click this final link to make ${user.pendingEmail} your new login email. This link expires in 15 minutes.</p><p><a href="${finalUrl}">Finalize Change</a></p>`,
+      html: `<p>Please click this final link to make ${user.newEmail} your new login email. This link expires in 15 minutes.</p><p><a href="${finalUrl}">Finalize Change</a></p>`,
     });
 
     return {
@@ -217,7 +210,7 @@ export class UsersService {
   async finalizeEmailChange(token: string) {
     const user = await this.findUserByEmailChangeToken(token);
 
-    if (!user || !user.pendingEmail) {
+    if (!user || !user.newEmail) {
       throw new UnauthorizedException('Invalid or expired token.');
     }
 
@@ -225,8 +218,8 @@ export class UsersService {
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        email: user.pendingEmail,
-        pendingEmail: null,
+        email: user.newEmail,
+        newEmail: null,
         emailChangeToken: null,
         emailChangeTokenExpiresAt: null,
       },

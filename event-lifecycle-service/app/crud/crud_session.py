@@ -1,9 +1,14 @@
+# app/crud/crud_session.py
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from .base import CRUDBase
 from app.models.session import Session
 from app.models.speaker import Speaker
 from app.schemas.session import SessionCreate, SessionUpdate
+import json
+from app.db.redis import redis_client
+from datetime import datetime, timezone
+from app.core.kafka_producer import producer
 
 
 class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
@@ -40,24 +45,55 @@ class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
+
+         # --- NEW: Inter-Service Communication to Oracle ---
+        # Publish an attendance update message to Kafka for the Oracle to consume
+        attendance_payload = {
+            "eventId": event_id,
+            "sessionId": db_obj.id,
+            "currentAttendance": 0, # Starts at 0
+            "capacity": 100, # Assuming a default capacity
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        producer.send("real-time.attendance.data", value=attendance_payload)
+    
         return db_obj
 
     def update(self, db: Session, *, db_obj: Session, obj_in: SessionUpdate) -> Session:
-        # First, update the simple fields (title, start_time, etc.)
-        # by calling the base update method.
+        # --- 1. First, update the simple fields ---
+        # (e.g., title, start_time) by calling the base update method.
         update_data = obj_in.model_dump(exclude_unset=True, exclude={"speaker_ids"})
-        db_obj = super().update(db, db_obj=db_obj, obj_in=update_data)
+        # The super().update handles the commit and refresh for these simple fields
+        updated_session = super().update(db, db_obj=db_obj, obj_in=update_data)
 
-        # Now, handle the speaker relationship if speaker_ids are provided
+        # --- 2. Now, handle the speaker relationship, if provided ---
         if obj_in.speaker_ids is not None:
-            speakers = (
-                db.query(Speaker).filter(Speaker.id.in_(obj_in.speaker_ids)).all()
-            )
-            db_obj.speakers = speakers
+            speakers = db.query(Speaker).filter(Speaker.id.in_(obj_in.speaker_ids)).all()
+            updated_session.speakers = speakers
+            db.add(updated_session)
             db.commit()
-            db.refresh(db_obj)
+            db.refresh(updated_session)
 
-        return db_obj
+        # --- 3. Finally, publish the notification with the fully updated data ---
+        notification_payload = {
+            "event_id": updated_session.event_id,
+            "update_type": "SESSION_UPDATED",
+            "session_data": {
+                "id": updated_session.id,
+                "event_id": updated_session.event_id,
+                "title": updated_session.title,
+                "start_time": updated_session.start_time.isoformat(),
+                "end_time": updated_session.end_time.isoformat(),
+                # Convert speaker objects to dictionaries for the JSON payload
+                "speakers": [
+                    {"id": s.id, "name": s.name, "bio": s.bio, "expertise": s.expertise} 
+                    for s in updated_session.speakers
+                ]
+            }
+        }
+        redis_client.publish("platform.events.agenda.v1", json.dumps(notification_payload))
+
+        return updated_session
 
 
 session = CRUDSession(Session)

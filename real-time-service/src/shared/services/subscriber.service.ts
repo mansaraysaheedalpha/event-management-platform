@@ -1,3 +1,4 @@
+//src/shared/services/subscriber.service.ts
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';

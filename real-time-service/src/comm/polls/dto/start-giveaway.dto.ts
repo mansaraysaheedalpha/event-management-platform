@@ -1,3 +1,4 @@
+//src/comm/polls/dto/start-giveaway.dto.ts
 import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class StartGiveawayDto {
@@ -13,4 +14,8 @@ export class StartGiveawayDto {
   @IsNotEmpty()
   @MaxLength(255)
   prize: string;
+
+  @IsUUID('4')
+  @IsNotEmpty()
+  idempotencyKey: string;
 }
