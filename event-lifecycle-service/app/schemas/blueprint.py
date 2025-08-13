@@ -1,16 +1,20 @@
-#app/schemas/blueprint.py
+# app/schemas/blueprint.py
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
 
 class BlueprintBase(BaseModel):
-    name: str = Field(..., example="Annual Sales Kick-off")
+    name: str = Field(..., json_schema_extra={"example": "Annual Sales Kick-off"})
     description: Optional[str] = Field(
-        None, example="Standard template for our yearly sales event."
+        None,
+        json_schema_extra={"example": "Standard template for our yearly sales event."},
     )
     template: Dict[str, Any] = Field(
-        ..., example={"description": "Default description", "is_public": False}
+        ...,
+        json_schema_extra={
+            "example": {"description": "Default description", "is_public": False}
+        },
     )
 
 

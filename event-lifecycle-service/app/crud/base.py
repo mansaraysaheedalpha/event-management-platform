@@ -1,4 +1,4 @@
-#app/crud/base.py
+# app/crud/base.py
 import uuid
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
@@ -44,7 +44,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db: Session,
         *,
         db_obj: ModelType,
-        obj_in: Union[UpdateSchemaType, Dict[str, Any]]
+        obj_in: Union[UpdateSchemaType, Dict[str, Any]],
     ) -> ModelType:
         obj_data = db_obj.__dict__
         if isinstance(obj_in, dict):
@@ -59,8 +59,12 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.refresh(db_obj)
         return db_obj
 
-    def archive(self, db: Session, *, id: str) -> ModelType:
+    def archive(self, db: Session, *, id: str, user_id: str | None = None) -> ModelType:
+        # **FIX**: Use the modern db.get() syntax to remove the warning
         obj = db.get(self.model, id)
+        if not obj:
+            # Added a check for safety
+            return None
         setattr(obj, "is_archived", True)
         db.add(obj)
         db.commit()

@@ -1,0 +1,77 @@
+name: Event Lifecycle Service CI
+
+on:
+  push:
+    branches: [ "main" ]
+    # This workflow will ONLY run if files in this service are changed
+    paths:
+      - 'event-lifecycle-service/**'
+      - '.github/workflows/event-lifecycle-ci.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'event-lifecycle-service/**'
+      - '.github/workflows/event-lifecycle-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: event_management_user
+          POSTGRES_PASSWORD: mypassword
+          POSTGRES_DB: event_manager_db_test # A dedicated test DB name
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U event_management_user -d event_manager_db_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: event-lifecycle-service/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r event-lifecycle-service/requirements.txt
+
+      - name: Run Tests
+        # Set all required environment variables for the test run
+        env:
+          # Tell the app to use the local URLs
+          ENV: "local"
+          # Point to the temporary database and redis services
+          DATABASE_URL_LOCAL: postgresql://event_management_user:mypassword@localhost:5432/event_manager_db_test
+          REDIS_URL_LOCAL: redis://localhost:6379/0
+          # Use secrets for sensitive data
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          # Provide dummy AWS credentials so the tests can run
+          AWS_ACCESS_KEY_ID: "testing"
+          AWS_SECRET_ACCESS_KEY: "testing"
+          AWS_S3_REGION: "us-east-1"
+          AWS_S3_BUCKET_NAME: "test-bucket"
+        # Run pytest from within the service's directory
+        run: |
+          cd event-lifecycle-service
+          pytest

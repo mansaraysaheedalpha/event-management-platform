@@ -2,12 +2,31 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
 from .base import CRUDBase
+from typing import List
 from app.models.event import Event
 from app.schemas.event import EventCreate, EventUpdate
 from app.crud import crud_domain_event
 
 
 class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
+
+    def get_multi_by_organization(
+        self, db: Session, *, org_id: str, skip: int = 0, limit: int = 100
+    ) -> List[Event]:
+        """
+        Overrides the base method to also filter out archived events.
+        """
+        return (
+            db.query(self.model)
+            .filter(
+                self.model.organization_id == org_id,
+                self.model.is_archived == False,  # <-- The missing filter
+            )
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
     def get_events_count(self, db: Session, *, org_id: str) -> int:
         """
         Counts the total number of non-archived events for an organization.
@@ -23,21 +42,23 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
     def update(
         self, db: Session, *, db_obj: Event, obj_in: EventUpdate, user_id: str | None
     ) -> Event:
-        # --- LOGIC TO CAPTURE CHANGES ---
         change_data = {}
         update_data = obj_in.model_dump(exclude_unset=True)
+
+        original_obj_data = {
+            c.name: getattr(db_obj, c.name) for c in db_obj.__table__.columns
+        }
+
         for field in update_data:
-            if getattr(db_obj, field) != update_data[field]:
+            if original_obj_data.get(field) != update_data[field]:
                 change_data[field] = {
-                    "old": getattr(db_obj, field),
+                    "old": original_obj_data.get(field),
                     "new": update_data[field],
                 }
-        # --- END LOGIC ---
 
-        # Call the original update method from the base class
+        # **FIX**: Call the original update method from the base class WITHOUT the user_id
         updated_event = super().update(db, db_obj=db_obj, obj_in=obj_in)
 
-        # If there were changes, create a log entry
         if change_data:
             crud_domain_event.domain_event.create_log(
                 db,

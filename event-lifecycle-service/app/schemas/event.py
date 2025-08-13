@@ -1,4 +1,4 @@
-#app/schemas/event.py
+# app/schemas/event.py
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, timezone
@@ -14,14 +14,14 @@ class EventStatus(str, Enum):
 class Event(BaseModel):
     id: str = Field(..., json_schema_extra={"example": "evt_c5a6d8e0f9b1"})
     organization_id: str = Field(..., json_schema_extra={"example": "org_a1b2c3d4e5"})
-    name: str = Field(..., json_schema_extra={"example":"Global AI Summit"})
+    name: str = Field(..., json_schema_extra={"example": "Global AI Summit"})
     version: int = Field(
         ..., description="The current version number of the event state"
     )
     description: Optional[str] = Field(
-        None, json_schema_extra={"example":"The premier event for AI enthusiasts"}
+        None, json_schema_extra={"example": "The premier event for AI enthusiasts"}
     )
-    status: EventStatus = Field(..., json_schema_extra={"example":"published"})
+    status: EventStatus = Field(..., json_schema_extra={"example": "published"})
     start_date: datetime
     end_date: datetime
     venue_id: Optional[str] = Field(
@@ -30,6 +30,9 @@ class Event(BaseModel):
     is_public: bool = Field(
         False, description="Indicates if the event is publicly discoverable."
     )
+    is_archived: bool = Field(
+        False, description="Indicates if an event is deleted or not"
+    )
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updatedAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -37,13 +40,15 @@ class Event(BaseModel):
 
 
 class EventCreate(BaseModel):
-    name: str = Field(..., json_schema_extra={"example":"Global AI Summit"})
+    name: str = Field(..., json_schema_extra={"example": "Global AI Summit"})
     description: Optional[str] = Field(
-        None, example="The premier event for AI enthusiasts."
+        None, json_schema_extra={"example": "The premier event for AI enthusiasts."}
     )
     start_date: datetime
     end_date: datetime
-    venue_id: Optional[str] = Field(None, json_schema_extra={"example":"ven_f9e8d7c6b5"})
+    venue_id: Optional[str] = Field(
+        None, json_schema_extra={"example": "ven_f9e8d7c6b5"}
+    )
 
 
 # NEW: Helper schema for pagination details
