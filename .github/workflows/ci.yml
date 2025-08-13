@@ -3,10 +3,9 @@ name: Real-Time Service CI
 on:
   push:
     branches: [ "main" ]
-    # **FIX**: Only trigger this workflow for changes in the real-time-service directory
     paths:
       - 'real-time-service/**'
-      - '.github/workflows/ci.yml' # Also run if the workflow file itself changes
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -17,7 +16,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    # **FIX**: Tell all steps to run inside the real-time-service directory
     defaults:
       run:
         working-directory: ./real-time-service
@@ -50,25 +48,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # **FIX**: Add this step to set up pnpm
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          # Cache npm for the specific package-lock.json
-          cache: 'npm'
-          cache-dependency-path: real-time-service/package-lock.json
+          # **FIX**: Tell Node.js to use the pnpm cache
+          cache: 'pnpm'
+          cache-dependency-path: real-time-service/pnpm-lock.yaml
 
       - name: Install dependencies
-        # This now runs inside ./real-time-service
-        run: npm ci
+        # **FIX**: Use pnpm to install
+        run: pnpm install --frozen-lockfile
 
       - name: Run Unit & Integration Tests
-        run: npm test
+        run: npm test # This works, pnpm creates a shim for npm commands
 
       - name: Apply Prisma Migrations to Test DB
         env:
           TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
-        # This also runs inside ./real-time-service and finds the prisma folder
         run: DATABASE_URL=${{ env.TEST_DATABASE_URL }} npx prisma migrate deploy
 
       - name: Run End-to-End Tests
