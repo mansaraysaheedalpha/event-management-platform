@@ -34,3 +34,4 @@ yarn-error.log*
 # The generated client in node_modules will be ignored
 # but keep the schema and migrations
 prisma/generated/
+
