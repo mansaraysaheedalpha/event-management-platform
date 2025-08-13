@@ -15,10 +15,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
-    defaults:
-      run:
-        working-directory: ./real-time-service
 
     services:
       postgres:
@@ -48,7 +44,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # **FIX**: Add this step to set up pnpm
       - name: Set up pnpm
         uses: pnpm/action-setup@v3
         with:
@@ -58,23 +53,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          # **FIX**: Tell Node.js to use the pnpm cache
           cache: 'pnpm'
-          cache-dependency-path: real-time-service/pnpm-lock.yaml
 
       - name: Install dependencies
-        # **FIX**: Use pnpm to install
+        # **FIX**: Run pnpm from the root where the lockfile is
         run: pnpm install --frozen-lockfile
 
       - name: Run Unit & Integration Tests
-        run: npm test # This works, pnpm creates a shim for npm commands
+        # **FIX**: Specify the working directory for this command
+        working-directory: ./real-time-service
+        run: npm test
 
       - name: Apply Prisma Migrations to Test DB
+        working-directory: ./real-time-service
         env:
           TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
         run: DATABASE_URL=${{ env.TEST_DATABASE_URL }} npx prisma migrate deploy
 
       - name: Run End-to-End Tests
+        working-directory: ./real-time-service
         env:
           NODE_ENV: test
           TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
