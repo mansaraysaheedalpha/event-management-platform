@@ -1,22 +1,27 @@
-# This is the name of your GitHub Actions workflow
 name: Real-Time Service CI
 
-# This section defines when the workflow will run
 on:
-  # Run on every push to the 'main' branch
   push:
     branches: [ "main" ]
-  # Also run on every pull request that targets the 'main' branch
+    # **FIX**: Only trigger this workflow for changes in the real-time-service directory
+    paths:
+      - 'real-time-service/**'
+      - '.github/workflows/ci.yml' # Also run if the workflow file itself changes
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'real-time-service/**'
+      - '.github/workflows/ci.yml'
 
-# This section defines the jobs to be run
 jobs:
   test:
-    # Use the latest version of Ubuntu as our test environment
     runs-on: ubuntu-latest
+    
+    # **FIX**: Tell all steps to run inside the real-time-service directory
+    defaults:
+      run:
+        working-directory: ./real-time-service
 
-    # This 'services' block creates temporary Docker containers for our E2E tests
     services:
       postgres:
         image: postgres:15
@@ -25,7 +30,7 @@ jobs:
           POSTGRES_PASSWORD: yourpassword
           POSTGRES_DB: yourtestdb
         ports:
-          - 5435:5432 # The test will connect to localhost:5435
+          - 5435:5432
         options: >-
           --health-cmd "pg_isready -U youruser -d yourtestdb"
           --health-interval 10s
@@ -41,7 +46,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    # These are the steps our job will execute in order
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -49,31 +53,29 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18' # Use Node.js version 18
-          cache: 'npm'       # Cache npm dependencies for faster runs
+          node-version: '18'
+          # Cache npm for the specific package-lock.json
+          cache: 'npm'
+          cache-dependency-path: real-time-service/package-lock.json
 
       - name: Install dependencies
+        # This now runs inside ./real-time-service
         run: npm ci
 
       - name: Run Unit & Integration Tests
         run: npm test
 
       - name: Apply Prisma Migrations to Test DB
-        # Set the environment variables needed for this step
         env:
-          # The services are available on localhost in the GitHub Actions runner
           TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
+        # This also runs inside ./real-time-service and finds the prisma folder
         run: DATABASE_URL=${{ env.TEST_DATABASE_URL }} npx prisma migrate deploy
 
       - name: Run End-to-End Tests
         env:
-          # Provide all necessary env vars for the application during the E2E test
           NODE_ENV: test
           TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
-          # IMPORTANT: Use a GitHub Secret for your JWT_SECRET
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           REDIS_HOST: localhost
           REDIS_PORT: 6379
-          # NOTE: Our current E2E test does not require Kafka, but future tests might.
-          # For now, we can leave it out to keep the setup simple.
         run: npm run test:e2e
