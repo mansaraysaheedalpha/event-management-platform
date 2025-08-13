@@ -1,4 +1,4 @@
-#/app/crud/crud_event.py
+# /app/crud/crud_event.py
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
@@ -6,6 +6,7 @@ from .base import CRUDBase
 from app.models.speaker import Speaker
 from app.schemas.speaker import SpeakerCreate, SpeakerUpdate
 from app.models.session_speaker import session_speaker_association
+from app.models.session import Session
 
 
 class CRUDSpeaker(CRUDBase[Speaker, SpeakerCreate, SpeakerUpdate]):

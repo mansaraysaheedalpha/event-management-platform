@@ -9,4 +9,4 @@ class WaitlistEntry(BaseModel):
     user_id: str
     created_at: datetime
 
-    model_config = {"form_attributes": True}
+    model_config = {"from_attributes": True}

@@ -21,4 +21,4 @@ class Venue(VenueBase):
     organization_id: str
     is_archived: bool
 
-    model_config = {"form_attributes": True}
+    model_config = {"from_attributes": True}

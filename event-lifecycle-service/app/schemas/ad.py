@@ -1,14 +1,18 @@
-#app/schemas/ad.py
+# app/schemas/ad.py
 from pydantic import BaseModel, Field
 from typing import Optional
 
 
 class AdBase(BaseModel):
-    name: str = Field(..., example="Homepage Banner Q3")
-    event_id: Optional[str] = Field(None, example="evt_abc")
-    content_type: str = Field(..., example="BANNER")
-    media_url: str = Field(..., json_schema_extra={"example": "https://example.com/ads/banner.jpg"})
-    click_url: str = Field(..., json_schema_extra={"example": "https://example.com/product"})
+    name: str = Field(..., json_schema_extra={"example": "Homepage Banner Q3"})
+    event_id: Optional[str] = Field(None, json_schema_extra={"example": "evt_abc"})
+    content_type: str = Field(..., json_schema_extra={"example": "BANNER"})
+    media_url: str = Field(
+        ..., json_schema_extra={"example": "https://example.com/ads/banner.jpg"}
+    )
+    click_url: str = Field(
+        ..., json_schema_extra={"example": "https://example.com/product"}
+    )
 
 
 class AdCreate(AdBase):
@@ -28,4 +32,4 @@ class Ad(AdBase):
     organization_id: str
     is_archived: bool
 
-    model_config = { "form_attributes": True}
+    model_config = {"from_attributes": True}

@@ -60,13 +60,11 @@ class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
         return db_obj
 
     def update(self, db: Session, *, db_obj: Session, obj_in: SessionUpdate) -> Session:
-        # --- 1. First, update the simple fields ---
-        # (e.g., title, start_time) by calling the base update method.
         update_data = obj_in.model_dump(exclude_unset=True, exclude={"speaker_ids"})
-        # The super().update handles the commit and refresh for these simple fields
-        updated_session = super().update(db, db_obj=db_obj, obj_in=update_data)
+        
+        # **FIX**: Use explicit keyword arguments in the super() call
+        updated_session = super().update(db=db, db_obj=db_obj, obj_in=update_data)
 
-        # --- 2. Now, handle the speaker relationship, if provided ---
         if obj_in.speaker_ids is not None:
             speakers = db.query(Speaker).filter(Speaker.id.in_(obj_in.speaker_ids)).all()
             updated_session.speakers = speakers
