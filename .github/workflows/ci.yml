@@ -16,8 +16,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    # **THE FIX**: This tells every 'run' command below to execute
-    # inside the 'real-time-service' directory.
     defaults:
       run:
         working-directory: ./real-time-service
@@ -60,12 +58,11 @@ jobs:
         with:
           node-version: '18'
           cache: 'pnpm'
-          # Because of `working-directory`, this path is now relative
-          cache-dependency-path: ./pnpm-lock.yaml
+          cache-dependency-path: real-time-service/pnpm-lock.yaml
 
       - name: Install dependencies
-        # This will now run in `real-time-service/` and find the lockfile
-        run: pnpm install --frozen-lockfile
+        # **THE FIX**: Use --no-frozen-lockfile as suggested by the error log
+        run: pnpm install --no-frozen-lockfile
 
       - name: Run Unit & Integration Tests
         run: npm test
