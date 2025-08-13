@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 
 // Define the roles that can be targeted
-enum TargetableRole {
+export enum TargetableRole {
   SPEAKER = 'SPEAKER',
   MODERATOR = 'MODERATOR',
   STAFF = 'STAFF',

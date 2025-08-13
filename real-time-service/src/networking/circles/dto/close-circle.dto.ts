@@ -6,7 +6,7 @@ export class CloseCircleDto {
   @IsNotEmpty()
   circleId: string;
 
-    @IsUUID('4')
-    @IsNotEmpty()
-    idempotencyKey: string;
+  @IsUUID('4')
+  @IsNotEmpty()
+  idempotencyKey: string;
 }

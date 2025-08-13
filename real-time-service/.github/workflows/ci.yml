@@ -1,0 +1,79 @@
+# This is the name of your GitHub Actions workflow
+name: Real-Time Service CI
+
+# This section defines when the workflow will run
+on:
+  # Run on every push to the 'main' branch
+  push:
+    branches: [ "main" ]
+  # Also run on every pull request that targets the 'main' branch
+  pull_request:
+    branches: [ "main" ]
+
+# This section defines the jobs to be run
+jobs:
+  test:
+    # Use the latest version of Ubuntu as our test environment
+    runs-on: ubuntu-latest
+
+    # This 'services' block creates temporary Docker containers for our E2E tests
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: youruser
+          POSTGRES_PASSWORD: yourpassword
+          POSTGRES_DB: yourtestdb
+        ports:
+          - 5435:5432 # The test will connect to localhost:5435
+        options: >-
+          --health-cmd "pg_isready -U youruser -d yourtestdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # These are the steps our job will execute in order
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18' # Use Node.js version 18
+          cache: 'npm'       # Cache npm dependencies for faster runs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Unit & Integration Tests
+        run: npm test
+
+      - name: Apply Prisma Migrations to Test DB
+        # Set the environment variables needed for this step
+        env:
+          # The services are available on localhost in the GitHub Actions runner
+          TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
+        run: DATABASE_URL=${{ env.TEST_DATABASE_URL }} npx prisma migrate deploy
+
+      - name: Run End-to-End Tests
+        env:
+          # Provide all necessary env vars for the application during the E2E test
+          NODE_ENV: test
+          TEST_DATABASE_URL: postgresql://youruser:yourpassword@localhost:5435/yourtestdb
+          # IMPORTANT: Use a GitHub Secret for your JWT_SECRET
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          # NOTE: Our current E2E test does not require Kafka, but future tests might.
+          # For now, we can leave it out to keep the setup simple.
+        run: npm run test:e2e
