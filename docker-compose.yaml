@@ -1,4 +1,4 @@
-# docker-compose.yml (World-Class Standard)
+# docker-compose.yml
 version: '3.8'
 
 # Top-level network for all services to communicate securely
