@@ -1,47 +1,80 @@
+# docker-compose.yml (World-Class Standard)
+version: '3.8'
+
+# Top-level network for all services to communicate securely
+networks:
+  platform-network:
+    driver: bridge
+
+# Top-level volume definitions for clarity
+volumes: 
+  postgres-event-lifecycle-data:
+  postgres-user-org-data:
+  postgres-real-time-data:
+  redis-data:
+
 services:
-  # --- CORE INFRASTRUCTURE ---
-  postgres-db:
+  # --- INFRASTRUCTURE SERVICES ---
+  postgres-event-lifecycle:
     image: postgres:15
-    container_name: postgres-db
+    container_name: postgres-event-lifecycle
     restart: always
     environment:
-      POSTGRES_USER: event_management_user
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: event_manager_db
+      POSTGRES_USER: ${EVENT_DB_USER}
+      POSTGRES_PASSWORD: ${EVENT_DB_PASSWORD}
+      POSTGRES_DB: ${EVENT_DB_NAME}
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-
-  user-org-db:
-    image: postgres:15
-    container_name: user-org-db
-    restart: always
-    environment:
-      POSTGRES_USER: user_org_user
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: user_org_db
-    ports:
-      - "5434:5432" # <-- Use a different host port (5434) to avoid conflicts
-    volumes:
-      - user-org-data:/var/lib/postgresql/data
-  real-time-db:
-    image: postgres:15
-    container_name: real-time-db
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER} # Assuming from your .env file
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5433:5432"
-    volumes:
-      - real-time-data:/var/lib/postgresql/data
+      - postgres-event-lifecycle-data:/var/lib/postgresql/data
+    networks:
+      - platform-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${EVENT_DB_USER} -d ${EVENT_DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  postgres-user-org:
+    image: postgres:15
+    container_name: postgres-user-org
+    restart: always
+    environment:
+      POSTGRES_USER: ${USER_ORG_DB_USER}
+      POSTGRES_PASSWORD: ${USER_ORG_DB_PASSWORD}
+      POSTGRES_DB: ${USER_ORG_DB_NAME}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-user-org-data:/var/lib/postgresql/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USER_ORG_DB_USER} -d ${USER_ORG_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-real-time:
+    image: postgres:15
+    container_name: postgres-real-time
+    restart: always
+    environment:
+      POSTGRES_USER: ${REAL_TIME_DB_USER}
+      POSTGRES_PASSWORD: ${REAL_TIME_DB_PASSWORD}
+      POSTGRES_DB: ${REAL_TIME_DB_NAME}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-real-time-data:/var/lib/postgresql/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${REAL_TIME_DB_USER} -d ${REAL_TIME_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -50,6 +83,13 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.3.2
@@ -57,6 +97,8 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - platform-network
 
   kafka:
     image: confluentinc/cp-kafka:7.3.2
@@ -65,6 +107,8 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+    networks:
+      - platform-network
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
@@ -75,64 +119,40 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       
   # --- APPLICATION SERVICES ---
-  event-service:
+  event-lifecycle-service:
     build:
-      context: ./event-lifecycle-service # CORRECTED CONTEXT
-    container_name: event-service-api
+      context: ./event-lifecycle-service
+    container_name: event-lifecycle-service
     restart: always
     ports:
       - "8000:8000"
     volumes:
-      - ./event-lifecycle-service/app:/app
+      - ./event-lifecycle-service:/app
+    networks:
+      - platform-network
     depends_on:
-      - postgres-db
-      - redis
-    environment:
-      - DATABASE_URL=postgresql://event_management_user:mypassword@postgres-db:5432/event_manager_db
-      - REDIS_URL=redis://redis:6379/0
+      postgres-event-lifecycle:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./.env
 
   event-celery-worker:
     build:
-      context: ./event-lifecycle-service # CORRECTED CONTEXT
-    container_name: event-service-celery
+      context: ./event-lifecycle-service
+    container_name: event-celery-worker
     restart: always
     command: celery -A app.worker.celery_app worker --loglevel=info
     volumes:
-      - ./event-lifecycle-service/app:/app
+      - ./event-lifecycle-service:/app
+    networks:
+      - platform-network
     depends_on:
-      - event-service
+      - event-lifecycle-service
       - redis
-    environment:
-      - DATABASE_URL=postgresql://event_management_user:mypassword@postgres-db:5432/event_manager_db
-      - REDIS_URL=redis://redis:6379/0
-
-  oracle-api:
-    build:
-      context: ./oracle-ai-service
-    container_name: oracle-api
-    restart: always
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./oracle-ai-service/app:/app
-    depends_on:
-      - kafka
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-
-  oracle-consumer:
-    build:
-      context: ./oracle-ai-service
-    container_name: oracle-consumer
-    restart: always
-    command: python run_consumer.py
-    volumes:
-      - ./oracle-ai-service/app:/app
-    depends_on:
-      - kafka
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    env_file:
+      - ./.env
 
   real-time-service: 
     build:
@@ -141,18 +161,19 @@ services:
     restart: always
     ports:
       - "3002:3002"
+    networks:
+      - platform-network
     depends_on:
-      real-time-db:
+      postgres-real-time:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       kafka:
         condition: service_started
+      # Also make it depend on the other APIs it calls
+      event-lifecycle-service:
+        condition: service_started
+      # user-org-service: (when you add it)
+      #   condition: service_started
     env_file:
-      - .env
-
-volumes: 
-  postgres-data:
-  redis-data:
-  real-time-data:
-  user-org-data:
+      - ./.env

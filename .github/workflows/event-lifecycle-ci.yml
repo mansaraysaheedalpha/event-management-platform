@@ -3,7 +3,6 @@ name: Event Lifecycle Service CI
 on:
   push:
     branches: [ "main" ]
-    # This workflow will ONLY run if files in this service are changed
     paths:
       - 'event-lifecycle-service/**'
       - '.github/workflows/event-lifecycle-ci.yml'
@@ -23,7 +22,7 @@ jobs:
         env:
           POSTGRES_USER: event_management_user
           POSTGRES_PASSWORD: mypassword
-          POSTGRES_DB: event_manager_db_test # A dedicated test DB name
+          POSTGRES_DB: event_manager_db_test
         ports:
           - 5432:5432
         options: >-
@@ -56,22 +55,19 @@ jobs:
         run: pip install -r event-lifecycle-service/requirements.txt
 
       - name: Run Tests
-        # Set all required environment variables for the test run
         env:
-          # Tell the app to use the local URLs
+          # Set all required environment variables for the test run
           ENV: "local"
-          # Point to the temporary database and redis services
           DATABASE_URL_LOCAL: postgresql://event_management_user:mypassword@localhost:5432/event_manager_db_test
           REDIS_URL_LOCAL: redis://localhost:6379/0
-          # Use secrets for sensitive data
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
-          # Provide dummy AWS credentials so the tests can run
           AWS_ACCESS_KEY_ID: "testing"
           AWS_SECRET_ACCESS_KEY: "testing"
           AWS_S3_REGION: "us-east-1"
           AWS_S3_BUCKET_NAME: "test-bucket"
-        # Run pytest from within the service's directory
+        # **THE FIX**: Run pytest from the correct directory using the Python executable
+        # that setup-python configured. This ensures it finds the installed packages.
         run: |
           cd event-lifecycle-service
-          pytest
+          python -m pytest
