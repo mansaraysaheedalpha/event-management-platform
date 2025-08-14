@@ -1,5 +1,5 @@
 # tests/crud/test_blueprint.py
-
+#Blueprint integration test
 from unittest.mock import MagicMock
 from app.crud.crud_blueprint import CRUDBlueprint
 from app.models.blueprint import EventBlueprint
