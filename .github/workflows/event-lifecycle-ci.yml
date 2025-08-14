@@ -47,21 +47,16 @@ jobs:
         env:
           ZOOKEEPER_CLIENT_PORT: 2181
           ZOOKEEPER_TICK_TIME: 2000
-        # **FIX**: Add a healthcheck to ensure Zookeeper is ready
-        options: >-
-          --health-cmd "echo 'ruok' | nc localhost 2181 | grep imok"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        # **FIX**: Removed the complex healthcheck. Kafka's own startup will wait for Zookeeper.
           
       kafka:
         image: confluentinc/cp-kafka:7.3.2
         ports:
           - 9092:9092
-        # **FIX**: 'depends_on' is removed. Kafka will wait for Zookeeper automatically.
         env:
           KAFKA_BROKER_ID: 1
-          KAFKA_ZOOKEEPER_CONNECT: 'localhost:2181' # Connect to the Zookeeper service
+          # **FIX**: Use the service name 'zookeeper' for reliable container-to-container communication.
+          KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181' 
           KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
           KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
