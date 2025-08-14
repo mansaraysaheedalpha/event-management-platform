@@ -52,11 +52,14 @@ jobs:
           cache-dependency-path: event-lifecycle-service/requirements.txt
 
       - name: Install dependencies
+        # This command runs from the root of the repository
         run: pip install -r event-lifecycle-service/requirements.txt
 
-      - name: Run Tests
+      - name: Run Pytest
+        # **THE FIX**: Use the 'working-directory' key to run the command
+        # in the correct folder, ensuring it finds the right environment.
+        working-directory: ./event-lifecycle-service
         env:
-          # Set all required environment variables for the test run
           ENV: "local"
           DATABASE_URL_LOCAL: postgresql://event_management_user:mypassword@localhost:5432/event_manager_db_test
           REDIS_URL_LOCAL: redis://localhost:6379/0
@@ -66,8 +69,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: "testing"
           AWS_S3_REGION: "us-east-1"
           AWS_S3_BUCKET_NAME: "test-bucket"
-        # **THE FIX**: Run pytest from the correct directory using the Python executable
-        # that setup-python configured. This ensures it finds the installed packages.
-        run: |
-          cd event-lifecycle-service
-          python -m pytest
+        run: pytest
