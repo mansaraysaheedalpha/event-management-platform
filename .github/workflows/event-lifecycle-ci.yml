@@ -52,14 +52,24 @@ jobs:
           cache-dependency-path: event-lifecycle-service/requirements.txt
 
       - name: Install dependencies
-        # This command runs from the root of the repository
         run: pip install -r event-lifecycle-service/requirements.txt
 
       - name: Run Pytest
-        # **THE FIX**: Use the 'working-directory' key to run the command
-        # in the correct folder, ensuring it finds the right environment.
         working-directory: ./event-lifecycle-service
+        # **THE FIX**: Define ALL required environment variables here.
+        # This ensures they are available before pytest starts.
         env:
+          ENV: "local"
+          DATABASE_URL_LOCAL: postgresql://event_management_user:mypassword@localhost:5432/event_manager_db_test
+          REDIS_URL_LOCAL: redis://localhost:6379/0
+          KAFKA_BOOTSTRAP_SERVERS_LOCAL: localhost:9092
+          DATABASE_URL_PROD: "dummy_prod_db_url"
+          REDIS_URL_PROD: "dummy_prod_redis_url"
+          KAFKA_BOOTSTRAP_SERVERS_PROD: "dummy_prod_kafka_url"
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          AWS_ACCESS_KEY_ID: "testing"
+          AWS_SECRET_ACCESS_KEY: "testing"
+          AWS_S3_REGION: "us-east-1"
+          AWS_S3_BUCKET_NAME: "test-bucket"
         run: pytest
