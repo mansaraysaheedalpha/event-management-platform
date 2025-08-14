@@ -60,13 +60,6 @@ jobs:
         # in the correct folder, ensuring it finds the right environment.
         working-directory: ./event-lifecycle-service
         env:
-          ENV: "local"
-          DATABASE_URL_LOCAL: postgresql://event_management_user:mypassword@localhost:5432/event_manager_db_test
-          REDIS_URL_LOCAL: redis://localhost:6379/0
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
-          AWS_ACCESS_KEY_ID: "testing"
-          AWS_SECRET_ACCESS_KEY: "testing"
-          AWS_S3_REGION: "us-east-1"
-          AWS_S3_BUCKET_NAME: "test-bucket"
         run: pytest
