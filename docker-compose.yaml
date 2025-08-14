@@ -177,3 +177,34 @@ services:
       #   condition: service_started
     env_file:
       - ./.env
+
+  oracle-api:
+    build:
+      context: ./oracle-ai-service
+    container_name: oracle-api
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./oracle-ai-service/app:/app
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+
+
+
+  oracle-consumer:
+
+    build:
+      context: ./oracle-ai-service
+    container_name: oracle-consumer
+    restart: always
+    command: python run_consumer.py
+    volumes:
+        - ./oracle-ai-service/app:/app
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092

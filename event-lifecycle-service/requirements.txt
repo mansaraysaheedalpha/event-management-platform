@@ -1,3 +1,5 @@
+# requirements.txt
+
 # FastAPI framework and server
 python-dotenv
 fastapi
@@ -7,6 +9,7 @@ uvicorn[standard]
 sqlalchemy
 alembic
 psycopg2-binary
+sqlalchemy-utils
 
 # Data validation and settings management
 pydantic
@@ -19,3 +22,12 @@ passlib[bcrypt]
 # For inter-service communication
 redis
 httpx
+kafka-python-ng # <-- The modern, correct Kafka library
+boto3
+
+# For background tasks
+celery
+pdf2image
+
+# --- TESTING ---
+pytest
