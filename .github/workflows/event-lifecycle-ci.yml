@@ -40,7 +40,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       
-      # **THE FIX**: Add Zookeeper and Kafka services
       zookeeper:
         image: confluentinc/cp-zookeeper:7.3.2
         ports:
@@ -48,15 +47,21 @@ jobs:
         env:
           ZOOKEEPER_CLIENT_PORT: 2181
           ZOOKEEPER_TICK_TIME: 2000
+        # **FIX**: Add a healthcheck to ensure Zookeeper is ready
+        options: >-
+          --health-cmd "echo 'ruok' | nc localhost 2181 | grep imok"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          
       kafka:
         image: confluentinc/cp-kafka:7.3.2
         ports:
           - 9092:9092
-        depends_on:
-          zookeeper
+        # **FIX**: 'depends_on' is removed. Kafka will wait for Zookeeper automatically.
         env:
           KAFKA_BROKER_ID: 1
-          KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+          KAFKA_ZOOKEEPER_CONNECT: 'localhost:2181' # Connect to the Zookeeper service
           KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
           KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -83,7 +88,7 @@ jobs:
           ENV: "local"
           DATABASE_URL_LOCAL: postgresql://event_management_user:mypassword@localhost:5432/event_manager_db_test
           REDIS_URL_LOCAL: redis://localhost:6379/0
-          KAFKA_BOOTSTRAP_SERVERS_LOCAL: localhost:9092 # Point to the Kafka service
+          KAFKA_BOOTSTRAP_SERVERS_LOCAL: localhost:9092
           DATABASE_URL_PROD: "dummy_prod_db_url"
           REDIS_URL_PROD: "dummy_prod_redis_url"
           KAFKA_BOOTSTRAP_SERVERS_PROD: "dummy_prod_kafka_url"
