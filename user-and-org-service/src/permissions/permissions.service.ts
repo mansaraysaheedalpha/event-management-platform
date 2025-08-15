@@ -1,3 +1,4 @@
+//src/permissions/permissions.module
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { REDIS_CLIENT } from 'src/shared/services/idempotency.service'; // We can reuse the Redis client

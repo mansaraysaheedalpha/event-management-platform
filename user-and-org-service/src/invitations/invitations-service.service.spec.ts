@@ -26,9 +26,10 @@ const db = {
 
 describe('InvitationsService', () => {
   let service: InvitationsService;
+  let module: TestingModule;
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         InvitationsService,
         { provide: PrismaService, useValue: db },
@@ -39,6 +40,10 @@ describe('InvitationsService', () => {
     service = module.get<InvitationsService>(InvitationsService);
     // Clear all mock history before each test
     jest.clearAllMocks();
+  });
+
+  afterAll(async () => {
+    await module.close();
   });
 
   it('should be defined', () => {
