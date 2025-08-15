@@ -80,10 +80,11 @@ export class OrganizationsController {
     @Body() updateMemberRoleDto: UpdateMemberRoleDTO,
   ) {
     const actingUserId = req.user.sub;
+
     return await this.orgService.updateMemberRole(
       orgId,
       userId,
-      updateMemberRoleDto.newRole.name,
+      updateMemberRoleDto.roleId,
       actingUserId,
     );
   }

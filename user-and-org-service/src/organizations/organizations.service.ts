@@ -4,7 +4,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { PrismaService } from 'src/prisma.service';
 import { CreateNewOrganizationDTO } from './dto/create-new-organization.dto';
 import { UpdateOrganizationDTO } from './dto/update-organization.dto';
@@ -59,16 +58,11 @@ export class OrganizationsService {
   async updateMemberRole(
     orgId: string,
     userId: string,
-    newRoleName: string,
+    newRoleId: string, // <-- Changed from newRoleName
     actingUserId: string,
   ) {
     const membership = await this.prisma.membership.findUniqueOrThrow({
-      where: {
-        userId_organizationId: {
-          userId,
-          organizationId: orgId,
-        },
-      },
+      where: { userId_organizationId: { userId, organizationId: orgId } },
       include: { role: true },
     });
 
@@ -78,23 +72,19 @@ export class OrganizationsService {
       );
     }
 
+    // **REFINEMENT**: The service now finds the role by ID.
     const newRole = await this.prisma.role.findUnique({
-      where: {
-        name_organizationId: { name: newRoleName, organizationId: orgId },
-      },
+      where: { id: newRoleId, organizationId: orgId }, // Ensure role belongs to the org
     });
-    if (!newRole) throw new NotFoundException(`Role  not found.`);
+    if (!newRole) {
+      throw new NotFoundException(
+        `Role with ID ${newRoleId} not found in this organization.`,
+      );
+    }
 
     await this.prisma.membership.update({
-      where: {
-        userId_organizationId: {
-          userId,
-          organizationId: orgId,
-        },
-      },
-      data: {
-        role: { connect: { id: newRole.id } },
-      },
+      where: { userId_organizationId: { userId, organizationId: orgId } },
+      data: { role: { connect: { id: newRole.id } } },
     });
 
     await this.auditService.log({
@@ -102,7 +92,7 @@ export class OrganizationsService {
       organizationId: orgId,
       actingUserId,
       targetUserId: userId,
-      details: { newRole: newRole },
+      details: { oldRole: membership.role.name, newRole: newRole.name },
     });
     return { message: 'Role updated successfully' };
   }

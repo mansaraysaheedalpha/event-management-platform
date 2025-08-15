@@ -1,3 +1,4 @@
+//src/internal/internal.controller.ts
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { UsersService } from 'src/users/users.service';
 import { InternalApiKeyGuard } from 'src/auth/guards/internal-api-key.guard';
