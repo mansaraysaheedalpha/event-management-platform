@@ -1,3 +1,4 @@
+//src/invitations/invitations.module.ts
 import { Module } from '@nestjs/common';
 import { InvitationsService } from './invitations.service';
 import { PrismaModule } from 'src/prisma.module';

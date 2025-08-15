@@ -1,0 +1,88 @@
+name: User & Org Service CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'user-and-org-service/**'
+      - '.github/workflows/user-and-org-ci.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'user-and-org-service/**'
+      - '.github/workflows/user-and-org-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user_org_user
+          POSTGRES_PASSWORD: mypassword
+          POSTGRES_DB: user_org_db_test
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U user_org_user -d user_org_db_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+          cache-dependency-path: user-and-org-service/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ./user-and-org-service
+
+      - name: Apply Prisma Migrations to Test DB
+        working-directory: ./user-and-org-service
+        env:
+          DATABASE_URL: postgresql://user_org_user:mypassword@localhost:5434/user_org_db_test
+        run: npx prisma migrate deploy
+
+      - name: Run Unit & Integration Tests
+        working-directory: ./user-and-org-service
+        run: npm test
+      
+      - name: Run End-to-End Tests
+        working-directory: ./user-and-org-service
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://user_org_user:mypassword@localhost:5434/user_org_db
+          TEST_DATABASE_URL: postgresql://user_org_user:mypassword@localhost:5434/user_org_db_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          MAIL_HOST: "localhost"
+          MAIL_PORT: 1025
+          MAIL_USER: "test"
+          MAIL_PASS: "test"
+          MAIL_FROM: "test@test.com"
+        run: npm run test:e2e

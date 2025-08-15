@@ -1,25 +1,27 @@
+// src/shared/shared.module.ts
+
 import { Module, Global } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import {
-  IdempotencyService,
-  REDIS_CLIENT,
-} from './services/idempotency.service';
+import { IdempotencyService } from './services/idempotency.service';
+import { REDIS_CLIENT } from './redis.constants'; // Assuming you have this constants file
+import { ConfigService } from '@nestjs/config';
 
-// This provider creates the Redis client instance.
 const redisProvider = {
   provide: REDIS_CLIENT,
-  useFactory: () => {
-    const isProd = process.env.NODE_ENV === 'production';
-    return new Redis({
-      host: isProd ? process.env.REDIS_HOST : 'localhost',
-      port: isProd ? Number(process.env.REDIS_PORT) : 6379,
-    });
+  // **FIX**: Inject ConfigService to safely get environment variables
+  inject: [ConfigService],
+  useFactory: (configService: ConfigService) => {
+    const redisUrl = configService.get<string>('REDIS_URL');
+    if (!redisUrl) {
+      throw new Error('REDIS_URL is not configured in the environment.');
+    }
+    return new Redis(redisUrl);
   },
 };
 
-@Global() // Makes the providers available everywhere without importing SharedModule
+@Global()
 @Module({
   providers: [redisProvider, IdempotencyService],
-  exports: [IdempotencyService, REDIS_CLIENT], // Export the service for injection
+  exports: [IdempotencyService, REDIS_CLIENT],
 })
 export class SharedModule {}
