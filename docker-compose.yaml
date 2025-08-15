@@ -1,6 +1,4 @@
 # docker-compose.yml
-version: '3.8'
-
 # Top-level network for all services to communicate securely
 networks:
   platform-network:
