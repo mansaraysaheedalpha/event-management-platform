@@ -59,7 +59,7 @@ jobs:
           cache-dependency-path: user-and-org-service/package-lock.json
 
       - name: Install dependencies
-        # **FIX**: Use 'npm ci' which is the standard for CI with npm
+        # **FIX**: Use 'npm ci' which is the standard for CI with npm.
         run: npm ci
 
       - name: Apply Prisma Migrations to Test DB
