@@ -78,3 +78,12 @@ venv.bak/
 
 # Mac OS
 .DS_Store
+
+# --- Service-Specific Ignores ---
+# For user-and-org-service
+/user-and-org-service/dist
+/user-and-org-service/.DS_Store
+
+# For real-time-service
+/real-time-service/dist
+/real-time-service/.DS_Store
