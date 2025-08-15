@@ -1,3 +1,4 @@
+//src/two-factor/two-factor.service.s
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';

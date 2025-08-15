@@ -1,5 +1,9 @@
-import { Role } from '@prisma/client';
+// src/organizations/dto/update-member-role.dto.ts
+
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class UpdateMemberRoleDTO {
-  newRole: Role;
+  @IsString()
+  @IsNotEmpty()
+  roleId: string;
 }
