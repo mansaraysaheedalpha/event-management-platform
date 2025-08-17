@@ -22,6 +22,7 @@ import * as Joi from 'joi';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
       // Add this validation schema
       validationSchema: Joi.object({
         DATABASE_URL: Joi.string().required(),
