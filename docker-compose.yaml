@@ -73,6 +73,22 @@ services:
       timeout: 5s
       retries: 5
 
+  db-test:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: youruser
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: yourtestdb
+    ports:
+      - "5435:5432" # Host port 5435
+    volumes:
+      - ./postgres-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U youruser -d yourtestdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
   redis:
     image: redis:7-alpine
     container_name: redis
