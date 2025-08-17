@@ -37,7 +37,6 @@ describe('User & Org Service (E2E)', () => {
   afterAll(async () => {
     // Now that PrismaService has onModuleDestroy, this is all we need.
     await app.close();
-    await prisma.$disconnect();
   });
 
   describe('User Registration and Login Flow', () => {
