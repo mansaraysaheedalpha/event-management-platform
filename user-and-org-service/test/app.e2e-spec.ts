@@ -39,6 +39,7 @@ describe('User & Org Service (E2E)', () => {
 
   afterAll(async () => {
     await app.close();
+    await prisma.$disconnect();
   });
 
   describe('User Registration and Login Flow', () => {
