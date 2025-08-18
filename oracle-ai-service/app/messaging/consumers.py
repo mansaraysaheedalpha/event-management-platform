@@ -1,3 +1,4 @@
+#app/messaging/consumers.py
 import json
 import threading
 from kafka import KafkaConsumer, KafkaProducer

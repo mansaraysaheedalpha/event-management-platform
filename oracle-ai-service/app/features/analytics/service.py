@@ -1,3 +1,4 @@
+# app/features/analytics/service.py
 import random
 from app.features.analytics.schemas import (
     AttendanceForecastRequest,
