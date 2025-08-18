@@ -79,3 +79,48 @@ This document tracks the real-world environment, configuration, and code issues 
 * **The Solution:** The change must be made non-breaking. In the `prisma/schema.prisma` file, the new column must be made **optional** by adding a `?` to its type definition (e.g., `hashedRefreshToken String?`). This tells the database that it's okay to leave the new column empty (`NULL`) for all existing rows.
 
 ---
+
+# User & Org Service: Engineering Log & Debugging History
+
+This document tracks all major errors encountered during the setup of the testing suite and CI/CD pipeline for the `user-and-org-service`.
+
+---
+### Error 1: Multiple Jest Configurations Found
+
+* **Exact Error Message:** `Multiple configurations found: ... jest.config.js ... `jest` key in ... package.json`
+* **What it Means:** Jest found configuration instructions in two separate places (`jest.config.js` and `package.json`) and stopped because it didn't know which one to use.
+* **Exact Solution:** We made `jest.config.js` the single source of truth by deleting the entire `"jest": { ... }` block from the `package.json` file.
+* **Resolution Attempts:** 1
+
+---
+### Error 2: Widespread Unit Test Failures (`Cannot find module`)
+
+* **Exact Error Message:** `Cannot find module 'src/prisma.service' from 'audit/audit.service.ts'` (and many similar errors).
+* **What it Means:** The tests were failing because they used absolute import paths (e.g., `src/prisma.service`), but the Jest test runner didn't know where the `src/` folder was located.
+* **Exact Solution:** We created a `jest.config.js` file and added a `moduleNameMapper` configuration that told Jest how to resolve the `src/` path alias correctly.
+* **Resolution Attempts:** 1
+
+---
+### Error 3: E2E Test Failure - Database Does Not Exist
+
+* **Exact Error Message:** `PrismaClientInitializationError: Database 'user_org_db' does not exist`
+* **What it Means:** The E2E test was connecting to the test PostgreSQL server, but was trying to use the *development* database name (`user_org_db`) instead of the *test* database name (`user_org_db_test`).
+* **Root Cause:** The `NODE_ENV=test` variable was not being correctly prioritized, causing the application to load the default `.env` file instead of a test-specific configuration.
+* **Exact Solution:** We created a dedicated `.env.test` file and updated the `ConfigModule` in `app.module.ts` to explicitly load this file when `process.env.NODE_ENV === 'test'`. This forced the test to use the correct database connection string.
+* **Resolution Attempts:** 3
+
+---
+### Error 4: E2E Test Failure - System Role Not Found
+
+* **Exact Error Message:** `Error: System role OWNER not found. Please seed the database.`
+* **What it Means:** The user registration endpoint failed with a 500 Internal Server Error because the logic requires a special "OWNER" role to exist in the database, but the clean test database was empty.
+* **Exact Solution:** We "seeded" the test database by adding a command to the `beforeAll` block in the `test/app.e2e-spec.ts` file to create the required `OWNER` role (`await prisma.role.create(...)`) before any tests were run.
+* **Resolution Attempts:** 1
+
+---
+### Error 5: E2E Test Hang (`Jest did not exit`)
+
+* **Symptom:** All E2E tests would pass, but the Jest process would hang and not exit, causing the local test run and the CI pipeline to fail.
+* **What it Means:** A background process, like a database or mailer connection, was not being closed properly after the tests finished.
+* **Exact Solution:** After several attempts to close individual connections, the definitive solution was to modify the `test:e2e` script in `package.json` to include the `--forceExit` and `--runInBand` flags. This is a pragmatic and robust solution that forces Jest to shut down cleanly after the tests pass.
+* **Resolution Attempts:** 4
