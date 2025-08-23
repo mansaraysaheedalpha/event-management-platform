@@ -1,3 +1,4 @@
+#oracle-ai-service/run_consumers.py
 from app.messaging import consumers
 
 if __name__ == "__main__":
