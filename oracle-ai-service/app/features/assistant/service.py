@@ -1,6 +1,8 @@
+# app/features/assistant/service.py
+
 from datetime import datetime, timezone, timedelta
 import random
-from app.features.assistant.schemas import (
+from .schemas import (
     ConciergeRequest,
     ConciergeResponse,
     SmartNotificationRequest,
@@ -8,68 +10,102 @@ from app.features.assistant.schemas import (
 )
 
 
-def get_smart_notification_timing(
-    request: SmartNotificationRequest,
-) -> SmartNotificationResponse:
-    """Simulates finding the optimal time to send a notification."""
-    # Simulate finding a time in the near future
-    optimal_time = datetime.now(timezone.utc) + timedelta(minutes=random.randint(5, 60))
-
-    return SmartNotificationResponse(
-        recommended_time=optimal_time, confidence=round(random.uniform(0.80, 0.99), 2)
-    )
-
-
 def get_concierge_response(request: ConciergeRequest) -> ConciergeResponse:
     """
-    This service function simulates the logic of an AI concierge.
-    In a real system, this would connect to a Large Language Model (LLM) or
-    a Natural Language Understanding (NLU) service like Dialogflow or Rasa.
-
-    For now, we'll use simple keyword matching to simulate different responses.
+    Processes a user's natural language query using a basic
+    keyword-based intent recognition engine.
     """
     query = request.query.lower()
 
-    # Default response
-    response_text = "I'm sorry, I can't help with that right now. You can try asking about session recommendations or directions."
-    response_type = "text"
-    actions = []
-    follow_ups = [
-        "What are the most popular sessions?",
-        "Where is the main keynote room?",
-    ]
+    # --- Intent Recognition Engine ---
 
-    # Keyword-based logic simulation
-    if "recommend" in query and "session" in query:
-        response_text = "I recommend the 'Advanced Microservice Architecture' session. I can also show you other options."
-        response_type = "action"
-        actions.append(
-            ConciergeResponse.Action(
-                action="navigate_to_session",
-                parameters={"session_id": f"ses_{random.randint(1000, 9999)}"},
-            )
+    # Intent 1: Find Location
+    if "where is" in query or "directions" in query or "location of" in query:
+        return ConciergeResponse(
+            response="I can help with that. Here are the directions.",
+            response_type="action",
+            actions=[
+                ConciergeResponse.Action(
+                    action="show_map_route",
+                    parameters={
+                        "destination": "Main Hall"
+                    },  # In a real app, you'd parse the destination
+                )
+            ],
+            follow_up_questions=["What is the schedule for the Main Hall?"],
         )
-        follow_ups = [
-            "Tell me more about that session.",
-            "What other sessions are happening now?",
-        ]
 
-    elif "where is" in query or "directions" in query:
-        response_text = "The main keynote is in Hall A. I've highlighted the route for you on the map."
-        response_type = "action"
-        actions.append(
-            ConciergeResponse.Action(
-                action="show_map_route", parameters={"destination": "Hall A"}
-            )
+    # Intent 2: Get Recommendation
+    if "recommend" in query or "suggest" in query:
+        return ConciergeResponse(
+            response="Certainly, here are some personalized session recommendations for you.",
+            response_type="action",
+            actions=[
+                ConciergeResponse.Action(
+                    action="navigate_to_recommendations", parameters={}
+                )
+            ],
+            follow_up_questions=["Can you recommend a speaker?"],
         )
-        follow_ups = [
-            "How long will it take to get there?",
-            "What's the capacity of Hall A?",
-        ]
 
+    # Default Fallback Response (Intent Unknown)
     return ConciergeResponse(
-        response=response_text,
-        response_type=response_type,
-        actions=actions,
-        follow_up_questions=follow_ups,
+        response="I'm sorry, I can only help with event directions and recommendations at the moment.",
+        response_type="text",
+        actions=[],
+        follow_up_questions=[
+            "Where is the keynote room?",
+            "Can you recommend a session for me?",
+        ],
+    )
+
+
+def _get_user_persona_from_db(user_id: str) -> str:
+    """
+    Simulates fetching a user's engagement persona from a database.
+    In a real system, this would be determined by analyzing historical user activity.
+    """
+    # This mock logic allows us to test different personas.
+    if "early" in user_id:
+        return "Early Bird"
+    if "night" in user_id:
+        return "Night Owl"
+    if "business" in user_id:
+        return "Business Hours"
+    return "Unknown"
+
+
+def get_smart_notification_timing(
+    request: SmartNotificationRequest,
+) -> SmartNotificationResponse:
+    """
+    Recommends an optimal notification time based on the user's persona.
+    """
+    persona = _get_user_persona_from_db(request.user_id)
+    now = datetime.now(timezone.utc)
+
+    # --- Heuristic Persona Model ---
+    if persona == "Early Bird":
+        # Suggest a time between 8 AM and 10 AM on the same day
+        optimal_time = now.replace(hour=9, minute=0, second=0)
+        confidence = 0.90
+    elif persona == "Night Owl":
+        # Suggest a time between 8 PM and 10 PM on the same day
+        optimal_time = now.replace(hour=21, minute=0, second=0)
+        confidence = 0.88
+    elif persona == "Business Hours":
+        # Suggest a time between 1 PM and 4 PM on the same day (post-lunch)
+        optimal_time = now.replace(hour=14, minute=30, second=0)
+        confidence = 0.85
+    else:
+        # Default fallback for unknown personas
+        optimal_time = now.replace(hour=10, minute=0, second=0)
+        confidence = 0.70
+
+    # If the calculated optimal time has already passed for today, schedule it for tomorrow
+    if optimal_time < now:
+        optimal_time += timedelta(days=1)
+
+    return SmartNotificationResponse(
+        recommended_time=optimal_time, confidence=confidence
     )

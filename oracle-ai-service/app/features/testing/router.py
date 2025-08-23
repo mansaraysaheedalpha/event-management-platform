@@ -1,3 +1,4 @@
+# app/features/testing/router.py
 from fastapi import APIRouter
 from .schemas import *
 from . import service
@@ -11,9 +12,7 @@ router = APIRouter()
     tags=["A/B Testing"],
 )
 def create_ab_test_experiment(request: ABTestExperimentRequest):
-    """
-    Creates a new A/B testing experiment to compare model versions.
-    """
+    """Create new A/B testing experiment for model comparison."""
     return service.create_ab_test(request)
 
 
@@ -21,5 +20,5 @@ def create_ab_test_experiment(request: ABTestExperimentRequest):
     "/ab-testing/results", response_model=ABTestResultsResponse, tags=["A/B Testing"]
 )
 def get_ab_test_results(experiment_id: str):
-    """Retrieves the results from a specific A/B testing experiment."""
+    """Retrieve results from A/B testing experiments."""
     return service.get_ab_test_results(experiment_id)

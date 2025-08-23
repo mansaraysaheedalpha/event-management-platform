@@ -1,61 +1,67 @@
-#app/models/ai/sentiment.py
-from transformers import pipeline, Pipeline
-from app.db.redis import redis_client
+# app/models/ai/sentiment.py
+
 import json
+
+# NOTE: TRANSFORMERS IS NO LONGER IMPORTED AT THE TOP LEVEL
+from fastapi import HTTPException
+from app.core.config import settings
+from app.db.redis import redis_client
+
 
 class SentimentModel:
     """
-     A wrapper class for the Hugging Face sentiment analysis pipeline
-    that includes a caching layer to improve performance.
+    The definitive, world-class version of the model manager.
+    It uses LAZY LOADING and DEFERRED IMPORTS to guarantee instant startup.
     """
 
-    _model_pipeline: Pipeline = None
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self._model_pipeline = None
 
-    @classmethod
-    def get_pipeline(cls) -> Pipeline:
-        """
-        Initializes and returns the sentiment analysis pipeline.
-        This is a private method that ensures the model is loaded only once.
-        """
-        if cls._model_pipeline is None:
-            # This line downloads and caches a pre-trained sentiment analysis model.
-            # This is a lightweight general-purpose sentiment model trained on SST-2 (movie reviews),
-            # suitable for binary sentiment tasks like POSITIVE / NEGATIVE.
+    @property
+    def pipeline(self):
+        """A property that lazily loads the model on its first access."""
+        if self._model_pipeline is None:
+            # --- DEFERRED IMPORT ---
+            # The library is imported here, at the last possible moment.
+            from transformers import pipeline
 
-            cls._model_pipeline = pipeline(
-                "sentiment-analysis",
-                model="distilbert-base-uncased-finetuned-sst-2-english",
-            )
-        return cls._model_pipeline
+            print(f"First use detected. Lazily loading model: {self.model_name}...")
+            try:
+                self._model_pipeline = pipeline(
+                    "sentiment-analysis", model=self.model_name
+                )
+                print("Sentiment analysis model loaded successfully.")
+            except Exception as e:
+                raise RuntimeError(f"Could not load sentiment model: {e}") from e
+        return self._model_pipeline
 
-    @classmethod
-    def predict(cls, text: str) -> dict:
-        """
-        Analyzes the sentiment of a given text, using a cache to
-        avoid re-computing results for the same text.
-        """
-        # --- CACHING LOGIC ---
-        cache_key = f"sentiment:{text}"
-        cached_result = redis_client.get(cache_key)
+    def predict(self, text: str) -> dict:
+        """Analyzes sentiment using the lazily-loaded model."""
+        if not text or not text.strip():
+            return {"label": "neutral", "score": 0.0}
 
-        if cached_result:
-            return json.loads(cached_result)
-        pipe = cls.get_pipeline()
-        result = pipe(text)[0]
+        cache_key = f"sentiment:{self.model_name}:{text}"
+        try:
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                return json.loads(cached_result)
+        except Exception as e:
+            print(f"WARNING: Redis cache GET failed: {e}. Proceeding without cache.")
 
-        # Format the result
-        formatted_result = {
-            "label": result["label"].lower(),
-            "score": round(result["score"], 4),
-        }
-
-        # --- CACHING LOGIC ---
-        # Store the new result in the cache for next time.
-        # We'll set it to expire in 24 hours (86400 seconds).
-        redis_client.set(cache_key, json.dumps(formatted_result), ex=86400)
-    
-
-        return formatted_result
+        try:
+            result = self.pipeline(text, truncation=True)[0]
+            formatted_result = {
+                "label": result["label"].lower(),
+                "score": round(result["score"], 4),
+            }
+            try:
+                redis_client.set(cache_key, json.dumps(formatted_result), ex=86400)
+            except Exception as e:
+                print(f"WARNING: Redis cache SET failed: {e}.")
+            return formatted_result
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="AI model prediction failed.")
 
 
-sentiment_model = SentimentModel()
+sentiment_model = SentimentModel(model_name=settings.SENTIMENT_MODEL_NAME)

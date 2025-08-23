@@ -1,3 +1,4 @@
+# app/features/reporting/schemas.py
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -6,7 +7,7 @@ from datetime import datetime
 class InsightsRequest(BaseModel):
     event_id: str
     data_sources: List[str] = Field(
-        ..., example=["attendance", "engagement", "sentiment"]
+        ..., json_schema_extra={"example": ["attendance", "engagement", "sentiment"]}
     )
 
 
@@ -26,7 +27,9 @@ class InsightsResponse(BaseModel):
 
 class BenchmarkingRequest(BaseModel):
     event_id: str
-    comparison_group: str = Field(..., example="industry_average")
+    comparison_group: str = Field(
+        ..., json_schema_extra={"example": "industry_average"}
+    )
 
 
 class BenchmarkingResponse(BaseModel):
