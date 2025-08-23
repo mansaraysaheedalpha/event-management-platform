@@ -1,40 +1,48 @@
-from app.features.intelligence.schemas import (
-    CulturalAdaptationRequest,
-    CulturalAdaptationResponse,
-    CompetitiveAnalysisRequest,
-    CompetitiveAnalysisResponse,
-    MarketAnalysisRequest, 
-    MarketAnalysisResponse
-)
+# app/features/intelligence/service.py
+from sqlalchemy.orm import Session
+from app.db import crud
+from .schemas import *
 
 
-def adapt_for_culture(request: CulturalAdaptationRequest) -> CulturalAdaptationResponse:
-    """Simulates adapting content for local customs and preferences."""
+def adapt_for_culture(
+    db: Session, request: CulturalAdaptationRequest
+) -> CulturalAdaptationResponse:
+    culture_data = crud.get_kb_entry(
+        db, category="cultural_rules", key=request.target_culture
+    )
+    adapted_text = request.content_text
+    for original, replacement in culture_data.get("replacements", {}).items():
+        adapted_text = adapted_text.replace(original, replacement)
     return CulturalAdaptationResponse(
-        adapted_text=f"[Adapted for {request.target_culture}] {request.content_text}",
-        sensitivities=["Avoid direct comparisons", "Use formal titles"],
-        local_customs=["Punctuality is highly valued", "Gift exchange is common"],
+        adapted_text=adapted_text,
+        sensitivities=culture_data.get("sensitivities", []),
+        local_customs=culture_data.get("customs", []),
     )
 
 
-def analyze_market(request: MarketAnalysisRequest) -> MarketAnalysisResponse:
-    """Simulates providing global event industry insights."""
-    return MarketAnalysisResponse(
-        market_size=500.0,  # 500 million
-        growth_rate=0.08,  # 8%
-        key_segments=["Virtual Events", "Hybrid Conferences", "Corporate Workshops"],
+def analyze_market(
+    db: Session, request: MarketAnalysisRequest
+) -> MarketAnalysisResponse:
+    market_data = crud.get_kb_entry(
+        db, category="market_data", key=f"{request.geographic_focus}_{request.industry}"
     )
+    if not market_data:
+        return MarketAnalysisResponse(
+            market_size_usd_millions=0, growth_rate=0, key_segments=[]
+        )
+    return MarketAnalysisResponse(**market_data)
 
 
 def analyze_competitors(
-    request: CompetitiveAnalysisRequest,
+    db: Session, request: CompetitiveAnalysisRequest
 ) -> CompetitiveAnalysisResponse:
-    """Simulates analyzing competitor strategies."""
-    profiles = [
-        CompetitiveAnalysisResponse.CompetitorProfile(
-            competitor_name=request.target_competitors[0],
-            strengths=["Strong brand recognition", "Large marketing budget"],
-            weaknesses=["Slow to adopt new tech", "Less agile"],
-        )
-    ]
+    profiles = []
+    for competitor_name in request.target_competitors:
+        data = crud.get_kb_entry(db, category="competitors", key=competitor_name)
+        if data:
+            profiles.append(
+                CompetitiveAnalysisResponse.CompetitorProfile(
+                    competitor_name=competitor_name, **data
+                )
+            )
     return CompetitiveAnalysisResponse(competitor_profiles=profiles)

@@ -1,3 +1,4 @@
+# app/features/intelligence/schemas.py
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -19,7 +20,7 @@ class MarketAnalysisRequest(BaseModel):
 
 
 class MarketAnalysisResponse(BaseModel):
-    market_size: float  # In millions USD
+    market_size_usd_millions: float
     growth_rate: float
     key_segments: List[str]
 

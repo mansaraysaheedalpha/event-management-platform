@@ -1,3 +1,4 @@
+# app/features/recommendations/schemas.py
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
@@ -21,13 +22,14 @@ class ContentRecommendationResponse(BaseModel):
 class SpeakerRecommendationRequest(BaseModel):
     event_id: str
     topic: str
-    target_audience: str
+    target_audience: str  # e.g., "technical", "executive", "beginner"
 
 
 class SpeakerRecommendationResponse(BaseModel):
     class RecommendedSpeaker(BaseModel):
         speaker_id: str
         name: str
-        expertise_match: float
+        # We will return the combined score for transparency
+        match_score: float = Field(..., ge=0, le=1)
 
     recommended_speakers: List[RecommendedSpeaker]

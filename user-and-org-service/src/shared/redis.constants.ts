@@ -1,2 +1,3 @@
+//src/shared/redis_constants
 export const REDIS_CLIENT = 'REDIS_CLIENT';
 export const REDIS_SUBSCRIBER_CLIENT = 'REDIS_SUBSCRIBER_CLIENT';

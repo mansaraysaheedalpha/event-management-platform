@@ -1,6 +1,6 @@
 # app/features/analysis/schemas.py
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -46,8 +46,7 @@ class EngagementScoringResponse(BaseModel):
 
 class AudienceSegmentationRequest(BaseModel):
     event_id: str
-    # Simplified for the stub
-    attendee_count: int
+    attendee_data: List[Dict[str, Any]]
 
 
 class AudienceSegmentationResponse(BaseModel):
@@ -62,14 +61,13 @@ class AudienceSegmentationResponse(BaseModel):
 
 class BehavioralPatternRequest(BaseModel):
     event_id: str
-    # Simplified for the stub
-    user_journey_count: int
+    user_journeys: List[Dict[str, Any]]
 
 
 class BehavioralPatternResponse(BaseModel):
     class Pattern(BaseModel):
         pattern_id: str
         pattern_name: str
-        frequency: float
-
+        frequency: int  # The raw count of how many users followed this path
+        path: List[str]
     common_patterns: List[Pattern]

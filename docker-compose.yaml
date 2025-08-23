@@ -1,4 +1,4 @@
-# docker-compose.yml
+# event_management_platform/docker-compose.yml
 # Top-level network for all services to communicate securely
 networks:
   platform-network:
@@ -9,6 +9,7 @@ volumes:
   postgres-event-lifecycle-data:
   postgres-user-org-data:
   postgres-real-time-data:
+  postgres-oracle-ai-data:
   redis-data:
 
 services:
@@ -69,6 +70,26 @@ services:
       - platform-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${REAL_TIME_DB_USER} -d ${REAL_TIME_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-oracle-ai:
+    image: postgres:15
+    container_name: postgres-oracle-ai
+    restart: always
+    environment:
+      POSTGRES_USER: ${ORACLE_DB_USER}
+      POSTGRES_PASSWORD: ${ORACLE_DB_PASSWORD}
+      POSTGRES_DB: ${ORACLE_DB_NAME}
+    ports:
+      - "5436:5432" # Use a new host port like 5436
+    volumes:
+      - postgres-oracle-ai-data:/var/lib/postgresql/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORACLE_DB_USER} -d ${ORACLE_DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -189,6 +210,48 @@ services:
         condition: service_started
       # user-org-service: (when you add it)
       #   condition: service_started
+    env_file:
+      - ./.env
+
+  oracle-api:
+    build:
+      context: ./oracle-ai-service
+    container_name: oracle-api
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./oracle-ai-service:/app
+    networks:
+      - platform-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      postgres-oracle-ai:
+        condition: service_healthy
+    env_file:
+      - ./.env
+
+  oracle-consumer:
+    build:
+      context: ./oracle-ai-service
+    container_name: oracle-consumer
+    restart: always
+    command: python app/messaging/run_consumers.py # Assuming this is the script to start consumers
+    volumes:
+      - ./oracle-ai-service:/app
+    networks:
+      - platform-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      postgres-oracle-ai:
+        condition: service_healthy
     env_file:
       - ./.env
 

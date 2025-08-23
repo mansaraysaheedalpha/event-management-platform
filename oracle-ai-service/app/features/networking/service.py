@@ -1,5 +1,7 @@
+# app/features/networking/service.py
 import random
 import uuid
+from typing import List, Dict, Any
 from app.features.networking.schemas import (
     MatchmakingRequest,
     MatchmakingResponse,
@@ -9,8 +11,6 @@ from app.features.networking.schemas import (
     BoothSuggestionResponse,
 )
 
-
-import random
 from .schemas import MatchmakingRequest, MatchmakingResponse
 
 
@@ -63,26 +63,114 @@ def get_networking_matches(request: MatchmakingRequest) -> MatchmakingResponse:
 def get_conversation_starters(
     request: ConversationStarterRequest,
 ) -> ConversationStarterResponse:
-    """Simulates generating AI-powered conversation starters."""
-    starters = [
-        f"I see you're both interested in {request.common_interests[0]}. What's the most exciting development you've seen in that area recently?",
-        "What was your key takeaway from the morning keynote?",
-    ]
+    """
+    Generates dynamic and relevant conversation starters using a categorized
+    template-based model.
+    """
+    # A pool of templates categorized by context.
+    TEMPLATES = {
+        "interest_based": [
+            "I noticed you're also interested in {interest}. What's the most exciting thing you've learned about it at this event?",
+            "How do you use {interest} in your current role?",
+            "What do you think is the next big trend for {interest}?",
+        ],
+        "general_event": [
+            "What was your key takeaway from the morning keynote?",
+            "Which session has been your favorite so far, and why?",
+            "Aside from the sessions, what's been the most valuable part of the event for you?",
+        ],
+    }
+
+    starters = []
+
+    # Generate at least one starter based on a shared interest, if available.
+    if request.common_interests:
+        # Pick a random shared interest and a random template
+        interest = random.choice(request.common_interests)
+        template = random.choice(TEMPLATES["interest_based"])
+        starters.append(template.format(interest=interest))
+
+    # Add a couple of general starters to provide variety.
+    # Use random.sample to get unique general starters.
+    num_general_starters = 2
+    if len(TEMPLATES["general_event"]) >= num_general_starters:
+        starters.extend(random.sample(TEMPLATES["general_event"], num_general_starters))
+
     return ConversationStarterResponse(conversation_starters=starters)
 
 
+def _get_all_booths_from_db(event_id: str) -> List[Dict[str, Any]]:
+    """
+    This helper function simulates fetching all exhibitor booths for an event
+    from a database. Encapsulating data access makes the main logic cleaner
+    and easier to mock in tests.
+    """
+    # In a real application, this would be:
+    # return db.query("SELECT * FROM booths WHERE event_id = :event_id", event_id)
+    print(f"Simulating DB query for booths in event: {event_id}")
+    return [
+        {
+            "booth_id": "booth_1",
+            "name": "AI Solutions Inc.",
+            "tags": ["AI", "Machine Learning"],
+        },
+        {
+            "booth_id": "booth_2",
+            "name": "CloudCorp",
+            "tags": ["Cloud", "DevOps", "Data"],
+        },
+        {
+            "booth_id": "booth_3",
+            "name": "Legacy Systems",
+            "tags": ["Hardware", "On-Prem"],
+        },
+        {
+            "booth_id": "booth_4",
+            "name": "Data Insights LLC",
+            "tags": ["Data", "Analytics", "AI"],
+        },
+        {
+            "booth_id": "booth_5",
+            "name": "DevTools Pro",
+            "tags": ["VSCode", "Testing", "DevOps"],
+        },
+    ]
+
+
 def get_booth_suggestions(request: BoothSuggestionRequest) -> BoothSuggestionResponse:
-    """Simulates suggesting relevant exhibitor booths for an attendee."""
+    """
+    Suggests relevant exhibitor booths using a content-based filtering algorithm.
+    """
+    all_booths = _get_all_booths_from_db(request.event_id)
+    user_interests_set = set(request.user_interests)
+
+    scored_booths = []
+    for booth in all_booths:
+        booth_tags_set = set(booth.get("tags", []))
+
+        # Calculate score based on the number of common tags
+        common_tags = user_interests_set.intersection(booth_tags_set)
+        score = len(common_tags)
+
+        if score > 0:
+            scored_booths.append(
+                {"booth_id": booth["booth_id"], "name": booth["name"], "score": score}
+            )
+
+    # Sort booths by score, descending
+    scored_booths.sort(key=lambda b: b["score"], reverse=True)
+
+    # Format the final response
     suggestions = [
         BoothSuggestionResponse.SuggestedBooth(
-            booth_id="booth_cloudcorp",
-            exhibitor_name="CloudCorp Solutions",
-            relevance_score=0.92,
-        ),
-        BoothSuggestionResponse.SuggestedBooth(
-            booth_id="booth_innovateai",
-            exhibitor_name="InnovateAI",
-            relevance_score=0.85,
-        ),
+            booth_id=booth["booth_id"],
+            exhibitor_name=booth["name"],
+            relevance_score=booth["score"],
+        )
+        for booth in scored_booths
     ]
+
     return BoothSuggestionResponse(suggested_booths=suggestions)
+
+
+## Module Complete!
