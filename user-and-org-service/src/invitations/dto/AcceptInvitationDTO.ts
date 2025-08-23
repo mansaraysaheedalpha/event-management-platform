@@ -1,3 +1,4 @@
+//src/invitations/dto/AcceptInvitationDTO.ts
 import { MinLength, IsNotEmpty, IsString } from 'class-validator';
 
 export class AcceptInvitationDTO {

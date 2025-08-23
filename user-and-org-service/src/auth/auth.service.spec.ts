@@ -7,10 +7,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { TwoFactorService } from 'src/two-factor/two-factor.service';
 import { AuditService } from 'src/audit/audit.service';
 import { PermissionsService } from 'src/permissions/permissions.service';
-import {
-  
-  NotFoundException,
-} from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 jest.mock('bcrypt');

@@ -1,3 +1,4 @@
+# app/features/api.py
 from fastapi import APIRouter
 from app.features import  (
     analytics,
@@ -24,4 +25,5 @@ api_router.include_router(predictions.router)
 api_router.include_router(assistant.router)
 api_router.include_router(reporting.router)
 api_router.include_router(management.router)
+api_router.include_router(testing.router)
 api_router.include_router(intelligence.router)
