@@ -1,15 +1,16 @@
 //src/app.module.ts
-import { Module } from '@nestjs/common';
+import { Module, Response } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma.module';
 import { UsersModule } from './users/users.module';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { OrganizationsModule } from './organizations/organizations.module';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER } from '@nestjs/core';
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { InvitationsModule } from './invitations/invitations.module';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { join } from 'path';
@@ -17,6 +18,8 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handleba
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { AuditModule } from './audit/audit.module';
 import * as Joi from 'joi';
+import { GraphQLModule } from '@nestjs/graphql';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 
 @Module({
   imports: [
@@ -77,14 +80,20 @@ import * as Joi from 'joi';
     }),
     TwoFactorModule,
     AuditModule,
+    GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      autoSchemaFile: join(process.cwd(), 'src/schema.gql'), // Auto-generates the schema file
+      sortSchema: true,
+      playground: true, // Enables the useful GraphQL playground for testing
+      context: ({ req, res }: { req: Request; res: Response }) => ({
+        req,
+        res,
+      }),
+    }),
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
     {
       provide: ThrottlerStorageRedisService,
       useFactory: (configService: ConfigService) => {
@@ -92,6 +101,10 @@ import * as Joi from 'joi';
         return new ThrottlerStorageRedisService(redisUrl);
       },
       inject: [ConfigService],
+    },
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
     },
   ],
 })

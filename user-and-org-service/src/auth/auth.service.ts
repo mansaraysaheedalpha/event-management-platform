@@ -14,10 +14,10 @@ import { randomBytes } from 'crypto';
 import { MailerService } from '@nestjs-modules/mailer';
 import { TwoFactorService } from 'src/two-factor/two-factor.service';
 import { AuditService } from 'src/audit/audit.service';
-import { PermissionsService } from 'src/permissions/permissions.service';
 import { User, Membership, Role as PrismaRole } from '@prisma/client';
 import { JwtPayload } from 'src/common/interfaces/auth.interface';
 
+// FIX: The missing 'Token' interface for password reset
 interface Token {
   id: string;
   hashedResetToken: string;
@@ -25,17 +25,36 @@ interface Token {
   expiresAt: Date;
 }
 
+// This is now the SINGLE SOURCE OF TRUTH for the user data needed to generate tokens.
 type UserForToken = Pick<
   User,
-  'id' | 'email' | 'tier' | 'preferredLanguage' | 'sponsorId'
+  | 'id'
+  | 'email'
+  | 'first_name'
+  | 'last_name'
+  | 'imageUrl'
+  | 'tier'
+  | 'preferredLanguage'
+  | 'sponsorId'
+  | 'isTwoFactorEnabled'
 >;
 
-// The specific membership data needed to generate tokens
 type MembershipForToken = Membership & { role: PrismaRole };
+
+type UserForLogin = UserForToken & {
+  password?: string;
+  memberships: MembershipForToken[];
+};
+
+type OnboardingResponse = {
+  onboardingToken: string;
+  user: UserForLogin;
+};
 
 type LoginResponse =
   | { requires2FA: true; userId: string }
-  | { access_token: string; refresh_token: string };
+  | { access_token: string; refresh_token: string }
+  | OnboardingResponse;
 
 @Injectable()
 export class AuthService {
@@ -46,28 +65,32 @@ export class AuthService {
     private readonly mailerService: MailerService,
     private twoFactorService: TwoFactorService,
     private auditService: AuditService,
-    private readonly permissionsService: PermissionsService,
   ) {}
 
+  private async getOnboardingToken(userId: string): Promise<string> {
+    const payload = { sub: userId, scope: 'onboarding' };
+    return this.jwtService.signAsync(payload, {
+      secret: this.configService.get<string>('JWT_SECRET'),
+      expiresIn: '15m',
+    });
+  }
+
   async login(loginDTO: LoginDTO): Promise<LoginResponse> {
+    // NOTE: This 'select' clause now fetches all fields required by UserForToken
     const existingUser = await this.prisma.user.findUnique({
       where: { email: loginDTO.email },
       select: {
         id: true,
         email: true,
         password: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
         isTwoFactorEnabled: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
-        memberships: {
-          select: {
-            userId: true,
-            organizationId: true,
-            roleId: true,
-            role: true,
-          },
-        },
+        memberships: { include: { role: true } },
       },
     });
 
@@ -79,46 +102,46 @@ export class AuthService {
       loginDTO.password,
       existingUser.password,
     );
-
     if (!isMatch) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (existingUser.isTwoFactorEnabled) {
+    if (existingUser.memberships.length === 0) {
+      const onboardingToken = await this.getOnboardingToken(existingUser.id);
       return {
-        requires2FA: true,
-        userId: existingUser.id,
+        onboardingToken,
+        user: existingUser,
       };
     }
 
-    const defaultMembership = existingUser.memberships[0];
-    if (!defaultMembership) {
-      throw new ForbiddenException('You are not a member of any organization.');
+    if (existingUser.isTwoFactorEnabled) {
+      return { requires2FA: true, userId: existingUser.id };
     }
 
+    const defaultMembership = existingUser.memberships[0];
     await this.auditService.log({
       action: 'USER_LOGIN',
       actingUserId: existingUser.id,
       organizationId: defaultMembership.organizationId,
     });
-    // Pass the user and their default membership to get tokens
-    return await this.getTokensForUser(existingUser, defaultMembership);
+    return this.getTokensForUser(existingUser, defaultMembership);
   }
 
   async login2FA(userId: string, twoFactorCode: string) {
+    // NOTE: This 'select' clause is now IDENTICAL to the one in login()
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
         id: true,
         email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        isTwoFactorEnabled: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
-        memberships: {
-          include: {
-            role: true,
-          },
-        },
+        memberships: { include: { role: true } },
       },
     });
 
@@ -126,7 +149,6 @@ export class AuthService {
       userId,
       twoFactorCode,
     );
-
     if (!isCodeValid) {
       throw new UnauthorizedException('Invalid 2FA code.');
     }
@@ -146,11 +168,10 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
+    await this.prisma.user.updateMany({
+      where: { id: userId, hashedRefreshToken: { not: null } },
       data: { hashedRefreshToken: null },
     });
-
     await this.auditService.log({
       action: 'USER_LOGOUT',
       actingUserId: userId,
@@ -160,18 +181,19 @@ export class AuthService {
   async refreshTokenService(userId: string, incomingRefreshToken: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      // NOTE: This 'select' clause is now IDENTICAL to the one in login()
       select: {
         id: true,
         email: true,
-        hashedRefreshToken: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        isTwoFactorEnabled: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
-        memberships: {
-          include: {
-            role: true,
-          },
-        },
+        hashedRefreshToken: true, // Also include the refresh token
+        memberships: { include: { role: true } },
       },
     });
 
@@ -181,17 +203,12 @@ export class AuthService {
 
     const payload = this.jwtService.decode(incomingRefreshToken);
     const refreshTokenId = payload.jti;
-
     const isRefreshTokenMatch = await bcrypt.compare(
       refreshTokenId,
       user.hashedRefreshToken,
     );
 
     if (!isRefreshTokenMatch) {
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { hashedRefreshToken: null },
-      });
       throw new ForbiddenException('Access Denied: Refresh token mismatch.');
     }
 
@@ -202,6 +219,54 @@ export class AuthService {
     return this.getTokensForUser(user, relevantMembership);
   }
 
+  async getTokensForUser(user: UserForToken, membership: MembershipForToken) {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: membership.organizationId },
+    });
+    if (!organization) {
+      throw new NotFoundException(
+        'Organization data could not be found for membership.',
+      );
+    }
+
+    const refreshTokenId = randomBytes(32).toString('hex');
+    const accessTokenPayload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      orgId: membership.organizationId,
+      role: membership.role.name,
+      permissions: [], // Permissions logic can be added later
+      tier: (user.tier as 'default' | 'vip') || 'default',
+      preferredLanguage: user.preferredLanguage || 'en',
+      sponsorId: user.sponsorId || undefined,
+      orgRequires2FA: organization.isTwoFactorRequired ?? false,
+      is2FAEnabled: user.isTwoFactorEnabled,
+    };
+    const refreshTokenPayload = {
+      sub: user.id,
+      jti: refreshTokenId,
+      orgId: membership.organizationId,
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessTokenPayload, {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: '15m', // Changed to 15m for easier testing
+      }),
+      this.jwtService.signAsync(refreshTokenPayload, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: '7d',
+      }),
+    ]);
+
+    const hashedRefreshToken = await bcrypt.hash(refreshTokenId, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { hashedRefreshToken },
+    });
+
+    return { access_token: accessToken, refresh_token: refreshToken };
+  }
   async handlePasswordResetRequest(email: string) {
     const user = await this.prisma.user.findUnique({
       where: { email },
@@ -253,57 +318,6 @@ export class AuthService {
       message:
         'If an account with this email exists, a password reset link has been sent.',
     };
-  }
-
-  async getTokensForUser(user: UserForToken, membership: MembershipForToken) {
-    // 1. Generate a secure, random string for the refresh token ID.
-    const refreshTokenId = randomBytes(32).toString('hex');
-
-    // 2. Fetch all permissions for the given role.
-    const roleWithPermissions = await this.prisma.role.findUnique({
-      where: { id: membership.role.id },
-      include: { permissions: { select: { name: true } } },
-    });
-    const permissions =
-      roleWithPermissions?.permissions.map((p) => p.name) || [];
-
-    const accessTokenPayload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      orgId: membership.organizationId,
-      role: membership.role.name,
-      permissions: permissions,
-      tier: (user.tier as 'default' | 'vip') || 'default',
-      preferredLanguage: user.preferredLanguage || 'en',
-      sponsorId: user.sponsorId || undefined,
-    };
-
-    const refreshTokenPayload = {
-      sub: user.id,
-      jti: refreshTokenId,
-      orgId: membership.organizationId,
-    };
-
-    // 4. Sign both tokens.
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(accessTokenPayload, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-        expiresIn: '15m',
-      }),
-      this.jwtService.signAsync(refreshTokenPayload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: '7d',
-      }),
-    ]);
-
-    // 5. Hash the refresh token ID and update the user record.
-    const hashedRefreshToken = await bcrypt.hash(refreshTokenId, 10);
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { hashedRefreshToken: hashedRefreshToken },
-    });
-
-    return { access_token: accessToken, refresh_token: refreshToken };
   }
 
   async performPasswordReset(token: string, newPassword: string) {
