@@ -1,0 +1,159 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type AuthPayload {
+  token: String!
+  user: GqlUser!
+}
+
+input ChangePasswordInput {
+  currentPassword: String!
+  newPassword: String!
+}
+
+input CreateInvitationInput {
+  email: String!
+  role: String!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+input DeleteOrganizationInput {
+  force: Boolean
+  organizationId: ID!
+}
+
+type DeleteOrganizationPayload {
+  nextOrganizationId: ID
+  success: Boolean!
+}
+
+type GqlUser {
+  email: String!
+  first_name: String!
+  id: ID!
+  imageUrl: String
+  isTwoFactorEnabled: Boolean!
+  last_name: String!
+}
+
+input Login2FAInput {
+  code: String!
+  userId: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type LoginPayload {
+  onboardingToken: String
+  requires2FA: Boolean!
+  token: String
+  user: GqlUser
+  userIdFor2FA: ID
+}
+
+type Mutation {
+  changePassword(input: ChangePasswordInput!): Boolean!
+  createAdditionalOrganization(input: OnboardingCreateOrganizationInput!): AuthPayload!
+  createInvitation(input: CreateInvitationInput!): String!
+  deleteOrganization(input: DeleteOrganizationInput!): DeleteOrganizationPayload!
+  generate2FA: TwoFactorSetupPayload!
+  login(input: LoginInput!): LoginPayload!
+  login2FA(input: Login2FAInput!): AuthPayload!
+  logout: Boolean!
+  onboardingCreateOrganization(input: OnboardingCreateOrganizationInput!): AuthPayload!
+  performPasswordReset(input: PerformResetInput!): String!
+  refreshToken: AuthPayload!
+  registerUser(input: RegisterUserInput!): AuthPayload!
+  removeMember(memberId: ID!): OrganizationMember!
+  requestPasswordReset(input: RequestResetInput!): String!
+  restoreOrganization(organizationId: ID!): Organization!
+  switchOrganization(organizationId: ID!): AuthPayload!
+  turnOff2FA: String!
+  turnOn2FA(input: TurnOn2FAInput!): String!
+  updateMemberRole(input: UpdateMemberRoleInput!): OrganizationMember!
+  updateMyProfile(input: UpdateMyProfileInput!): GqlUser!
+  updateOrganization(input: UpdateOrganizationInput!): Organization!
+}
+
+input OnboardingCreateOrganizationInput {
+  name: String!
+}
+
+type Organization {
+  deletionScheduledAt: DateTime
+  id: ID!
+  name: String!
+  status: OrganizationStatus!
+}
+
+type OrganizationMember {
+  role: Role!
+  user: GqlUser!
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  PENDING_DELETION
+}
+
+input PerformResetInput {
+  newPassword: String!
+  resetToken: String!
+}
+
+type Query {
+  getMyProfile: GqlUser!
+  listRolesForOrg: [Role!]!
+  myOrganizations: [Organization!]!
+  organization(id: ID!): Organization!
+  organizationMembers: [OrganizationMember!]!
+  sayHello: String!
+}
+
+input RegisterUserInput {
+  email: String!
+  first_name: String!
+  last_name: String!
+  organization_name: String!
+  password: String!
+}
+
+input RequestResetInput {
+  email: String!
+}
+
+type Role {
+  id: ID!
+  name: String!
+}
+
+input TurnOn2FAInput {
+  code: String!
+}
+
+type TwoFactorSetupPayload {
+  qrCodeDataUrl: String!
+}
+
+input UpdateMemberRoleInput {
+  memberId: ID!
+  roleId: ID!
+}
+
+input UpdateMyProfileInput {
+  first_name: String
+  last_name: String
+}
+
+input UpdateOrganizationInput {
+  name: String!
+  organizationId: ID!
+}

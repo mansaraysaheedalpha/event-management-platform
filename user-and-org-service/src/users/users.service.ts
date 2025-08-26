@@ -68,7 +68,7 @@ export class UsersService {
         },
       });
       console.log('Membership Link created: ');
-      
+
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password, ...newUserToReturn } = newUser;
 
@@ -79,28 +79,60 @@ export class UsersService {
   }
 
   async findOne(id: string) {
-    const existingUser = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: id },
+      // Select all the fields needed for the GqlUser type and security page
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        isTwoFactorEnabled: true,
+      },
     });
 
-    if (!existingUser) {
-      throw new NotFoundException(`User with id ${id} not found`);
+    return user;
+  }
+
+  async findOneByEmail(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email },
+      // Ensure this select matches the GqlUser type
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        isTwoFactorEnabled: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with email ${email} not found`);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, hashedRefreshToken, ...userToReturn } = existingUser;
-
-    return userToReturn;
+    return user;
   }
 
   async updateProfile(userId: string, updateProfileDto: UpdateProfileDTO) {
-    await this.prisma.user.update({
+    const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        ...updateProfileDto,
+        first_name: updateProfileDto.first_name,
+        last_name: updateProfileDto.last_name,
+      },
+      // Select only the fields defined in our GqlUser type
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
       },
     });
-    return { message: 'User profile updated successfully' };
+    return updatedUser; // <-- Return the updated user object
   }
 
   async changePassword(

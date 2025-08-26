@@ -64,4 +64,15 @@ export class TwoFactorService {
       message: 'Two-Factor Authentication has been enabled successfully.',
     };
   }
+
+  async turnOff2FA(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        isTwoFactorEnabled: false,
+        twoFactorSecret: null,
+      },
+    });
+    return { message: 'Two-Factor Authentication has been disabled.' };
+  }
 }
