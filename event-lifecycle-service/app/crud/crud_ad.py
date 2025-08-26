@@ -1,3 +1,4 @@
+# app/crud/base.py
 from .base import CRUDBase
 from app.models.ad import Ad
 from app.schemas.ad import AdCreate, AdUpdate

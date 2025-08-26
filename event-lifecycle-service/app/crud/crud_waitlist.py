@@ -1,3 +1,4 @@
+# app/crud/crud_waitlist.py
 from .base import CRUDBase
 from sqlalchemy.orm import Session
 from app.models.waitlist import WaitlistEntry

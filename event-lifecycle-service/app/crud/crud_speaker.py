@@ -1,4 +1,4 @@
-# /app/crud/crud_event.py
+# /app/crud/crud_speaker.py
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime

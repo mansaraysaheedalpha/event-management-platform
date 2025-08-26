@@ -1,3 +1,4 @@
+# app/crud/blueprint.py
 from .base import CRUDBase
 from app.models.blueprint import EventBlueprint
 from app.schemas.blueprint import BlueprintCreate, BlueprintUpdate
