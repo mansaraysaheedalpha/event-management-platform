@@ -115,19 +115,35 @@ export class OrganizationsController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Put(':orgId')
-  @Roles('OWNER')
+  @Roles('OWNER', 'ADMIN') // Also allow ADMINs to update details
   async UpdateOrg(
     @Param('orgId') orgId: string,
     @Body() updateOrgDto: UpdateOrganizationDTO,
+    @Req() req: { user: { sub: string } }, // <-- Add this to get the user
   ) {
-    return await this.orgService.updateOrgDetails(orgId, updateOrgDto);
+    const actingUserId = req.user.sub;
+    return await this.orgService.updateOrgDetails(
+      orgId,
+      updateOrgDto,
+      actingUserId,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Delete(':orgId')
   @Roles('OWNER')
   @HttpCode(204)
-  async DeleteOrg(@Param('orgId') orgId: string) {
-    return await this.orgService.deleteOrg(orgId);
+  async DeleteOrg(
+    @Param('orgId') orgId: string,
+    @Req() req: { user: { sub: string } }, // <-- Add this to get the user from the request
+  ) {
+    const actingUserId = req.user.sub; // <-- Extract the user's ID
+    return await this.orgService.deleteOrg(orgId, actingUserId); // <-- Pass it to the service
+  }
+
+  @Get('restore/:token')
+  async restoreOrganizationFromToken(@Param('token') token: string) {
+    // This endpoint is public but protected by the single-use token
+    return await this.orgService.restoreOrgFromToken(token);
   }
 }

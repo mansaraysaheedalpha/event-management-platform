@@ -4,7 +4,6 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
@@ -24,7 +23,6 @@ async function bootstrap() {
   const port = configService.get<number>('PORT', 3000);
 
   app.useGlobalPipes(new ValidationPipe());
-  app.useGlobalFilters(new HttpExceptionFilter());
   await app.listen(port);
   console.log(`Application is running on: ${await app.getUrl()}🚀`);
 }

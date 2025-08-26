@@ -9,46 +9,55 @@ import {
   Res,
   Req,
   Param,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { LoginDTO } from './dto/login.dto';
 import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RefreshTokenGuard } from './guards/refresh-token.guard';
-import { Throttle } from '@nestjs/throttler';
-import { AcceptInvitationDTO } from 'src/invitations/dto/AcceptInvitationDTO';
+import { ConfigService } from '@nestjs/config'; // <-- Import ConfigService
 import { InvitationsService } from 'src/invitations/invitations.service';
+import { Login2faDto } from './dto/login-2fa.dto';
+import { AcceptInvitationDTO } from 'src/invitations/dto/AcceptInvitationDTO';
 import { PasswordResetRequestDTO } from './dto/request-reset.dto';
 import { PerformPasswordResetDTO } from './dto/perform-reset.dto';
 import { SwitchOrganizationDTO } from './dto/switch-org.dto';
-import { Login2faDto } from './dto/login-2fa.dto';
+// ... (other imports)
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly invitationService: InvitationsService,
+    private readonly configService: ConfigService, // <-- Inject ConfigService
   ) {}
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   async login(
     @Body() loginDTO: LoginDTO,
     @Res({ passthrough: true }) res: Response,
   ) {
     const loginResult = await this.authService.login(loginDTO);
 
+    // This now correctly handles both special cases
+    if ('onboardingToken' in loginResult || 'userHasNoOrgs' in loginResult) {
+      throw new ForbiddenException(
+        'This user must complete onboarding. Please use the main GraphQL application.',
+      );
+    }
+
     if ('requires2FA' in loginResult) {
       return loginResult;
     }
 
     const { access_token, refresh_token } = loginResult;
-    // Set the refresh token in a secure
     res.cookie('refresh_token', refresh_token, {
       httpOnly: true,
-      secure: true,
+      secure: this.configService.get('NODE_ENV') !== 'development',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return { access_token };
