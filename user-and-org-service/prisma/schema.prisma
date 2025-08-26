@@ -9,6 +9,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum OrganizationStatus {
+  ACTIVE
+  PENDING_DELETION
+}
 // NEW: Stores a master list of all possible permissions in the system.
 model Permission {
   id          String @id @default(cuid())
@@ -38,6 +42,7 @@ model User {
   email                     String                 @unique
   first_name                String
   last_name                 String
+  imageUrl                  String?
   password                  String
   createdAt                 DateTime               @default(now())
   updatedAt                 DateTime               @updatedAt
@@ -69,10 +74,14 @@ model Organization {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
+  status                OrganizationStatus @default(ACTIVE)
+  deletionScheduledAt   DateTime?
+   restoreToken          String?            @unique
   // Relations
-  members     Membership[]
-  invitations Invitation[]
-  roles       Role[] // An organization can have custom roles
+  members               Membership[]
+  invitations            Invitation[]
+  roles                   Role[] // An organization can have custom roles
+  isTwoFactorRequired     Boolean?    @default(false)
 }
 
 model Membership {

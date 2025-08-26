@@ -8,4 +8,6 @@ export interface JwtPayload {
   tier?: 'default' | 'vip';
   preferredLanguage?: string;
   sponsorId?: string;
+  orgRequires2FA: boolean;
+  is2FAEnabled: boolean;
 }

@@ -5,10 +5,12 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
+import { UsersResolver } from './users.resolver';
 
 @Module({
   imports: [PrismaModule, JwtModule, ConfigModule],
   controllers: [UsersController],
-  providers: [UsersService],
+  providers: [UsersService, UsersResolver],
+  exports: [UsersService],
 })
 export class UsersModule {}

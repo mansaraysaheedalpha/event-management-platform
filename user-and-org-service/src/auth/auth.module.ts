@@ -1,5 +1,5 @@
 //src/auth/auth.module.ts
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PrismaModule } from 'src/prisma.module';
@@ -14,6 +14,9 @@ import { TwoFactorModule } from 'src/two-factor/two-factor.module';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { AuditModule } from 'src/audit/audit.module';
 import { PermissionsModule } from 'src/permissions/permissions.module';
+import { AuthResolver } from './auth.resolver';
+import { UsersModule } from 'src/users/users.module';
+import { OrganizationsModule } from 'src/organizations/organizations.module';
 
 @Module({
   imports: [
@@ -33,6 +36,8 @@ import { PermissionsModule } from 'src/permissions/permissions.module';
     TwoFactorModule,
     AuditModule,
     PermissionsModule,
+    UsersModule,
+    forwardRef(() => OrganizationsModule),
   ],
   controllers: [AuthController],
   providers: [
@@ -40,7 +45,8 @@ import { PermissionsModule } from 'src/permissions/permissions.module';
     RefreshTokenStrategy,
     AccessTokenStrategy,
     RolesGuard,
+    AuthResolver,
   ],
-  exports: [RolesGuard],
+  exports: [RolesGuard, AuthService],
 })
 export class AuthModule {}
