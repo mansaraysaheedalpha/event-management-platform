@@ -154,6 +154,41 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       
   # --- APPLICATION SERVICES ---
+  apollo-gateway:
+    build:
+      context: ./apollo-gateway
+    container_name: apollo-gateway
+    restart: always
+    ports:
+      - "4000:4000"
+    networks:
+      - platform-network
+    depends_on:
+      - user-and-org-service
+    env_file:
+      - ./.env
+
+  user-and-org-service:
+    build:
+      context: ./user-and-org-service
+      dockerfile: dockerfile
+    container_name: user-and-org-service
+    restart: always
+    ports:
+      - "3001:3001"
+    networks:
+      - platform-network
+    depends_on:
+      postgres-user-org:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${USER_ORG_DB_USER}:${USER_ORG_DB_PASSWORD}@postgres-user-org:5432/${USER_ORG_DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - ./.env
+
   event-lifecycle-service:
     build:
       context: ./event-lifecycle-service
@@ -205,11 +240,10 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
-      # Also make it depend on the other APIs it calls
       event-lifecycle-service:
         condition: service_started
-      # user-org-service: (when you add it)
-      #   condition: service_started
+      user-and-org-service:
+        condition: service_started
     env_file:
       - ./.env
 
