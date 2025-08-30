@@ -82,6 +82,10 @@ export class OrganizationsService {
       },
     });
   }
+
+  async findRoleById(id: string) {
+    return this.prisma.role.findUniqueOrThrow({ where: { id } });
+  }
   async updateMemberRole(
     orgId: string,
     userId: string,

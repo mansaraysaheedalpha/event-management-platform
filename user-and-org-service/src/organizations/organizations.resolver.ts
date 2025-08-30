@@ -1,5 +1,13 @@
 // src/organizations/organizations.resolver.ts
-import { Resolver, Query, Context, Mutation, Args, ID } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Context,
+  Mutation,
+  Args,
+  ID,
+  ResolveReference,
+} from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from 'src/auth/guards/gql-auth.guard';
 import { OrganizationsService } from './organizations.service';
@@ -17,12 +25,20 @@ import { Organization, DeleteOrganizationInput } from './gql_types';
 import { AuthPayload } from 'src/auth/gql_types/auth.types';
 import { Response } from 'express';
 
-@Resolver()
+@Resolver(() => Organization)
 export class OrganizationResolver {
   constructor(
     private orgService: OrganizationsService,
     private invitationService: InvitationsService,
   ) {}
+
+  @ResolveReference()
+  resolveReference(reference: {
+    __typename: string;
+    id: string;
+  }): Promise<Organization> {
+    return this.orgService.findOrg(reference.id);
+  }
 
   @Query(() => [Organization])
   @UseGuards(GqlAuthGuard)
@@ -186,5 +202,15 @@ export class OrganizationResolver {
       { name: input.name },
       userId,
     );
+  }
+}
+
+@Resolver(() => Role)
+export class RoleResolver {
+  constructor(private orgService: OrganizationsService) {}
+
+  @ResolveReference()
+  resolveReference(reference: { __typename: string; id: string }): Promise<Role> {
+    return this.orgService.findRoleById(reference.id);
   }
 }

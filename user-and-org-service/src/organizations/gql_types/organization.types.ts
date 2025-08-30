@@ -1,5 +1,11 @@
 // src/organizations/gql_types/organization.types.ts
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import {
+  ObjectType,
+  Field,
+  ID,
+  registerEnumType,
+  Directive,
+} from '@nestjs/graphql';
 import { GqlUser } from 'src/users/gql_types/user.types';
 import { OrganizationStatus } from '@prisma/client';
 
@@ -8,7 +14,8 @@ registerEnumType(OrganizationStatus, {
   name: 'OrganizationStatus',
 });
 
-@ObjectType()
+@ObjectType('Organization')
+@Directive('@key(fields: "id")')
 export class Organization {
   @Field(() => ID)
   id: string;
@@ -25,7 +32,8 @@ export class Organization {
   // ---------------------------
 }
 
-@ObjectType()
+@ObjectType('Role')
+@Directive('@key(fields: "id")')
 export class Role {
   @Field(() => ID)
   id: string;
