@@ -5,7 +5,7 @@ import { PrismaModule } from 'src/prisma.module';
 import { InvitationsModule } from 'src/invitations/invitations.module';
 import { OrganizationsService } from './organizations.service';
 import { AuditModule } from 'src/audit/audit.module';
-import { OrganizationResolver } from './organizations.resolver';
+import { OrganizationResolver, RoleResolver } from './organizations.resolver';
 
 @Module({
   imports: [
@@ -15,7 +15,7 @@ import { OrganizationResolver } from './organizations.resolver';
     AuditModule,
   ],
   controllers: [OrganizationsController],
-  providers: [OrganizationsService, OrganizationResolver],
+  providers: [OrganizationsService, OrganizationResolver, RoleResolver],
   exports: [OrganizationsService],
 })
 export class OrganizationsModule {}
