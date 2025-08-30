@@ -165,6 +165,7 @@ services:
       - platform-network
     depends_on:
       - user-and-org-service
+      - event-lifecycle-service
     env_file:
       - ./.env
 

@@ -28,7 +28,7 @@ const gateway = new ApolloGateway({
   serviceList: [
     // These will be uncommented as we federate each service
     { name: 'user-org', url: process.env.USER_ORG_SERVICE_URL },
-    // { name: 'event-lifecycle', url: process.env.EVENT_LIFECYCLE_SERVICE_URL },
+    { name: 'event-lifecycle', url: process.env.EVENT_LIFECYCLE_SERVICE_URL },
     // { name: 'ai-oracle', url: process.env.AI_ORACLE_SERVICE_URL },
     // { name: 'real-time', url: process.env.REAL_TIME_SERVICE_URL },
   ],

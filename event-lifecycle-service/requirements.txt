@@ -29,5 +29,9 @@ boto3
 celery
 pdf2image
 
+# GraphQL
+ariadne
+ariadne-federation
+
 # --- TESTING ---
 pytest

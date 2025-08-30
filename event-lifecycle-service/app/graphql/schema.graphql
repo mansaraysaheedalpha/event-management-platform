@@ -1,0 +1,52 @@
+# event-lifecycle-service/app/graphql/schema.graphql
+scalar DateTime
+
+type Query {
+  event(id: ID!): Event
+  events: [Event!]!
+}
+
+type Mutation {
+  createEvent(name: String!, description: String): Event
+}
+
+type Event @key(fields: "id") {
+  id: ID!
+  name: String!
+  description: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  sessions: [Session]
+  venue: Venue
+  speakers: [Speaker]
+}
+
+type Session @key(fields: "id") {
+  id: ID!
+  title: String!
+  description: String
+  startTime: DateTime!
+  endTime: DateTime!
+  event: Event!
+}
+
+type Speaker @key(fields: "id") {
+  id: ID!
+  name: String!
+  bio: String
+  user: User @provides(fields: "name")
+}
+
+type Venue @key(fields: "id") {
+  id: ID!
+  name: String!
+  address: String
+  capacity: Int
+}
+
+# Extending the User type from the user-and-org-service
+type User @extends @key(fields: "id") {
+  id: ID! @external
+  name: String @external
+  # Add other fields from the User service if needed
+}
