@@ -1,8 +1,9 @@
 // src/users/gql_types/user.types.ts
 
-import { ObjectType, Field, ID } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Directive } from '@nestjs/graphql';
 
-@ObjectType()
+@ObjectType('User')
+@Directive('@key(fields: "id")')
 export class GqlUser {
   @Field(() => ID)
   id: string;

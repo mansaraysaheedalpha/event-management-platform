@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@apollo/server": "^4.12.2",
+    "@apollo/subgraph": "^2.11.2",
     "@nest-lab/throttler-storage-redis": "^1.1.0",
     "@nestjs-modules/mailer": "^2.0.2",
     "@nestjs/apollo": "^13.1.0",

@@ -19,7 +19,10 @@ import { TwoFactorModule } from './two-factor/two-factor.module';
 import { AuditModule } from './audit/audit.module';
 import * as Joi from 'joi';
 import { GraphQLModule } from '@nestjs/graphql';
-import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import {
+  ApolloFederationDriver,
+  ApolloFederationDriverConfig,
+} from '@nestjs/apollo';
 
 @Module({
   imports: [
@@ -80,11 +83,12 @@ import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
     }),
     TwoFactorModule,
     AuditModule,
-    GraphQLModule.forRoot<ApolloDriverConfig>({
-      driver: ApolloDriver,
-      autoSchemaFile: join(process.cwd(), 'src/schema.gql'), // Auto-generates the schema file
-      sortSchema: true,
-      playground: true, // Enables the useful GraphQL playground for testing
+    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
+      driver: ApolloFederationDriver,
+      autoSchemaFile: {
+        federation: 2,
+      },
+      // playground: true, // This can be enabled for local development if needed
       context: ({ req, res }: { req: Request; res: Response }) => ({
         req,
         res,
