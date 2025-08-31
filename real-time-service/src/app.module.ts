@@ -22,9 +22,11 @@ import { SystemModule } from './system/system.module';
 import { PrismaModule } from './prisma.module';
 import { GlobalModule } from './global/global.module';
 import { ConnectionModule } from './system/connection/connection.module';
+import { GraphQLModule } from './graphql.module';
 
 @Module({
   imports: [
+    GraphQLModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),
