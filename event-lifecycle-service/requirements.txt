@@ -29,5 +29,8 @@ boto3
 celery
 pdf2image
 
+# GraphQL and Federation
+strawberry-graphql[fastapi]
+
 # --- TESTING ---
 pytest
