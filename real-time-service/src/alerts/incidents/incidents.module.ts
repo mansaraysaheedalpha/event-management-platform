@@ -2,8 +2,11 @@
 import { Module } from '@nestjs/common';
 import { IncidentsService } from './incidents.service';
 import { IncidentsGateway } from './incident.gateway';
+import { IncidentsResolver } from './incidents.resolver';
+import { PrismaModule } from '../../prisma.module';
 
 @Module({
-  providers: [IncidentsService, IncidentsGateway],
+  imports: [PrismaModule],
+  providers: [IncidentsService, IncidentsGateway, IncidentsResolver],
 })
 export class IncidentsModule {}
