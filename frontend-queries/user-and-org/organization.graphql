@@ -1,0 +1,137 @@
+# Queries and Mutations for Organization Management
+
+# ----------------------------------------
+# Fragments
+# ----------------------------------------
+fragment OrganizationFields on Organization {
+  id
+  name
+  status
+  deletionScheduledAt
+}
+
+fragment RoleFields on Role {
+  id
+  name
+}
+
+fragment OrganizationMemberFields on OrganizationMember {
+  user {
+    id
+    first_name
+    last_name
+    email
+  }
+  role {
+    ...RoleFields
+  }
+}
+
+# ----------------------------------------
+# Queries
+# ----------------------------------------
+
+# Get all organizations the current user belongs to
+query MyOrganizations {
+  myOrganizations {
+    ...OrganizationFields
+  }
+}
+
+# Get a specific organization by its ID
+query Organization($id: ID!) {
+  organization(id: $id) {
+    ...OrganizationFields
+  }
+}
+
+# Get all members of the current organization
+query OrganizationMembers {
+  organizationMembers {
+    ...OrganizationMemberFields
+  }
+}
+
+# List all available roles within the current organization
+query ListRolesForOrg {
+  listRolesForOrg {
+    ...RoleFields
+  }
+}
+
+# ----------------------------------------
+# Mutations
+# ----------------------------------------
+
+# Create a new organization during onboarding
+mutation OnboardingCreateOrganization($name: String!) {
+  onboardingCreateOrganization(input: { name: $name }) {
+    token
+    user {
+      id
+    }
+  }
+}
+
+# Create another organization when already a user
+mutation CreateAdditionalOrganization($name: String!) {
+  createAdditionalOrganization(input: { name: $name }) {
+    token
+    user {
+      id
+    }
+  }
+}
+
+# Update an organization's details
+mutation UpdateOrganization($id: ID!, $name: String!) {
+  updateOrganization(input: { organizationId: $id, name: $name }) {
+    ...OrganizationFields
+  }
+}
+
+# Delete an organization
+mutation DeleteOrganization($id: ID!, $force: Boolean = false) {
+  deleteOrganization(input: { organizationId: $id, force: $force }) {
+    success
+    nextOrganizationId
+  }
+}
+
+# Restore a deleted organization
+mutation RestoreOrganization($id: ID!) {
+  restoreOrganization(organizationId: $id) {
+    ...OrganizationFields
+  }
+}
+
+# Switch the user's active context to a different organization
+mutation SwitchOrganization($id: ID!) {
+  switchOrganization(organizationId: $id) {
+    token
+    user {
+      id
+    }
+  }
+}
+
+# --- Member and Role Management ---
+
+# Invite a new member to the organization
+mutation CreateInvitation($email: String!, $role: String!) {
+  createInvitation(input: { email: $email, role: $role })
+}
+
+# Remove a member from the organization
+mutation RemoveMember($memberId: ID!) {
+  removeMember(memberId: $memberId) {
+    ...OrganizationMemberFields
+  }
+}
+
+# Update a member's role
+mutation UpdateMemberRole($memberId: ID!, $roleId: ID!) {
+  updateMemberRole(input: { memberId: $memberId, roleId: $roleId }) {
+    ...OrganizationMemberFields
+  }
+}

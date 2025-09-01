@@ -1,0 +1,20 @@
+# Queries for AI and Analytics Features
+
+# ----------------------------------------
+# Fragments
+# ----------------------------------------
+fragment SentimentFields on SentimentType {
+  label
+  score
+}
+
+# ----------------------------------------
+# Queries
+# ----------------------------------------
+
+# Analyze the sentiment of a given text string
+query AnalyzeSentiment($text: String!) {
+  sentiment(text: $text) {
+    ...SentimentFields
+  }
+}

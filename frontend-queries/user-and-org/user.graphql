@@ -1,0 +1,35 @@
+# Queries and Mutations for User Profile Management
+
+# ----------------------------------------
+# Fragments
+# ----------------------------------------
+fragment UserProfileFields on GqlUser {
+  id
+  email
+  first_name
+  last_name
+  imageUrl
+  isTwoFactorEnabled
+}
+
+# ----------------------------------------
+# Queries
+# ----------------------------------------
+
+# Get the profile of the currently logged-in user
+query GetMyProfile {
+  getMyProfile {
+    ...UserProfileFields
+  }
+}
+
+# ----------------------------------------
+# Mutations
+# ----------------------------------------
+
+# Update the profile of the currently logged-in user
+mutation UpdateMyProfile($input: UpdateMyProfileInput!) {
+  updateMyProfile(input: $input) {
+    ...UserProfileFields
+  }
+}

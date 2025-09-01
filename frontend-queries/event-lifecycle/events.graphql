@@ -1,0 +1,81 @@
+# Queries and Mutations for Event Management
+
+# ----------------------------------------
+# Fragments
+# ----------------------------------------
+fragment EventFields on EventType {
+  id
+  organization_id
+  name
+  description
+  status
+  start_date
+  end_date
+  is_public
+  is_archived
+  createdAt
+  updatedAt
+}
+
+# ----------------------------------------
+# Queries
+# ----------------------------------------
+
+# Get a single event by its ID
+query GetEvent($id: String!) {
+  event(id: $id) {
+    ...EventFields
+  }
+}
+
+# Get all events for a specific organization
+query GetEventsByOrganization($orgId: String!) {
+  events_by_organization(org_id: $orgId) {
+    ...EventFields
+  }
+}
+
+# ----------------------------------------
+# Mutations
+# ----------------------------------------
+
+# Create a new event
+mutation CreateEvent($eventIn: EventCreateInput!, $orgId: String!, $userId: String!) {
+  create_event(event_in: $eventIn, org_id: $orgId, user_id: $userId) {
+    ...EventFields
+  }
+}
+
+# Update an existing event
+mutation UpdateEvent($id: String!, $eventIn: EventUpdateInput!, $userId: String!) {
+  update_event(id: $id, event_in: $eventIn, user_id: $userId) {
+    ...EventFields
+  }
+}
+
+# Archive an event
+mutation ArchiveEvent($id: String!, $userId: String!) {
+  archive_event(id: $id, user_id: $userId) {
+    ...EventFields
+  }
+}
+
+# Note: The input types EventCreateInput and EventUpdateInput are defined on the server.
+# Based on mutations.py, they look like this:
+#
+# input EventCreateInput {
+#   name: String!
+#   description: String
+#   start_date: String! # Should be ISO 8601 format
+#   end_date: String!   # Should be ISO 8601 format
+#   venue_id: String
+# }
+#
+# input EventUpdateInput {
+#   name: String
+#   description: String
+#   start_date: String
+#   end_date: String
+#   venue_id: String
+#   is_public: Boolean
+# }

@@ -1,0 +1,101 @@
+# Queries and Mutations for User Authentication & Authorization
+
+# ----------------------------------------
+# Fragments
+# ----------------------------------------
+fragment UserFields on GqlUser {
+  id
+  email
+  first_name
+  last_name
+  imageUrl
+  isTwoFactorEnabled
+}
+
+fragment AuthPayloadFields on AuthPayload {
+  token
+  user {
+    ...UserFields
+  }
+}
+
+# ----------------------------------------
+# Mutations
+# ----------------------------------------
+
+# User Registration
+mutation RegisterUser($input: RegisterUserInput!) {
+  registerUser(input: $input) {
+    ...AuthPayloadFields
+  }
+}
+
+# User Login
+mutation Login($input: LoginInput!) {
+  login(input: $input) {
+    # This payload is different, handle 2FA flow on the frontend
+    token
+    requires2FA
+    userIdFor2FA
+    onboardingToken
+    user {
+      ...UserFields
+    }
+  }
+}
+
+# Logout
+mutation Logout {
+  logout
+}
+
+# Refresh JWT Token
+mutation RefreshToken {
+  refreshToken {
+    ...AuthPayloadFields
+  }
+}
+
+# Change Password
+mutation ChangePassword($input: ChangePasswordInput!) {
+  changePassword(input: $input)
+}
+
+# Request Password Reset
+mutation RequestPasswordReset($email: String!) {
+  requestPasswordReset(input: { email: $email })
+}
+
+# Perform Password Reset
+mutation PerformPasswordReset($token: String!, $newPassword: String!) {
+  performPasswordReset(input: { resetToken: $token, newPassword: $newPassword })
+}
+
+
+# ----------------------------------------
+# Two-Factor Authentication (2FA)
+# ----------------------------------------
+
+# Generate a new 2FA QR code
+mutation Generate2FA {
+  generate2FA {
+    qrCodeDataUrl
+  }
+}
+
+# Turn on 2FA
+mutation TurnOn2FA($code: String!) {
+  turnOn2FA(input: { code: $code })
+}
+
+# Turn off 2FA
+mutation TurnOff2FA {
+  turnOff2FA
+}
+
+# Login with 2FA code
+mutation Login2FA($userId: String!, $code: String!) {
+  login2FA(input: { userId: $userId, code: $code }) {
+    ...AuthPayloadFields
+  }
+}
