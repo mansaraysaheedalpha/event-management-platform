@@ -5,7 +5,7 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
 
-class KnowledgeBase(Base):
+class KnowledgeBaseItem(Base):
     __tablename__ = "knowledge_base"
     id = Column(Integer, primary_key=True, index=True)
     category = Column(String, index=True)  # e.g., "competitors", "Germany"

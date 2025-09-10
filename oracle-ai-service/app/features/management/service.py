@@ -78,7 +78,6 @@ class DeploymentClient:
             )
 
 
-ettings = get_settings()
 # Instantiate the client for the service to use
 deployment_client = DeploymentClient(
     app_id=settings.GITHUB_APP_ID,
@@ -108,7 +107,26 @@ def deploy_model(db: Session, request: ModelDeployRequest) -> ModelDeployRespons
     )
 
 
-monitoring_client = MonitoringClient(
+class Monitoring_Client:
+    """Mocks a client for a monitoring service like Datadog."""
+
+    def __init__(self, api_key: str, app_key: str):
+        self.api_key = api_key
+        self.app_key = app_key
+
+    def get_metrics(self, model_id: str) -> dict:
+        print(f"MONITORING: Fetching mock metrics for {model_id}...")
+        # Return plausible, consistent fake data
+        seed = hash(model_id) % 100
+        return {
+            "accuracy": 0.90 + (seed / 5000),
+            "precision": 0.88 + (seed / 5000),
+            "recall": 0.92 + (seed / 5000),
+            "latency_ms": 50 + (seed % 10),
+        }
+
+
+monitoring_client = Monitoring_Client(
     api_key=settings.DATADOG_API_KEY, app_key=settings.DATADOG_APP_KEY
 )
 def get_model_versions(db: Session) -> ModelVersionsResponse:

@@ -250,6 +250,7 @@ services:
   oracle-api:
     build:
       context: ./oracle-ai-service
+      dockerfile: Dockerfile
     container_name: oracle-api
     restart: always
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001
@@ -272,6 +273,7 @@ services:
   oracle-consumer:
     build:
       context: ./oracle-ai-service
+      dockerfile: Dockerfile
     container_name: oracle-consumer
     restart: always
     command: python app/messaging/run_consumers.py # Assuming this is the script to start consumers

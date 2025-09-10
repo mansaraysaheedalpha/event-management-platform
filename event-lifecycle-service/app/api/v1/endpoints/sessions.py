@@ -2,12 +2,13 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
-
+from kafka import KafkaProducer
 from app.schemas.session import Session as SessionSchema, SessionCreate, SessionUpdate
 from app.schemas.token import TokenPayload
 from app.api import deps
 from app.db.session import get_db  # <-- CORRECT IMPORT
 from app.crud import crud_session, crud_event
+from app.core.kafka_producer import get_kafka_producer
 
 router = APIRouter(tags=["Sessions"])
 
@@ -23,6 +24,7 @@ def create_session(
     session_in: SessionCreate,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
+    producer: KafkaProducer = Depends(get_kafka_producer),
 ):
     """Create a new session for a specific event."""
     if current_user.org_id != orgId:
@@ -35,7 +37,7 @@ def create_session(
             status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
         )
     return crud_session.session.create_with_event(
-        db=db, obj_in=session_in, event_id=eventId
+        db=db, obj_in=session_in, event_id=eventId, producer=producer
     )
 
 

@@ -1,3 +1,5 @@
+# app/graphql/schema.py
+
 import strawberry
 from .queries import Query
 from .mutations import Mutation

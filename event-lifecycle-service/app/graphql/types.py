@@ -1,3 +1,4 @@
+# app/graphql/types.py
 import strawberry
 import typing
 import uuid

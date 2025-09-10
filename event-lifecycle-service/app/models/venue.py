@@ -1,6 +1,6 @@
 # app/models/venue.py
 import uuid
-from sqlalchemy import Column, String, text
+from sqlalchemy import Column, String, text, Boolean
 from app.db.base_class import Base
 
 
@@ -13,4 +13,4 @@ class Venue(Base):
     organization_id = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     address = Column(String, nullable=True)
-    is_archived = Column(String, nullable=False, server_default=text("false"))
+    is_archived = Column(Boolean, nullable=False, server_default=text("false"))

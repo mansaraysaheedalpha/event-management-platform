@@ -8,12 +8,6 @@ from app.core.config import settings
 from app.schemas.token import TokenPayload
 from app.db.session import SessionLocal
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # This tells FastAPI where to look for the token.
 # The `tokenUrl` doesn't have to be a real endpoint in this service,
@@ -37,6 +31,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenPayload:
         raise credentials_exception
 
     return token_data
+
 
 # Define the header we expect the key to be in
 api_key_header = APIKeyHeader(name="X-Internal-Api-Key", auto_error=False)
