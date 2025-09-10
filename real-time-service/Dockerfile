@@ -22,9 +22,14 @@ FROM base AS runner
 COPY package.json pnpm-lock.yaml ./
 # ✅ Here, we ONLY install production dependencies to keep the image small.
 RUN pnpm install --frozen-lockfile --prod
+
+# Copy the generated Prisma client from the builder stage
+COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /usr/src/app/node_modules/@prisma/client ./node_modules/@prisma/client
+
 # Copy the built application and prisma schema from the builder stage
 COPY --from=builder /usr/src/app/dist ./dist
-COPY prisma ./prisma
+COPY --from=builder /usr/src/app/prisma ./prisma
 
 # The command to start the application
 CMD ["node", "dist/main"]
