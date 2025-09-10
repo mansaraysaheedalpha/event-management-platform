@@ -27,8 +27,8 @@ export class Organization {
   @Field(() => OrganizationStatus)
   status: OrganizationStatus;
 
-  @Field({ nullable: true })
-  deletionScheduledAt: Date;
+  @Field(() => Date, { nullable: true })
+  deletionScheduledAt: Date | null;
   // ---------------------------
 }
 

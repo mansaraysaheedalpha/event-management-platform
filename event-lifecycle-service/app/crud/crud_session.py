@@ -8,7 +8,7 @@ from app.schemas.session import SessionCreate, SessionUpdate
 import json
 from app.db.redis import redis_client
 from datetime import datetime, timezone
-from app.core.kafka_producer import producer
+from kafka import KafkaProducer
 
 
 class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
@@ -31,7 +31,12 @@ class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
         )
 
     def create_with_event(
-        self, db: Session, *, obj_in: SessionCreate, event_id: str
+        self,
+        db: Session,
+        *,
+        obj_in: SessionCreate,
+        event_id: str,
+        producer: KafkaProducer
     ) -> Session:
         speakers = []
         if obj_in.speaker_ids:
@@ -46,7 +51,7 @@ class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
         db.commit()
         db.refresh(db_obj)
 
-         # --- NEW: Inter-Service Communication to Oracle ---
+        # --- NEW: Inter-Service Communication to Oracle ---
         # Publish an attendance update message to Kafka for the Oracle to consume
         attendance_payload = {
             "eventId": event_id,
@@ -56,12 +61,12 @@ class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         producer.send("real-time.attendance.data", value=attendance_payload)
-    
+
         return db_obj
 
     def update(self, db: Session, *, db_obj: Session, obj_in: SessionUpdate) -> Session:
         update_data = obj_in.model_dump(exclude_unset=True, exclude={"speaker_ids"})
-        
+
         # **FIX**: Use explicit keyword arguments in the super() call
         updated_session = super().update(db=db, db_obj=db_obj, obj_in=update_data)
 

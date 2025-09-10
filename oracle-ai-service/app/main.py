@@ -9,7 +9,6 @@ from app.graphql.router import graphql_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    sentiment.load_model()
     # Seed the database on startup if it's empty
     seed.seed_database()
     yield

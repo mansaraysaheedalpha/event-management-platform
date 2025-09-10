@@ -1,26 +1,31 @@
+# user-and-org-service/Dockerfile (DEFINITIVE FINAL VERSION)
+
 # ---- Base Stage ----
-  FROM node:18-alpine AS base
-  WORKDIR /usr/src/app
-  COPY package.json pnpm-lock.yaml ./
-  RUN npm install -g pnpm
-  RUN pnpm install --frozen-lockfile
-  
-  # ---- Build Stage ----
-  FROM base AS build
-  COPY . .
-  RUN npx prisma generate
-  RUN pnpm run build
-  
-  # ---- Production Stage ----
-  FROM node:18-alpine AS production
-  WORKDIR /usr/src/app
-  
-  # ✅ Copy dist, node_modules (from *build*, not base!), package.json, prisma
-  COPY --from=build /usr/src/app/dist ./dist
-  COPY --from=build /usr/src/app/node_modules ./node_modules
-  COPY --from=build /usr/src/app/package.json ./package.json
-  COPY --from=build /usr/src/app/prisma ./prisma
-  
-  EXPOSE 3001
-  CMD ["node", "dist/main"]
-  
+FROM node:18-alpine AS base
+WORKDIR /usr/src/app
+RUN npm install -g pnpm
+
+# ---- Builder Stage ----
+FROM base AS builder
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY . .
+# This command correctly generates the client into node_modules/@prisma/client
+RUN ./node_modules/.bin/prisma generate
+RUN pnpm run build
+
+# ---- Production/Runner Stage ----
+FROM base AS runner
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+# ✅ THE DEFINITIVE FIX:
+# Copy the generated Prisma client from its ACTUAL location.
+COPY --from=builder /usr/src/app/node_modules/@prisma/client ./node_modules/@prisma/client
+
+# Copy the compiled application code and the prisma schema
+COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/prisma ./prisma
+
+EXPOSE 3001
+CMD ["node", "dist/main.js"]

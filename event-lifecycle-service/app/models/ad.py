@@ -1,6 +1,6 @@
 # app/models/ad.py
 import uuid
-from sqlalchemy import Column, String, text, ForeignKey
+from sqlalchemy import Column, String, text, ForeignKey, Boolean
 from app.db.base_class import Base
 
 
@@ -16,4 +16,4 @@ class Ad(Base):
     content_type = Column(String, nullable=False)  # e.g., BANNER, VIDEO
     media_url = Column(String, nullable=False)
     click_url = Column(String, nullable=False)
-    is_archived = Column(String, nullable=False, server_default=text("false"))
+    is_archived = Column(Boolean, nullable=False, server_default=text("false"))

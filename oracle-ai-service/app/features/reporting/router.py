@@ -25,4 +25,4 @@ def get_generated_insights(request: InsightsRequest):
 )
 def get_benchmarking_report(request: BenchmarkingRequest):
     """Compares event performance against historical data and industry standards."""
-    return service.get_benchmarks(request)
+    return service.benchmark_event(request)

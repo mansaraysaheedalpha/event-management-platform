@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # Core Services
     KAFKA_BOOTSTRAP_SERVERS: str = "kafka:9092"
-    REDIS_URL: str = "redis:6379"
+    REDIS_URL: str = "redis://redis:6379"
 
     # Database
     ORACLE_DB_USER: str

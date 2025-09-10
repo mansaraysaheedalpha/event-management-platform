@@ -1,8 +1,7 @@
 // src/two-factor/two-factor.resolver.ts
-import { Resolver, Mutation, Query, Context, Args } from '@nestjs/graphql';
+import { Resolver, Mutation, Context, Args } from '@nestjs/graphql';
 import { TwoFactorService } from './two-factor.service';
 import { UseGuards } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport'; // Assuming you use a standard JWT guard
 import { GqlAuthGuard } from 'src/auth/guards/gql-auth.guard';// It's better to create a GraphQL-specific auth guard
 import { TwoFactorSetupPayload } from './gql_types/two_factor.types';
 import { TurnOn2FAInput } from './gql_types/two-factor.inputs';
