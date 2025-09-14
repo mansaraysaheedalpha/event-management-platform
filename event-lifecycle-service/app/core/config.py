@@ -1,13 +1,16 @@
-#app/core/config.py
+# event-lifecycle-service/app/core/config.py
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # This tells Pydantic to load variables from the .env file
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # ✅ THE FIX: We remove the `env_file` directive.
+    # Pydantic will now automatically read from the environment variables
+    # provided by Docker Compose from the root .env file.
+    model_config = SettingsConfigDict(extra="ignore")
 
     # The environment mode: 'local' or 'prod'
-    ENV: str = "prod"
+    ENV: str
 
     # --- Production URLs (for inside Docker) ---
     DATABASE_URL_PROD: str

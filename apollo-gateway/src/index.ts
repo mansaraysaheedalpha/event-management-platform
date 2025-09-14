@@ -1,38 +1,39 @@
 // api-gateway/src/index.ts
 
-import { ApolloGateway, IntrospectAndCompose, RemoteGraphQLDataSource } from "@apollo/gateway";
+import {
+  ApolloGateway,
+  IntrospectAndCompose,
+  RemoteGraphQLDataSource,
+} from "@apollo/gateway";
 import { ApolloServer } from "@apollo/server";
 import "dotenv/config";
-import jwt from "jsonwebtoken";
 
 // --- NEW IMPORTS FOR EXPRESS ---
 import express from "express";
 import http from "http";
 import cors from "cors";
 import { json } from "body-parser";
-import {expressMiddleware} from "@apollo/server/express4"
+import { expressMiddleware } from "@apollo/server/express4";
 import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHttpServer";
 // -----------------------------
 
-if (!process.env.JWT_SECRET) {
-  throw new Error(
-    "FATAL_ERROR: JWT_SECRET environment variable is not defined."
-  );
-}
-
-// Your UserContext and AuthenticatedDataSource classes remain the same
-interface UserContext {
-  userId: string;
-  orgId: string;
-  role: string;
-  permissions: string[];
-}
+// We no longer need the JWT secret in the gateway
+// if (!process.env.JWT_SECRET) {
+//   throw new Error(
+//     "FATAL_ERROR: JWT_SECRET environment variable is not defined."
+//   );
+// }
 
 class AuthenticatedDataSource extends RemoteGraphQLDataSource {
-  override async willSendRequest(options: any): Promise<void> {
-    const { context, request } = options;
-    if (context.user) {
-      request.http?.headers.set("x-user-context", JSON.stringify(context.user));
+  override willSendRequest({
+    request,
+    context,
+  }: {
+    request: any;
+    context: any;
+  }) {
+    if (context.authorization) {
+      request.http.headers.set("Authorization", context.authorization);
     }
   }
 }
@@ -43,7 +44,6 @@ async function startServer() {
   const httpServer = http.createServer(app);
 
   const gateway = new ApolloGateway({
-    // Your gateway config is unchanged
     supergraphSdl: new IntrospectAndCompose({
       subgraphs: [
         { name: "user-org", url: process.env.USER_ORG_SERVICE_URL },
@@ -61,42 +61,26 @@ async function startServer() {
 
   const server = new ApolloServer({
     gateway,
-    // This plugin helps gracefully shut down the server
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
   });
 
   await server.start();
 
-  // Apply middleware to the Express app
   app.use(
     "/graphql",
-    // THIS IS THE CORS FIX
     cors<cors.CorsRequest>({
-      origin: "http://localhost:3000", // Allow requests from your frontend
+      origin: process.env.CLIENT_URL || "http://localhost:3000",
       credentials: true,
     }),
     json(),
-    // This connects Apollo Server to Express
     expressMiddleware(server, {
       context: async ({ req }) => {
-        const token = req.headers.authorization?.split(" ")[1] || "";
-        if (token) {
-          try {
-            const user = jwt.verify(
-              token,
-              process.env.JWT_SECRET as string
-            ) as unknown as UserContext;
-            return { user };
-          } catch (err) {
-            console.error("JWT verification error:", (err as Error).message);
-          }
-        }
-        return {};
+        // We just pass the authorization header through, without verifying it here.
+        return { authorization: req.headers.authorization };
       },
     })
   );
 
-  // Start listening
   await new Promise<void>((resolve) =>
     httpServer.listen({ port: 4000 }, resolve)
   );
