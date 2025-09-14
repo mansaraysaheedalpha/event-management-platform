@@ -5,13 +5,15 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
-  "scripts": {
+"scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
     "start": "nest start",
-    "start:dev": "nest start --watch",
+    "start:dev": "pnpm db:deploy && pnpm db:seed && nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "pnpm db:deploy && pnpm db:seed && node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
