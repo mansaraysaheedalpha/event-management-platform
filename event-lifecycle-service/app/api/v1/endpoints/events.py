@@ -1,9 +1,12 @@
-#app/api/v1/endpoints/events.py
+# app/api/v1/endpoints/events.py
 import math
 from typing import List
 from fastapi import APIRouter, Depends, status, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from app.schemas.event_sync_bundle import EventSyncBundle
+from app.schemas.event import ImageUploadRequest, ImageUploadResponse
+from app.core.config import settings
+from app.core.s3 import generate_presigned_post
 
 from app.schemas.event import (
     Event as EventSchema,
@@ -252,3 +255,74 @@ def get_event_sync_bundle(
         speakers=all_speakers,
         venue=event_bundle_data.venue,
     )
+
+# ✅ --- ADD THESE TWO NEW ENDPOINTS AT THE BOTTOM OF THE FILE ---
+
+
+@router.post(
+    "/organizations/{orgId}/events/{eventId}/image-upload-request",
+    response_model=ImageUploadResponse,
+)
+def request_image_upload(
+    orgId: str,
+    eventId: str,
+    upload_request: ImageUploadRequest,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Step 1: Client requests to upload an event image.
+    Server returns a secure, pre-signed URL for a direct-to-S3 upload.
+    """
+    if current_user.org_id != orgId:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    event = crud_event.event.get(db, id=eventId)
+    if not event or event.organization_id != orgId:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    s3_key = f"event-images/{eventId}/{upload_request.filename}"
+    presigned_data = generate_presigned_post(
+        object_name=s3_key, content_type=upload_request.content_type
+    )
+
+    if not presigned_data:
+        raise HTTPException(status_code=500, detail="Could not generate upload URL")
+
+    return ImageUploadResponse(
+        url=presigned_data["url"], fields=presigned_data["fields"], s3_key=s3_key
+    )
+
+
+@router.post(
+    "/organizations/{orgId}/events/{eventId}/image-upload-complete",
+    response_model=EventSchema,
+    status_code=status.HTTP_200_OK,
+)
+def complete_image_upload(
+    orgId: str,
+    eventId: str,
+    s3_key: str,  # Sent as a query parameter
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Step 2: Client notifies server that upload is complete.
+    Server updates the event record with the final S3 URL.
+    """
+    if current_user.org_id != orgId:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Construct the permanent, public URL for the image
+    bucket_name = settings.AWS_S3_BUCKET_NAME
+    region = settings.AWS_S3_REGION
+    public_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{s3_key}"
+
+    updated_event = crud_event.event.update_image_url(
+        db, event_id=eventId, image_url=public_url
+    )
+
+    if not updated_event:
+        raise HTTPException(status_code=404, detail="Event not found after update")
+
+    return updated_event

@@ -18,6 +18,7 @@ pydantic-settings
 # Security and JWT
 python-jose[cryptography]
 passlib[bcrypt]
+PyJWT
 
 # For inter-service communication
 redis
