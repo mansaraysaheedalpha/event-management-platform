@@ -97,6 +97,22 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         )
         return archived_event
 
+    # ✅ --- NEW METHOD TO UPDATE IMAGE URL ---
+    def update_image_url(
+        self, db: Session, *, event_id: str, image_url: str
+    ) -> Event | None:
+        """
+        Updates the imageUrl for a specific event.
+        """
+        event = self.get(db, id=event_id)
+        if event:
+            event.imageUrl = image_url
+            db.add(event)
+            db.commit()
+            db.refresh(event)
+        return event
+    
+
     # ADD THIS NEW METHOD
     def get_sync_bundle(self, db: Session, *, event_id: str) -> Event | None:
         """

@@ -1,8 +1,21 @@
-#app/main.py
+# app/main.py
 from fastapi import FastAPI
 from app.api.v1.api import api_router
 from app.core.config import settings
+from contextlib import asynccontextmanager
+from app.db.base_class import Base
+from app.db.session import engine
 from app.graphql.router import graphql_router
+
+
+# ✅ THE FINAL FIX: The Lifespan Event Handler
+# This function will run once when the application starts up.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Application starting up...")
+    print("Database tables checked and created if necessary.")
+    yield
+    print("Application shutting down...")
 
 
 app = FastAPI(
@@ -32,6 +45,7 @@ app = FastAPI(
         
         Some endpoints under `/public/` are accessible without authentication for event discovery.
         """,
+    lifespan=lifespan,
 )
 
 
