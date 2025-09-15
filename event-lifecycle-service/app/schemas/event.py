@@ -72,3 +72,15 @@ class EventUpdate(BaseModel):
     end_date: Optional[datetime] = None
     venue_id: Optional[str] = None
     is_public: Optional[bool] = None
+
+
+# ✅ --- NEW SCHEMAS FOR IMAGE UPLOAD ---
+class ImageUploadRequest(BaseModel):
+    content_type: str
+    filename: str
+
+
+class ImageUploadResponse(BaseModel):
+    url: str
+    fields: dict
+    s3_key: str
