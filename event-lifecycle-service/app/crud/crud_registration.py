@@ -1,7 +1,7 @@
-#app/crud/crud_registration.py
+# app/crud/crud_registration.py
 import random
 import string
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from .base import CRUDBase
 from app.models.registration import Registration
@@ -48,10 +48,12 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
         self, db: Session, *, event_id: str, skip: int = 0, limit: int = 100
     ) -> list[Registration]:
         """
-        Get all registrations for a specific event.
+        ✅ THE FIX: This now eagerly loads the 'user' relationship, which is
+        critical for our GraphQL resolver to access the user's details.
         """
         return (
             db.query(self.model)
+            .options(joinedload(self.model.user))  # Eagerly load the user data
             .filter(self.model.event_id == event_id)
             .offset(skip)
             .limit(limit)
@@ -68,13 +70,13 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
         else:
             create_data['guest_email'] = obj_in.email
             create_data['guest_name'] = f"{obj_in.first_name} {obj_in.last_name}"
-        
+
         # Generate a unique ticket code
         while True:
             ticket_code = generate_ticket_code()
             if not db.query(Registration).filter(Registration.ticket_code == ticket_code).first():
                 break
-        
+
         db_obj = self.model(**create_data, event_id=event_id, ticket_code=ticket_code)
         db.add(db_obj)
         db.commit()

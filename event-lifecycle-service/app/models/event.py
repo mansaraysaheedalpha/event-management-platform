@@ -23,4 +23,5 @@ class Event(Base):
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     createdAt = Column(DateTime, nullable=False, server_default=text("now()"))
     updatedAt = Column(DateTime, nullable=False, server_default=text("now()"))
-    
+
+    imageUrl = Column(String, nullable=True)
