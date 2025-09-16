@@ -7,10 +7,10 @@ from ..models.event import Event as EventModel
 from ..models.registration import Registration as RegistrationModel
 
 
-# This federated UserType is correct.
+# This federated User is correct.
 @strawberry.federation.type(keys=["id"], extend=True)
-class UserType:
-    id: str = strawberry.federation.field(external=True)
+class User:
+    id: strawberry.ID = strawberry.federation.field(external=True)
 
 
 # This SpeakerType is correct.
@@ -85,7 +85,7 @@ class RegistrationType:
     guestName: typing.Optional[str]
 
     @strawberry.field
-    def user(self, root: RegistrationModel) -> typing.Optional[UserType]:
+    def user(self, root: RegistrationModel) -> typing.Optional["User"]:
         if root.user_id:
-            return UserType(id=root.user_id)
+            return User(id=root.user_id)
         return None
