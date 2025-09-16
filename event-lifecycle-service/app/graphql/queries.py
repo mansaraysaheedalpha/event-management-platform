@@ -1,11 +1,19 @@
 # event-lifecycle-service/app/graphql/queries.py
 
 import strawberry
+import typing
 from typing import List
 from strawberry.types import Info
 from fastapi import HTTPException
 from .. import crud
-from .types import EventType, SpeakerType, SessionType, RegistrationType
+from .types import (
+    EventType,
+    SpeakerType,
+    SessionType,
+    RegistrationType,
+    EventsPayload,
+    EventStatsType,
+)
 
 
 @strawberry.type
@@ -20,23 +28,71 @@ class Query:
         # The CRUD function expects a string, so we cast the strawberry.ID
         event_id = str(id)
 
-        event = crud.event.get(db, id=event_id)
-        if not event:
+        event_obj = crud.event.get(db, id=event_id)
+        if not event_obj:
             raise HTTPException(
                 status_code=404, detail=f"Event with id {event_id} not found"
             )
-        return event
+
+        # Manually construct a dictionary to match the format from the list query
+        from ..crud import crud_registration
+
+        registrations_count = crud_registration.registration.get_count_by_event(
+            db, event_id=event_obj.id
+        )
+
+        event_dict = {
+            c.name: getattr(event_obj, c.name) for c in event_obj.__table__.columns
+        }
+        event_dict["registrationsCount"] = registrations_count
+
+        return event_dict
 
     @strawberry.field
-    def eventsByOrganization(self, info: Info) -> List[EventType]:
+    def eventsByOrganization(
+        self,
+        info: Info,
+        search: typing.Optional[str] = None,
+        status: typing.Optional[str] = None,
+        sortBy: typing.Optional[str] = None,
+        sortDirection: typing.Optional[str] = None,
+        limit: typing.Optional[int] = 100,
+        offset: typing.Optional[int] = 0,
+    ) -> EventsPayload:
         if not info.context.user or not info.context.user.get("orgId"):
             raise HTTPException(
                 status_code=403, detail="Not authorized or orgId missing from context"
             )
         db = info.context.db
         org_id = info.context.user["orgId"]
-        events = crud.event.get_multi_by_organization(db, org_id=org_id)
-        return events
+        payload_data = crud.event.get_multi_by_organization(
+            db,
+            org_id=org_id,
+            search=search,
+            status=status,
+            sort_by=sortBy,
+            sort_direction=sortDirection,
+            skip=offset,
+            limit=limit,
+        )
+        return EventsPayload(
+            events=payload_data["events"], totalCount=payload_data["totalCount"]
+        )
+
+    @strawberry.field
+    def eventStats(self, info: Info) -> EventStatsType:
+        if not info.context.user or not info.context.user.get("orgId"):
+            raise HTTPException(
+                status_code=403, detail="Not authorized or orgId missing from context"
+            )
+        db = info.context.db
+        org_id = info.context.user["orgId"]
+        stats_data = crud.event.get_event_stats(db, org_id=org_id)
+        return EventStatsType(
+            totalEvents=stats_data["totalEvents"],
+            upcomingEvents=stats_data["upcomingEvents"],
+            totalRegistrations=stats_data["totalRegistrations"],
+        )
 
     @strawberry.field
     def organizationSpeakers(self, info: Info) -> List[SpeakerType]:

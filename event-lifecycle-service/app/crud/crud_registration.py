@@ -60,21 +60,33 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
             .all()
         )
 
-    def create_for_event(self, db: Session, *, obj_in: RegistrationCreate, event_id: str) -> Registration:
+    def get_count_by_event(self, db: Session, *, event_id: str) -> int:
+        """
+        Counts the number of registrations for a specific event.
+        """
+        return db.query(self.model).filter(self.model.event_id == event_id).count()
+
+    def create_for_event(
+        self, db: Session, *, obj_in: RegistrationCreate, event_id: str
+    ) -> Registration:
         """
         Creates a registration and generates a unique ticket code.
         """
         create_data = {}
         if obj_in.user_id:
-            create_data['user_id'] = obj_in.user_id
+            create_data["user_id"] = obj_in.user_id
         else:
-            create_data['guest_email'] = obj_in.email
-            create_data['guest_name'] = f"{obj_in.first_name} {obj_in.last_name}"
+            create_data["guest_email"] = obj_in.email
+            create_data["guest_name"] = f"{obj_in.first_name} {obj_in.last_name}"
 
         # Generate a unique ticket code
         while True:
             ticket_code = generate_ticket_code()
-            if not db.query(Registration).filter(Registration.ticket_code == ticket_code).first():
+            if (
+                not db.query(Registration)
+                .filter(Registration.ticket_code == ticket_code)
+                .first()
+            ):
                 break
 
         db_obj = self.model(**create_data, event_id=event_id, ticket_code=ticket_code)
