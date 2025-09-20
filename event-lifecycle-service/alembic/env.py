@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -6,8 +7,22 @@ from logging.config import fileConfig
 
 from sqlalchemy import create_engine
 from sqlalchemy import pool
-from app.models.base import Base  
-from app.core.config import settings  
+from app.models.base import Base
+from app.core.config import settings
+from app.models import (
+    ad,
+    blueprint,
+    domain_event,
+    event,
+    offer,
+    presentation,
+    registration,
+    session,
+    session_speaker,
+    speaker,
+    venue,
+    waitlist,
+)
 
 from alembic import context
 
@@ -66,9 +81,7 @@ def run_migrations_online() -> None:
     connectable = connectable = create_engine(settings.DATABASE_URL)
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

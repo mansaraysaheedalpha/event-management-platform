@@ -31,9 +31,9 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     def create_with_organization(
         self, db: Session, *, obj_in: CreateSchemaType, org_id: str
     ) -> ModelType:
-        # The model's `default` will now handle the ID generation
         obj_in_data = obj_in.model_dump()
-        db_obj = self.model(**obj_in_data, organization_id=org_id)
+        # Explicitly set is_archived to False to ensure new events are active
+        db_obj = self.model(**obj_in_data, organization_id=org_id, is_archived=False)
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
