@@ -110,12 +110,13 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         )
 
         # Total registrations for all non-archived events in the organization
-        total_registrations = (
+        upcoming_registrations = (
             db.query(func.count(Registration.id))
             .join(self.model, self.model.id == Registration.event_id)
             .filter(
                 self.model.organization_id == org_id,
                 self.model.is_archived == False,
+                self.model.start_date > datetime.utcnow(),
             )
             .scalar()
         )
@@ -123,7 +124,7 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         return {
             "totalEvents": total_events,
             "upcomingEvents": upcoming_events,
-            "totalRegistrations": total_registrations,
+            "upcomingRegistrations": upcoming_registrations,
         }
 
     def get_events_count(self, db: Session, *, org_id: str) -> int:

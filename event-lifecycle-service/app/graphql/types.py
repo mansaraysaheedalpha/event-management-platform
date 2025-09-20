@@ -18,7 +18,7 @@ class EventsPayload:
 class EventStatsType:
     totalEvents: int
     upcomingEvents: int
-    totalRegistrations: int
+    upcomingRegistrations: int
 
 
 # This federated User is correct.
@@ -38,17 +38,35 @@ class SpeakerType:
     is_archived: bool
 
 
-# ✅ THIS IS THE DEFINITIVE FIX FOR THE EVENT TYPE
 @strawberry.type
 class EventType:
-    # These fields match snake_case, so they work automatically.
-    id: str
-    organization_id: str
-    name: str
-    version: int
-    description: typing.Optional[str]
-    status: str
-    is_archived: bool
+    @strawberry.field
+    def id(self, root: dict) -> str:
+        return root["id"]
+
+    @strawberry.field
+    def organization_id(self, root: dict) -> str:
+        return root["organization_id"]
+
+    @strawberry.field
+    def name(self, root: dict) -> str:
+        return root["name"]
+
+    @strawberry.field
+    def version(self, root: dict) -> int:
+        return root["version"]
+
+    @strawberry.field
+    def description(self, root: dict) -> typing.Optional[str]:
+        return root["description"]
+
+    @strawberry.field
+    def status(self, root: dict) -> str:
+        return root["status"]
+
+    @strawberry.field
+    def is_archived(self, root: dict) -> bool:
+        return root["is_archived"]
 
     @strawberry.field
     def imageUrl(self, root: dict) -> typing.Optional[str]:
@@ -56,11 +74,8 @@ class EventType:
 
     @strawberry.field
     def registrationsCount(self, root: dict) -> int:
-        # This value is pre-calculated and attached in the CRUD layer
         return root["registrationsCount"]
 
-    # These fields have a camelCase name in the schema but snake_case in the model.
-    # We must provide custom resolvers for each of them.
     @strawberry.field
     def startDate(self, root: dict) -> datetime:
         return root["start_date"]
@@ -79,11 +94,11 @@ class EventType:
 
     @strawberry.field
     def createdAt(self, root: dict) -> datetime:
-        return root["createdAt"]  # This one was already camelCase in the model
+        return root["createdAt"]
 
     @strawberry.field
     def updatedAt(self, root: dict) -> datetime:
-        return root["updatedAt"]  # This one was also camelCase
+        return root["updatedAt"]
 
 
 # The rest of the types are correct.
@@ -102,10 +117,22 @@ class SessionType:
 class RegistrationType:
     id: str
     status: str
-    ticketCode: str
-    checkedInAt: typing.Optional[datetime]
-    guestEmail: typing.Optional[str]
-    guestName: typing.Optional[str]
+
+    @strawberry.field
+    def ticketCode(self, root: RegistrationModel) -> str:
+        return root.ticket_code
+
+    @strawberry.field
+    def checkedInAt(self, root: RegistrationModel) -> typing.Optional[datetime]:
+        return root.checked_in_at
+
+    @strawberry.field
+    def guestEmail(self, root: RegistrationModel) -> typing.Optional[str]:
+        return root.guest_email
+
+    @strawberry.field
+    def guestName(self, root: RegistrationModel) -> typing.Optional[str]:
+        return root.guest_name
 
     @strawberry.field
     def user(self, root: RegistrationModel) -> typing.Optional["User"]:

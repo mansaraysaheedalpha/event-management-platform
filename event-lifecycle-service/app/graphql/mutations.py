@@ -42,9 +42,9 @@ class SessionCreateInput:
 @strawberry.input
 class RegistrationCreateInput:
     email: str
-    firstName: Optional[str] = None
-    lastName: Optional[str] = None
-    userId: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 @strawberry.type
@@ -84,10 +84,66 @@ class Mutation:
     def create_registration(
         self, registrationIn: RegistrationCreateInput, eventId: str, info: Info
     ) -> RegistrationType:
-        if not info.context.user or not info.context.user.get("orgId"):
-            raise HTTPException(status_code=403, detail="Not authorized")
         db = info.context.db
-        reg_schema = RegistrationCreate(**registrationIn.__dict__)
+
+        # Check if the event is public or if the user is authenticated
+        event = crud.event.get(db, id=eventId)
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Public events are open for guest registration.
+        # Authenticated users can register for any event they have access to.
+        user = info.context.get("user")
+        if not event.is_public and not user:
+            raise HTTPException(
+                status_code=403,
+                detail="You must be logged in to register for this private event.",
+            )
+
+        # If a user_id is provided, ensure it matches the authenticated user
+        if registrationIn.user_id and (
+            not user or user.get("sub") != registrationIn.user_id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Provided user_id does not match authenticated user.",
+            )
+
+        # If no user_id is provided, it's a guest registration.
+        # Ensure email and name are provided for guest registrations.
+        if not registrationIn.user_id:
+            if (
+                not registrationIn.email
+                or not registrationIn.first_name
+                or not registrationIn.last_name
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Email, first name, and last name are required for guest registration.",
+                )
+            # Set the user_id to None for guest registrations
+            registrationIn.user_id = None
+
+        reg_schema = RegistrationCreate(
+            user_id=registrationIn.user_id,
+            email=registrationIn.email,
+            first_name=registrationIn.first_name,
+            last_name=registrationIn.last_name,
+        )
+
+        # Check for existing registration
+        existing_reg = crud.registration.get_by_user_or_email(
+            db,
+            event_id=eventId,
+            user_id=reg_schema.user_id,
+            email=reg_schema.email,
+        )
+        if existing_reg:
+            raise HTTPException(
+                status_code=409,
+                detail="A registration already exists for this user or email.",
+            )
+
         return crud.registration.create_for_event(
             db, obj_in=reg_schema, event_id=eventId
         )
