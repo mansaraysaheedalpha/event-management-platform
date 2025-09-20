@@ -91,7 +91,7 @@ class Query:
         return EventStatsType(
             totalEvents=stats_data["totalEvents"],
             upcomingEvents=stats_data["upcomingEvents"],
-            totalRegistrations=stats_data["totalRegistrations"],
+            upcomingRegistrations=stats_data["upcomingRegistrations"],
         )
 
     @strawberry.field

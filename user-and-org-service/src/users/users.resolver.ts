@@ -11,7 +11,10 @@ import { UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from 'src/auth/guards/gql-auth.guard';
 import { UsersService } from './users.service';
 import { GqlUser } from './gql_types/user.types';
-import { ChangePasswordInput, UpdateMyProfileInput } from './gql_types/user.inputs';
+import {
+  ChangePasswordInput,
+  UpdateMyProfileInput,
+} from './gql_types/user.inputs';
 
 @Resolver(() => GqlUser)
 export class UsersResolver {
@@ -21,6 +24,11 @@ export class UsersResolver {
   @UseGuards(GqlAuthGuard)
   async getMyProfile(@Context() context: { req: { user: { sub: string } } }) {
     return this.usersService.findOne(context.req.user.sub);
+  }
+
+  @Query(() => GqlUser, { name: 'user' })
+  async findUserById(@Args('id') id: string) {
+    return this.usersService.findOne(id);
   }
 
   @Mutation(() => GqlUser)
@@ -47,7 +55,10 @@ export class UsersResolver {
   }
 
   @ResolveReference()
-  resolveReference(reference: { __typename: string; id: string }): Promise<GqlUser> {
+  resolveReference(reference: {
+    __typename: string;
+    id: string;
+  }): Promise<GqlUser> {
     return this.usersService.findOne(reference.id);
   }
 }

@@ -48,12 +48,11 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
         self, db: Session, *, event_id: str, skip: int = 0, limit: int = 100
     ) -> list[Registration]:
         """
-        ✅ THE FIX: This now eagerly loads the 'user' relationship, which is
-        critical for our GraphQL resolver to access the user's details.
+        Fetches registrations for a specific event. The user details will be
+        resolved by the GraphQL gateway, so we don't need to eager-load them here.
         """
         return (
             db.query(self.model)
-            .options(joinedload(self.model.user))  # Eagerly load the user data
             .filter(self.model.event_id == event_id)
             .offset(skip)
             .limit(limit)
