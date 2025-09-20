@@ -59,6 +59,7 @@ export class UsersResolver {
     __typename: string;
     id: string;
   }): Promise<GqlUser> {
+    console.log(`User service is resolving user with ID: ${reference.id}`); // We WILL see this log
     return this.usersService.findOne(reference.id);
   }
 }

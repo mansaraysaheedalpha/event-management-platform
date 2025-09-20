@@ -117,12 +117,23 @@ export class UsersService {
   }
 
   async updateProfile(userId: string, updateProfileDto: UpdateProfileDTO) {
+    const data: { first_name?: string; last_name?: string } = {};
+    if (
+      updateProfileDto.first_name !== null &&
+      updateProfileDto.first_name !== undefined
+    ) {
+      data.first_name = updateProfileDto.first_name;
+    }
+    if (
+      updateProfileDto.last_name !== null &&
+      updateProfileDto.last_name !== undefined
+    ) {
+      data.last_name = updateProfileDto.last_name;
+    }
+
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
-      data: {
-        first_name: updateProfileDto.first_name,
-        last_name: updateProfileDto.last_name,
-      },
+      data,
       // Select only the fields defined in our GqlUser type
       select: {
         id: true,
