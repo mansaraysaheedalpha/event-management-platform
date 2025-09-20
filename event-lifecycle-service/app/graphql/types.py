@@ -25,6 +25,8 @@ class EventStatsType:
 @strawberry.federation.type(keys=["id"], extend=True)
 class User:
     id: strawberry.ID = strawberry.federation.field(external=True)
+    first_name: str = strawberry.federation.field(external=True)
+    last_name: str = strawberry.federation.field(external=True)
 
 
 # This SpeakerType is correct.

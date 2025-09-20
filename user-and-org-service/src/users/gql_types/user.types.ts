@@ -1,4 +1,4 @@
-// src/users/gql_types/user.types.ts
+// src/users/gql_types/user.types.ts (Corrected)
 
 import { ObjectType, Field, ID, Directive } from '@nestjs/graphql';
 
@@ -17,8 +17,8 @@ export class GqlUser {
   @Field()
   last_name: string;
 
-  @Field(() => String, { nullable: true }) // <-- More explicit and tells GraphQL it's a String
-  imageUrl: string | null; // <-- This is the key change to allow null
+  @Field(() => String, { nullable: true })
+  imageUrl: string | null;
 
   @Field(() => Boolean)
   isTwoFactorEnabled: boolean;
