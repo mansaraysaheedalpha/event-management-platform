@@ -41,10 +41,10 @@ class SessionCreateInput:
 
 @strawberry.input
 class RegistrationCreateInput:
-    email: str
+    user_id: Optional[str] = None
+    email: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    user_id: Optional[str] = None
 
 
 @strawberry.type
@@ -86,6 +86,29 @@ class Mutation:
     ) -> RegistrationType:
         db = info.context.db
 
+        is_guest_reg = registrationIn.email is not None
+        is_user_reg = registrationIn.user_id is not None
+
+        if is_guest_reg and is_user_reg:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide either user_id or guest details, not both.",
+            )
+
+        if not is_guest_reg and not is_user_reg:
+            raise HTTPException(
+                status_code=400,
+                detail="Either user_id or guest details must be provided.",
+            )
+
+        if is_guest_reg and (
+            not registrationIn.first_name or not registrationIn.last_name
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Email, first name, and last name are required for guest registration.",
+            )
+
         # Check if the event is public or if the user is authenticated
         event = crud.event.get(db, id=eventId)
         if not event:
@@ -108,21 +131,6 @@ class Mutation:
                 status_code=403,
                 detail="Provided user_id does not match authenticated user.",
             )
-
-        # If no user_id is provided, it's a guest registration.
-        # Ensure email and name are provided for guest registrations.
-        if not registrationIn.user_id:
-            if (
-                not registrationIn.email
-                or not registrationIn.first_name
-                or not registrationIn.last_name
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Email, first name, and last name are required for guest registration.",
-                )
-            # Set the user_id to None for guest registrations
-            registrationIn.user_id = None
 
         reg_schema = RegistrationCreate(
             user_id=registrationIn.user_id,
