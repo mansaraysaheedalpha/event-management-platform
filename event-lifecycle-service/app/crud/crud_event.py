@@ -7,6 +7,7 @@ from typing import List
 from app.models.event import Event
 from app.schemas.event import EventCreate, EventUpdate
 from app.crud import crud_domain_event
+from datetime import datetime
 
 
 class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
@@ -25,18 +26,27 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
     ) -> dict:
         """
         Gets a list of events for an organization with optional filters, sorting, and pagination.
-        Also returns the total count of events that match the filters.
+        Handles filtering for active vs. archived events.
         """
-        query = db.query(self.model).filter(
-            self.model.organization_id == org_id,
-            self.model.is_archived == False,
-        )
+        # Start with the base query for the organization
+        query = db.query(self.model).filter(self.model.organization_id == org_id)
 
-        # Filtering
+        # --- THIS IS THE CORRECTED LOGIC ---
+        # First, determine if we are viewing archived events or active ones.
+        if status == "archived":
+            # If the requested status is 'archived', filter for only archived events.
+            query = query.filter(self.model.is_archived == True)
+        else:
+            # For any other request, filter for ONLY non-archived (active) events.
+            query = query.filter(self.model.is_archived == False)
+            # If a status like 'draft' or 'published' was provided, apply it as a sub-filter.
+            if status:
+                query = query.filter(self.model.status == status)
+        # ------------------------------------
+
+        # Filtering by search term
         if search:
             query = query.filter(self.model.name.ilike(f"%{search}%"))
-        if status:
-            query = query.filter(self.model.status == status)
 
         # Get total count before pagination
         total_count = query.count()
@@ -50,7 +60,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
 
         # Pagination
         query = query.offset(skip).limit(limit)
-
         events = query.all()
 
         # Efficiently fetch registration counts
@@ -67,7 +76,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
             .group_by(Registration.event_id)
             .all()
         )
-
         counts_map = {event_id: count for event_id, count in registration_counts}
 
         # Prepare results as dictionaries
@@ -156,16 +164,28 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
                     "new": update_data[field],
                 }
 
-        # **FIX**: Call the original update method from the base class WITHOUT the user_id
+        # --- THIS IS THE FIX ---
+        # A helper function to make sure all data is JSON-serializable
+        def serialize_changes(data):
+            for key, value in data.items():
+                if isinstance(value, dict):
+                    serialize_changes(value)
+                elif isinstance(value, datetime):
+                    data[key] = value.isoformat()
+
+        serializable_change_data = change_data.copy()
+        serialize_changes(serializable_change_data)
+        # ---------------------
+
         updated_event = super().update(db, db_obj=db_obj, obj_in=obj_in)
 
-        if change_data:
+        if serializable_change_data:
             crud_domain_event.domain_event.create_log(
                 db,
                 event_id=db_obj.id,
                 event_type="EventUpdated",
                 user_id=user_id,
-                data=change_data,
+                data=serializable_change_data,  # Use the serialized data
             )
         return updated_event
 
@@ -197,6 +217,22 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         )
         return archived_event
 
+    # --- ADD THIS NEW METHOD ---
+    def restore(self, db: Session, *, id: str, user_id: str | None) -> Event | None:
+        restored_event = super().restore(db, id=id)
+        if not restored_event:
+            return None
+
+        crud_domain_event.domain_event.create_log(
+            db,
+            event_id=id,
+            event_type="EventRestored",
+            user_id=user_id,
+            data={"is_archived": False},
+        )
+        return restored_event
+
+    # -------------------------
     # ✅ --- NEW METHOD TO UPDATE IMAGE URL ---
     def update_image_url(
         self, db: Session, *, event_id: str, image_url: str
