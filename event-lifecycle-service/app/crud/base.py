@@ -1,4 +1,3 @@
-# app/crud/base.py
 import uuid
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
@@ -32,7 +31,6 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self, db: Session, *, obj_in: CreateSchemaType, org_id: str
     ) -> ModelType:
         obj_in_data = obj_in.model_dump()
-        # Explicitly set is_archived to False to ensure new events are active
         db_obj = self.model(**obj_in_data, organization_id=org_id, is_archived=False)
         db.add(db_obj)
         db.commit()
@@ -60,13 +58,27 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db_obj
 
     def archive(self, db: Session, *, id: str, user_id: str | None = None) -> ModelType:
-        # **FIX**: Use the modern db.get() syntax to remove the warning
         obj = db.get(self.model, id)
         if not obj:
-            # Added a check for safety
             return None
         setattr(obj, "is_archived", True)
         db.add(obj)
         db.commit()
         db.refresh(obj)
         return obj
+
+    # --- ADD THIS NEW METHOD ---
+    def restore(self, db: Session, *, id: str) -> Optional[ModelType]:
+        """
+        Restores a soft-deleted object by setting its 'is_archived' flag to False.
+        """
+        obj = db.get(self.model, id)
+        if not obj:
+            return None
+        setattr(obj, "is_archived", False)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+    # -------------------------

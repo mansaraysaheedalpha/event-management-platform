@@ -40,6 +40,7 @@ class Event(BaseModel):
 
 
 class EventCreate(BaseModel):
+    owner_id: str  # <-- ADD THIS LINE
     name: str = Field(..., json_schema_extra={"example": "Global AI Summit"})
     description: Optional[str] = Field(
         None, json_schema_extra={"example": "The premier event for AI enthusiasts."}

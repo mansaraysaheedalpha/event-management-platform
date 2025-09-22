@@ -5,6 +5,7 @@ from typing import Optional, List
 from strawberry.types import Info
 from fastapi import HTTPException
 from .. import crud
+from datetime import datetime
 from ..schemas.event import EventCreate, EventUpdate
 from ..schemas.session import SessionCreate
 from ..schemas.registration import RegistrationCreate
@@ -34,6 +35,7 @@ class EventUpdateInput:
 class SessionCreateInput:
     eventId: str
     title: str
+    sessionDate: str
     startTime: str
     endTime: str
     speakerIds: Optional[List[str]] = None
@@ -50,14 +52,21 @@ class RegistrationCreateInput:
 @strawberry.type
 class Mutation:
     @strawberry.mutation
-    def create_event(self, eventIn: EventCreateInput, info: Info) -> EventType:
-        if not info.context.user or not info.context.user.get("orgId"):
+    def createEvent(
+        self, eventIn: EventCreateInput, info: Info
+    ) -> EventType:  # Renamed to createEvent
+        user = info.context.user
+        if (
+            not user or not user.get("orgId") or not user.get("sub")
+        ):  # Check for user ID
             raise HTTPException(status_code=403, detail="Not authorized")
 
         db = info.context.db
-        org_id = info.context.user["orgId"]
+        org_id = user["orgId"]
+        user_id = user["sub"]  # Get user ID from token
 
         event_schema = EventCreate(
+            owner_id=user_id,  # <-- PASS THE OWNER ID
             name=eventIn.name,
             description=eventIn.description,
             start_date=eventIn.startDate,
@@ -71,13 +80,34 @@ class Mutation:
         return event
 
     @strawberry.mutation
-    def create_session(self, sessionIn: SessionCreateInput, info: Info) -> SessionType:
+    def createSession(self, sessionIn: SessionCreateInput, info: Info) -> SessionType:
         if not info.context.user or not info.context.user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
+
         db = info.context.db
-        session_schema = SessionCreate(**sessionIn.__dict__)
+        producer = info.context.producer  # <-- Get the producer from the context
+
+        try:
+            session_date_obj = datetime.fromisoformat(sessionIn.sessionDate).date()
+            start_time_obj = datetime.strptime(sessionIn.startTime, "%H:%M").time()
+            end_time_obj = datetime.strptime(sessionIn.endTime, "%H:%M").time()
+            full_start_datetime = datetime.combine(session_date_obj, start_time_obj)
+            full_end_datetime = datetime.combine(session_date_obj, end_time_obj)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date or time format. Use YYYY-MM-DD and HH:MM.",
+            )
+
+        session_schema = SessionCreate(
+            title=sessionIn.title,
+            start_time=full_start_datetime,
+            end_time=full_end_datetime,
+            speaker_ids=sessionIn.speakerIds,
+        )
+
         return crud.session.create_with_event(
-            db, obj_in=session_schema, event_id=sessionIn.eventId
+            db, obj_in=session_schema, event_id=sessionIn.eventId, producer=producer
         )
 
     @strawberry.mutation
@@ -157,20 +187,24 @@ class Mutation:
         )
 
     @strawberry.mutation
-    def update_event(self, id: str, eventIn: EventUpdateInput, info: Info) -> EventType:
-        if not info.context.user or not info.context.user.get("sub"):
+    def updateEvent(self, id: str, eventIn: EventUpdateInput, info: Info) -> EventType: # Renamed to updateEvent
+        user = info.context.user
+        if not user or not user.get("sub"):
             raise HTTPException(status_code=403, detail="Not authorized")
 
         db = info.context.db
-        user_id = info.context.user["sub"]
+        user_id = user["sub"]
         db_obj = crud.event.get(db, id=id)
 
         if not db_obj:
             raise HTTPException(status_code=404, detail="Event not found")
 
-        # Convert Strawberry input to Pydantic schema
+        # --- THIS IS THE OWNERSHIP CHECK ---
+        if db_obj.owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to edit this event")
+        # ------------------------------------
+
         update_data = {k: v for k, v in eventIn.__dict__.items() if v is not None}
-        # Manual mapping for consistency
         if "startDate" in update_data:
             update_data["start_date"] = update_data.pop("startDate")
         if "endDate" in update_data:
@@ -181,22 +215,50 @@ class Mutation:
             update_data["is_public"] = update_data.pop("isPublic")
 
         update_schema = EventUpdate(**update_data)
-
-        event = crud.event.update(
-            db, db_obj=db_obj, obj_in=update_schema, user_id=user_id
-        )
+        event = crud.event.update(db, db_obj=db_obj, obj_in=update_schema, user_id=user_id)
         return event
 
     @strawberry.mutation
-    def archive_event(self, id: str, info: Info) -> EventType:
-        if not info.context.user or not info.context.user.get("sub"):
+    def archiveEvent(self, id: str, info: Info) -> EventType: # Renamed to archiveEvent
+        user = info.context.user
+        if not user or not user.get("sub"):
             raise HTTPException(status_code=403, detail="Not authorized")
 
         db = info.context.db
-        user_id = info.context.user["sub"]
-        event = crud.event.archive(db, id=id, user_id=user_id)
+        user_id = user["sub"]
+        db_obj = crud.event.get(db, id=id) # Get the event first to check ownership
 
-        if not event:
+        if not db_obj:
             raise HTTPException(status_code=404, detail="Event not found")
 
+        # --- THIS IS THE OWNERSHIP CHECK ---
+        if db_obj.owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to archive this event")
+        # ------------------------------------
+
+        event = crud.event.archive(db, id=id, user_id=user_id)
         return event
+
+    # --- ADD THIS NEW MUTATION ---
+    @strawberry.mutation
+    def restoreEvent(self, id: str, info: Info) -> EventType:
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        db = info.context.db
+        user_id = user["sub"]
+        db_obj = crud.event.get(db, id=id)
+
+        if not db_obj:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        if db_obj.owner_id != user_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to restore this event"
+            )
+
+        event = crud.event.restore(db, id=id, user_id=user_id)
+        return event
+
+    # -----------------------------
