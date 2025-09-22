@@ -12,12 +12,6 @@ from kafka import KafkaProducer
 
 
 class CRUDSession(CRUDBase[Session, SessionCreate, SessionUpdate]):
-    def get(self, db: Session, *, event_id: str, session_id: str) -> Optional[Session]:
-        return (
-            db.query(self.model)
-            .filter(self.model.id == session_id, self.model.event_id == event_id)
-            .first()
-        )
 
     def get_multi_by_event(
         self, db: Session, *, event_id: str, skip: int = 0, limit: int = 100
