@@ -1,8 +1,13 @@
 # app/graphql/types.py
 import strawberry
-import typing
+import typing 
+from typing import Optional
+import json
 from datetime import datetime
 from ..models.event import Event as EventModel
+from .. import crud
+from strawberry.types import Info
+from ..models.venue import Venue as VenueModel
 from ..models.registration import Registration as RegistrationModel
 from ..models.session import Session as SessionModel
 
@@ -25,6 +30,7 @@ class User:
     id: strawberry.ID = strawberry.federation.field(external=True)
     first_name: str = strawberry.federation.field(external=True)
     last_name: str = strawberry.federation.field(external=True)
+    email: str = strawberry.federation.field(external=True)
 
 
 @strawberry.type
@@ -34,6 +40,15 @@ class SpeakerType:
     name: str
     bio: typing.Optional[str]
     expertise: typing.Optional[list[str]]
+    is_archived: bool
+
+
+@strawberry.type
+class VenueType:
+    id: str
+    organization_id: str
+    name: str
+    address: Optional[str]
     is_archived: bool
 
 
@@ -93,8 +108,13 @@ class EventType:
         return root["end_date"] if isinstance(root, dict) else root.end_date
 
     @strawberry.field
-    def venueId(self, root) -> typing.Optional[str]:
-        return root.get("venue_id") if isinstance(root, dict) else root.venue_id
+    def venue(self, info: Info, root: EventModel) -> Optional[VenueType]:
+        """Resolves the full Venue object from the venue_id stored on the event."""
+        db = info.context.db
+        venue_id = root.get("venue_id") if isinstance(root, dict) else root.venue_id
+        if venue_id:
+            return crud.venue.get(db, id=venue_id)
+        return None
 
     @strawberry.field
     def isPublic(self, root) -> bool:
@@ -137,9 +157,6 @@ class SessionType:
     def speakers(self, root: SessionModel) -> typing.List[SpeakerType]:
         return root.speakers
 
-
-# ------------------------------------
-
 @strawberry.type
 class RegistrationType:
     id: str
@@ -164,5 +181,18 @@ class RegistrationType:
     @strawberry.field
     def user(self, root: RegistrationModel) -> typing.Optional["User"]:
         if root.user_id:
-            return User(id=root.user_id)
+            return User(id=root.user_id, first_name="", last_name="", email="")
         return None
+
+
+@strawberry.type
+class BlueprintType:
+    id: str
+    organization_id: str
+    name: str
+    description: Optional[str]
+
+    @strawberry.field
+    def template(self, root) -> str:
+        # The template is stored as JSONB, so we serialize it to a string for GraphQL
+        return json.dumps(root.template)

@@ -8,7 +8,10 @@ from ..schemas.event import EventCreate, EventUpdate
 from ..schemas.session import SessionCreate, SessionUpdate
 from ..schemas.registration import RegistrationCreate
 from ..schemas.speaker import SpeakerCreate, SpeakerUpdate
-from .types import EventType, SessionType, RegistrationType, SpeakerType
+from ..schemas.venue import VenueCreate, VenueUpdate
+from .types import EventType, SessionType, RegistrationType, SpeakerType, VenueType
+from ..schemas.blueprint import BlueprintCreate # <-- Import BlueprintCreate
+from .types import EventType, BlueprintType 
 
 
 # --- All Input types defined at the top ---
@@ -69,6 +72,32 @@ class SessionUpdateInput:
     startTime: Optional[str] = None
     endTime: Optional[str] = None
     speakerIds: Optional[List[str]] = None
+
+
+@strawberry.input
+class VenueCreateInput:
+    name: str
+    address: Optional[str] = None
+
+
+@strawberry.input
+class VenueUpdateInput:
+    name: Optional[str] = None
+    address: Optional[str] = None
+
+
+@strawberry.input
+class BlueprintCreateInput:
+    name: str
+    description: Optional[str] = None
+    eventId: str  # The ID of the event to use as a template
+
+
+@strawberry.input
+class InstantiateBlueprintInput:
+    name: str
+    startDate: str
+    endDate: str
 
 
 # --- Main Mutation Class ---
@@ -158,6 +187,33 @@ class Mutation:
                 status_code=403, detail="Not authorized to archive this event"
             )
         return crud.event.restore(db, id=id, user_id=user_id)
+
+    @strawberry.mutation
+    def publishEvent(self, id: str, info: Info) -> EventType:
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        db = info.context.db
+        user_id = user["sub"]
+        user_role = user.get("role")
+
+        event_to_publish = crud.event.get(db, id=id)
+        if not event_to_publish:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        if event_to_publish.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to publish this event"
+            )
+
+        if event_to_publish.status != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot publish event with status '{event_to_publish.status}'",
+            )
+
+        return crud.event.publish(db, db_obj=event_to_publish, user_id=user_id)
 
     @strawberry.mutation
     def createSession(self, sessionIn: SessionCreateInput, info: Info) -> SessionType:
@@ -289,6 +345,47 @@ class Mutation:
         return crud.speaker.archive(db, id=id)
 
     @strawberry.mutation
+    def createVenue(self, venueIn: VenueCreateInput, info: Info) -> VenueType:
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        venue_schema = VenueCreate(**venueIn.__dict__)
+        return crud.venue.create_with_organization(
+            db, obj_in=venue_schema, org_id=org_id
+        )
+
+    @strawberry.mutation
+    def updateVenue(self, id: str, venueIn: VenueUpdateInput, info: Info) -> VenueType:
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        venue = crud.venue.get(db, id=id)
+        if not venue or venue.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Venue not found")
+
+        update_schema = VenueUpdate(
+            **{k: v for k, v in venueIn.__dict__.items() if v is not None}
+        )
+        return crud.venue.update(db, db_obj=venue, obj_in=update_schema)
+
+    @strawberry.mutation
+    def archiveVenue(self, id: str, info: Info) -> VenueType:
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        venue = crud.venue.get(db, id=id)
+        if not venue or venue.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Venue not found")
+
+        return crud.venue.archive(db, id=id)
+
+    @strawberry.mutation
     def create_registration(
         self, registrationIn: RegistrationCreateInput, eventId: str, info: Info
     ) -> RegistrationType:
@@ -317,7 +414,7 @@ class Mutation:
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
 
-        user = info.context.get("user")
+        user = info.context.user
         if not event.is_public and not user:
             raise HTTPException(
                 status_code=403,
@@ -354,3 +451,56 @@ class Mutation:
         return crud.registration.create_for_event(
             db, obj_in=reg_schema, event_id=eventId
         )
+
+    @strawberry.mutation
+    def createBlueprint(self, blueprintIn: BlueprintCreateInput, info: Info) -> BlueprintType:
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+
+        # Fetch the source event to create the template
+        source_event = crud.event.get(db, id=blueprintIn.eventId)
+        if not source_event or source_event.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Source event not found")
+
+        # Create the template object from the source event's data
+        template_data = {
+            "description": source_event.description,
+            "is_public": source_event.is_public,
+            # Add any other fields you want to save in the template
+        }
+        
+        blueprint_schema = BlueprintCreate(
+            name=blueprintIn.name,
+            description=blueprintIn.description,
+            template=template_data
+        )
+        return crud.blueprint.create_with_organization(db, obj_in=blueprint_schema, org_id=org_id)
+
+    @strawberry.mutation
+    def instantiateBlueprint(self, id: str, blueprintIn: InstantiateBlueprintInput, info: Info) -> EventType:
+        user = info.context.user
+        if not user or not user.get("orgId") or not user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        db = info.context.db
+        org_id = user["orgId"]
+        user_id = user["sub"]
+
+        blueprint = crud.blueprint.get(db, id=id)
+        if not blueprint or blueprint.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Blueprint not found")
+
+        # Combine blueprint template with new user-provided data
+        event_data = {
+            **blueprint.template,
+            "owner_id": user_id,
+            "name": blueprintIn.name,
+            "start_date": blueprintIn.startDate,
+            "end_date": blueprintIn.endDate,
+        }
+        
+        event_schema = EventCreate(**event_data)
+        return crud.event.create_with_organization(db, obj_in=event_schema, org_id=org_id)

@@ -191,6 +191,7 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
 
     def publish(self, db: Session, *, db_obj: Event, user_id: str | None) -> Event:
         db_obj.status = "published"
+        db_obj.is_public = True  # <-- THIS IS THE FIX
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
@@ -200,9 +201,11 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
             event_id=db_obj.id,
             event_type="EventPublished",
             user_id=user_id,
-            data={"status": "published"},
+            data={"status": "published", "is_public": True},
         )
         return db_obj
+
+    # ------------------------------------
 
     def archive(self, db: Session, *, id: str, user_id: str | None) -> Event:
         # Call the original archive method from the base class
