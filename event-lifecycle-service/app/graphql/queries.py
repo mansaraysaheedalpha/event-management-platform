@@ -12,9 +12,10 @@ from .types import (
     RegistrationType,
     EventsPayload,
     EventStatsType,
-    VenueType
+    VenueType,
+    BlueprintType,
+    DomainEventType,
 )
-from .types import BlueprintType
 
 
 @strawberry.type
@@ -155,13 +156,13 @@ class Query:
             raise HTTPException(status_code=403, detail="Not authorized")
         db = info.context.db
         org_id = user["orgId"]
-        
+
         venue_obj = crud.venue.get(db, id=str(id))
         if not venue_obj or venue_obj.organization_id != org_id:
             return None
-        
+
         return venue_obj
-    
+
     @strawberry.field
     def registrationsByEvent(
         self, eventId: strawberry.ID, info: Info
@@ -170,7 +171,7 @@ class Query:
             raise HTTPException(status_code=403, detail="Not authorized")
         db = info.context.db
         return crud.registration.get_multi_by_event(db, event_id=str(eventId))
-    
+
     @strawberry.field
     def organizationBlueprints(self, info: Info) -> List[BlueprintType]:
         user = info.context.user
@@ -179,3 +180,22 @@ class Query:
         db = info.context.db
         org_id = user["orgId"]
         return crud.blueprint.get_multi_by_organization(db, org_id=org_id)
+
+    @strawberry.field
+    def eventHistory(self, eventId: strawberry.ID, info: Info) -> List[DomainEventType]:
+        """
+        Retrieves a chronological log of all domain events for a specific event.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        db = info.context.db
+        org_id = user["orgId"]
+
+        # First, verify the user has access to this event
+        event = crud.event.get(db, id=str(eventId))
+        if not event or event.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        return crud.domain_event.get_for_event(db, event_id=str(eventId))

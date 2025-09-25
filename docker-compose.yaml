@@ -10,6 +10,7 @@ volumes:
   postgres-user-org-data:
   postgres-real-time-data:
   postgres-oracle-ai-data:
+  minio-data:
   redis-data:
 
 services:
@@ -157,7 +158,44 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      
+    
+  minio:
+    image: minio/minio
+    container_name: minio
+    restart: always
+    ports:
+      - "9000:9000"  # API Port
+      - "9001:9001"  # Console/Dashboard Port
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  create-minio-bucket:
+    image: minio/mc
+    container_name: minio-mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY};
+      /usr/bin/mc mb local/${AWS_S3_BUCKET_NAME} --ignore-existing;
+      /usr/bin/mc policy set public local/${AWS_S3_BUCKET_NAME};
+      exit 0;
+      "
+    networks:
+      - platform-network
+
   # --- APPLICATION SERVICES ---
   apollo-gateway:
     build:
@@ -285,6 +323,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    environment:
+      - DATABASE_URL=postgresql://${REAL_TIME_DB_USER}:${REAL_TIME_DB_PASSWORD}@postgres-real-time:5432/${REAL_TIME_DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
     env_file:
       - ./.env
 
