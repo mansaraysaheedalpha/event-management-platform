@@ -10,8 +10,8 @@ from ..schemas.registration import RegistrationCreate
 from ..schemas.speaker import SpeakerCreate, SpeakerUpdate
 from ..schemas.venue import VenueCreate, VenueUpdate
 from .types import EventType, SessionType, RegistrationType, SpeakerType, VenueType
-from ..schemas.blueprint import BlueprintCreate # <-- Import BlueprintCreate
-from .types import EventType, BlueprintType 
+from ..schemas.blueprint import BlueprintCreate  # <-- Import BlueprintCreate
+from .types import EventType, BlueprintType
 
 
 # --- All Input types defined at the top ---
@@ -22,6 +22,7 @@ class EventCreateInput:
     startDate: str
     endDate: str
     venueId: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
 @strawberry.input
@@ -32,6 +33,7 @@ class EventUpdateInput:
     endDate: Optional[str] = None
     venueId: Optional[str] = None
     isPublic: Optional[bool] = None
+    imageUrl: Optional[str] = None
 
 
 @strawberry.input
@@ -118,6 +120,7 @@ class Mutation:
             start_date=eventIn.startDate,
             end_date=eventIn.endDate,
             venue_id=eventIn.venueId,
+            image_url=eventIn.imageUrl,
         )
         return crud.event.create_with_organization(
             db, obj_in=event_schema, org_id=org_id
@@ -148,6 +151,8 @@ class Mutation:
             update_data["venue_id"] = update_data.pop("venueId")
         if "isPublic" in update_data:
             update_data["is_public"] = update_data.pop("isPublic")
+        if "imageUrl" in update_data:
+            update_data["image_url"] = update_data.pop("imageUrl")
 
         update_schema = EventUpdate(**update_data)
         return crud.event.update(
@@ -386,12 +391,12 @@ class Mutation:
         return crud.venue.archive(db, id=id)
 
     @strawberry.mutation
-    def create_registration(
+    def createRegistration(
         self, registrationIn: RegistrationCreateInput, eventId: str, info: Info
     ) -> RegistrationType:
         db = info.context.db
         is_guest_reg = registrationIn.email is not None
-        is_user_reg = registrationIn.user_id is not None
+        is_user_reg = registrationIn.userId is not None
         if is_guest_reg and is_user_reg:
             raise HTTPException(
                 status_code=400,
@@ -403,7 +408,7 @@ class Mutation:
                 detail="Either user_id or guest details must be provided.",
             )
         if is_guest_reg and (
-            not registrationIn.first_name or not registrationIn.last_name
+            not registrationIn.firstName or not registrationIn.lastName
         ):
             raise HTTPException(
                 status_code=400,
@@ -421,8 +426,8 @@ class Mutation:
                 detail="You must be logged in to register for this private event.",
             )
 
-        if registrationIn.user_id and (
-            not user or user.get("sub") != registrationIn.user_id
+        if registrationIn.userId and (
+            not user or user.get("sub") != registrationIn.userId
         ):
             raise HTTPException(
                 status_code=403,
@@ -430,10 +435,10 @@ class Mutation:
             )
 
         reg_schema = RegistrationCreate(
-            user_id=registrationIn.user_id,
+            user_id=registrationIn.userId,
             email=registrationIn.email,
-            first_name=registrationIn.first_name,
-            last_name=registrationIn.last_name,
+            first_name=registrationIn.firstName,
+            last_name=registrationIn.lastName,
         )
 
         existing_reg = crud.registration.get_by_user_or_email(
@@ -453,7 +458,9 @@ class Mutation:
         )
 
     @strawberry.mutation
-    def createBlueprint(self, blueprintIn: BlueprintCreateInput, info: Info) -> BlueprintType:
+    def createBlueprint(
+        self, blueprintIn: BlueprintCreateInput, info: Info
+    ) -> BlueprintType:
         user = info.context.user
         if not user or not user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
@@ -471,20 +478,24 @@ class Mutation:
             "is_public": source_event.is_public,
             # Add any other fields you want to save in the template
         }
-        
+
         blueprint_schema = BlueprintCreate(
             name=blueprintIn.name,
             description=blueprintIn.description,
-            template=template_data
+            template=template_data,
         )
-        return crud.blueprint.create_with_organization(db, obj_in=blueprint_schema, org_id=org_id)
+        return crud.blueprint.create_with_organization(
+            db, obj_in=blueprint_schema, org_id=org_id
+        )
 
     @strawberry.mutation
-    def instantiateBlueprint(self, id: str, blueprintIn: InstantiateBlueprintInput, info: Info) -> EventType:
+    def instantiateBlueprint(
+        self, id: str, blueprintIn: InstantiateBlueprintInput, info: Info
+    ) -> EventType:
         user = info.context.user
         if not user or not user.get("orgId") or not user.get("sub"):
             raise HTTPException(status_code=403, detail="Not authorized")
-        
+
         db = info.context.db
         org_id = user["orgId"]
         user_id = user["sub"]
@@ -501,6 +512,8 @@ class Mutation:
             "start_date": blueprintIn.startDate,
             "end_date": blueprintIn.endDate,
         }
-        
+
         event_schema = EventCreate(**event_data)
-        return crud.event.create_with_organization(db, obj_in=event_schema, org_id=org_id)
+        return crud.event.create_with_organization(
+            db, obj_in=event_schema, org_id=org_id
+        )

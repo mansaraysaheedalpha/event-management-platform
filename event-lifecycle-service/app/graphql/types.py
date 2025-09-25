@@ -196,3 +196,26 @@ class BlueprintType:
     def template(self, root) -> str:
         # The template is stored as JSONB, so we serialize it to a string for GraphQL
         return json.dumps(root.template)
+
+
+@strawberry.type
+class DomainEventType:
+    id: str
+    timestamp: datetime
+
+    @strawberry.field
+    def eventType(self, root) -> str:
+        # Maps the 'event_type' from the database to 'eventType' in GraphQL
+        return root.event_type
+
+    @strawberry.field
+    def userId(self, root) -> Optional[str]:
+        # Maps the 'user_id' from the database to 'userId' in GraphQL
+        return root.user_id
+
+    @strawberry.field
+    def data(self, root) -> Optional[str]:
+        # The `data` field is JSONB, so we serialize it to a string for GraphQL
+        if root.data:
+            return json.dumps(root.data)
+        return None
