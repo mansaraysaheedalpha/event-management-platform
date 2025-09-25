@@ -6,7 +6,7 @@ from kafka import KafkaProducer
 from app.schemas.session import Session as SessionSchema, SessionCreate, SessionUpdate
 from app.schemas.token import TokenPayload
 from app.api import deps
-from app.db.session import get_db  # <-- CORRECT IMPORT
+from app.db.session import get_db
 from app.crud import crud_session, crud_event
 from app.core.kafka_producer import get_kafka_producer
 
@@ -56,6 +56,7 @@ def list_sessions(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
         )
+    # This part is okay because it's already scoped to the eventId
     return crud_session.session.get_multi_by_event(db=db, event_id=eventId)
 
 
@@ -75,10 +76,17 @@ def get_session(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
         )
-    session = crud_session.session.get(db=db, event_id=eventId, session_id=sessionId)
+
+    # --- FIX: Changed to a two-step verification ---
+    session = crud_session.session.get(db=db, id=sessionId)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if session.event_id != eventId:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Session does not belong to this event",
         )
     return session
 
@@ -100,10 +108,17 @@ def update_session(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
         )
-    session = crud_session.session.get(db=db, event_id=eventId, session_id=sessionId)
+
+    # --- FIX: Changed to a two-step verification ---
+    session = crud_session.session.get(db=db, id=sessionId)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if session.event_id != eventId:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Session does not belong to this event",
         )
     return crud_session.session.update(db=db, db_obj=session, obj_in=session_in)
 
@@ -124,10 +139,17 @@ def delete_session(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
         )
-    session = crud_session.session.get(db=db, event_id=eventId, session_id=sessionId)
+
+    # --- FIX: Changed to a two-step verification ---
+    session = crud_session.session.get(db=db, id=sessionId)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if session.event_id != eventId:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Session does not belong to this event",
         )
     crud_session.session.archive(db=db, id=sessionId)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,8 +1,8 @@
-#app/schemas/session.py
+# app/schemas/session.py
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
-from .speaker import Speaker  # <-- Import Speaker schema
+from .speaker import Speaker
 
 
 class Session(BaseModel):
@@ -12,20 +12,22 @@ class Session(BaseModel):
     start_time: datetime
     end_time: datetime
     speakers: List[Speaker] = []
+    model_config = {"from_attributes": True}
 
-    model_config = { "from_attributes": True }
 
-
+# --- THIS IS THE CORRECTED VERSION ---
 class SessionCreate(BaseModel):
-    title: str = Field(..., json_schema_extra={"example":"The Future of LLM's"})
-    start_time: datetime
-    end_time: datetime
-    # When creating, the client just sends a list of speaker IDs
+    title: str = Field(..., json_schema_extra={"example": "The Future of LLM's"})
+    start_time: datetime  # It expects the final, combined datetime
+    end_time: datetime  # It expects the final, combined datetime
     speaker_ids: Optional[List[str]] = []
+
+
+# ------------------------------------
 
 
 class SessionUpdate(BaseModel):
     title: Optional[str] = None
     start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None 
+    end_time: Optional[datetime] = None
     speaker_ids: Optional[List[str]] = None

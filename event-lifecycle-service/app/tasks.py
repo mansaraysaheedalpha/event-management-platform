@@ -1,26 +1,26 @@
 # app/tasks.py
-
 import os
 import shutil
 from pathlib import Path
 from pdf2image import convert_from_path
 from sqlalchemy.orm import Session
-import boto3
 
 from app.worker import celery_app
 from app.db.session import SessionLocal
 from app.crud import crud_presentation
 from app.core.config import settings
+from app.core.s3 import get_s3_client  # --- CHANGE: Import the new helper ---
 
 
 @celery_app.task
 def process_presentation(session_id: str, s3_key: str):
     """
-    Celery task to download a PDF from S3, convert it to images,
-    upload them back to S3, and update the database.
+    Celery task to download a PDF, convert it to images, upload them back,
+    and update the database.
     """
     db: Session = SessionLocal()
-    s3_client = boto3.client("s3", region_name=settings.AWS_S3_REGION)
+    # --- CHANGE: Use the centralized S3 client function ---
+    s3_client = get_s3_client()
 
     temp_dir = Path(f"/tmp/{session_id}")
     os.makedirs(temp_dir, exist_ok=True)
@@ -44,18 +44,33 @@ def process_presentation(session_id: str, s3_key: str):
                 str(temp_image_path),
                 settings.AWS_S3_BUCKET_NAME,
                 public_s3_key,
-                ExtraArgs={"ACL": "public-read"},  # Make slides publicly viewable
+                ExtraArgs={"ACL": "public-read", "ContentType": "image/jpeg"},
             )
 
             # Construct the public URL
-            public_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{public_s3_key}"
+            if settings.AWS_S3_ENDPOINT_URL:
+                # For MinIO, the URL structure is slightly different
+                public_url = f"{settings.AWS_S3_ENDPOINT_URL}/{settings.AWS_S3_BUCKET_NAME}/{public_s3_key}"
+            else:
+                # For AWS S3
+                public_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{public_s3_key}"
+
             slide_urls.append(public_url)
 
         # 4. Update the database with the public slide URLs
         if slide_urls:
-            crud_presentation.presentation.create_with_session(
-                db, session_id=session_id, slide_urls=slide_urls
+            # Check if a presentation already exists and update it, or create a new one
+            existing_presentation = crud_presentation.presentation.get_by_session(
+                db, session_id=session_id
             )
+            if existing_presentation:
+                crud_presentation.presentation.update(
+                    db, db_obj=existing_presentation, obj_in={"slide_urls": slide_urls}
+                )
+            else:
+                crud_presentation.presentation.create_with_session(
+                    db, session_id=session_id, slide_urls=slide_urls
+                )
 
     finally:
         # 5. Clean up temporary local files

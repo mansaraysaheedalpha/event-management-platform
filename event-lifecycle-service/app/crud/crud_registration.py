@@ -48,16 +48,19 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
         self, db: Session, *, event_id: str, skip: int = 0, limit: int = 100
     ) -> list[Registration]:
         """
-        Fetches registrations for a specific event. The user details will be
-        resolved by the GraphQL gateway, so we don't need to eager-load them here.
+        Fetches registrations for a specific event.
         """
         return (
             db.query(self.model)
-            .filter(self.model.event_id == event_id)
+            .filter(
+                self.model.event_id == event_id,
+                self.model.is_archived == 'false'  # <-- THIS IS THE FIX
+            )
             .offset(skip)
             .limit(limit)
             .all()
         )
+
 
     def get_count_by_event(self, db: Session, *, event_id: str) -> int:
         """
