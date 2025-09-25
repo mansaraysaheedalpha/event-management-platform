@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from app.db.base_class import Base
 from app.db.session import engine
 from app.graphql.router import graphql_router
+from fastapi.middleware.cors import CORSMiddleware
 
 
 # ✅ THE FINAL FIX: The Lifespan Event Handler
@@ -48,6 +49,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+origins = [
+    "http://localhost:3000",
+    # You would add your production frontend URL here as well
+    # e.g., "https://www.globalconnect.com"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allow specific origins
+    allow_credentials=True,  # Allow cookies and authorization headers
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(graphql_router, prefix="/graphql")

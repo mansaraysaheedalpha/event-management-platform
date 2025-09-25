@@ -1,5 +1,4 @@
 # app/models/event.py
-
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, text
 from app.db.base_class import Base
 import uuid
@@ -12,6 +11,7 @@ class Event(Base):
         String, primary_key=True, default=lambda: f"evt_{uuid.uuid4().hex[:12]}"
     )
     organization_id = Column(String, nullable=False, index=True)
+    owner_id = Column(String, nullable=False, index=True)  # <-- ADD THIS LINE
     name = Column(String, nullable=False)
     version = Column(Integer, nullable=False, server_default=text("1"))
     description = Column(String, nullable=True)
@@ -23,5 +23,4 @@ class Event(Base):
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     createdAt = Column(DateTime, nullable=False, server_default=text("now()"))
     updatedAt = Column(DateTime, nullable=False, server_default=text("now()"))
-
     imageUrl = Column(String, nullable=True)
