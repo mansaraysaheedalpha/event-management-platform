@@ -30,6 +30,10 @@ class Query:
             return None
 
         # --- NEW SECURITY CHECK ---
+        # If the user is authenticated, they must belong to the same organization.
+        if user and event_obj.organization_id != user.get("orgId"):
+            return None
+
         # If the user is not authenticated, only show public, non-archived events.
         if not user and (not event_obj.is_public or event_obj.is_archived):
             return None
@@ -72,8 +76,8 @@ class Query:
         info: Info,
         search: typing.Optional[str] = None,
         status: typing.Optional[str] = None,
-        sortBy: typing.Optional[str] = None,
-        sortDirection: typing.Optional[str] = None,
+        sortBy: typing.Optional[str] = "start_date",
+        sortDirection: typing.Optional[str] = "desc",
         limit: typing.Optional[int] = 100,
         offset: typing.Optional[int] = 0,
     ) -> EventsPayload:
@@ -134,9 +138,17 @@ class Query:
 
     @strawberry.field
     def sessionsByEvent(self, eventId: strawberry.ID, info: Info) -> List[SessionType]:
-        if not info.context.user or not info.context.user.get("orgId"):
+        user = info.context.user
+        if not user or not user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
         db = info.context.db
+        org_id = user["orgId"]
+
+        # First, verify the user has access to this event
+        event = crud.event.get(db, id=str(eventId))
+        if not event or event.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Event not found")
+
         return crud.session.get_multi_by_event(db, event_id=str(eventId))
 
     @strawberry.field
