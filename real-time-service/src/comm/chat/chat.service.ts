@@ -60,10 +60,10 @@ export class ChatService {
       throw new ConflictException('Duplicate message request.');
     }
 
-    const session = await this.prisma.chatSession.findUnique({
+    const session = (await this.prisma.chatSession.findUnique({
       where: { id: sessionId },
       select: { participants: true },
-    });
+    })) as { participants: string[] } | null;
     if (!session) {
       throw new NotFoundException('Session not found.');
     }
