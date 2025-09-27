@@ -15,6 +15,8 @@ import cors from "cors";
 import { json } from "body-parser";
 import { expressMiddleware } from "@apollo/server/express4";
 import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHttpServer";
+import { createProxyMiddleware } from "http-proxy-middleware";
+import type { Options as HttpProxyMiddlewareOptions } from "http-proxy-middleware";
 // -----------------------------
 
 // We no longer need the JWT secret in the gateway
@@ -65,6 +67,49 @@ async function startServer() {
   });
 
   await server.start();
+
+  // --- ADD THE NEW PROXY MIDDLEWARE ---
+  const eventServiceUrl = process.env.EVENT_LIFECYCLE_SERVICE_URL?.replace(
+    "/graphql",
+    ""
+  );
+  if (eventServiceUrl) {
+    interface ProxyRequestHandlerOptions extends HttpProxyMiddlewareOptions {
+      onProxyReq?: (
+      proxyReq: http.ClientRequest,
+      req: express.Request,
+      res: express.Response
+      ) => void;
+    }
+
+    app.use(
+      "/api",
+      cors<cors.CorsRequest>({
+      origin: process.env.CLIENT_URL || "http://localhost:3000",
+      credentials: true,
+      }),
+      createProxyMiddleware({
+      target: eventServiceUrl,
+      changeOrigin: true,
+      onProxyReq: (
+        proxyReq: http.ClientRequest,
+        req: express.Request,
+        res: express.Response
+      ) => {
+        // Forward the original authorization header
+        if (req.headers.authorization) {
+        proxyReq.setHeader("Authorization", req.headers.authorization);
+        }
+      },
+      } as ProxyRequestHandlerOptions)
+    );
+    console.log(`📬 Proxying REST requests for /api to ${eventServiceUrl}`);
+  } else {
+    console.error(
+      "EVENT_LIFECYCLE_SERVICE_URL is not defined. REST proxy will not be enabled."
+    );
+  }
+  // ------------------------------------
 
   app.use(
     "/graphql",

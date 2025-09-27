@@ -49,11 +49,11 @@ export class ChatGateway {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
-      const newMessage = await this.chatService.sendMessage(
+      const newMessage = (await this.chatService.sendMessage(
         user.sub,
         sessionId,
         dto,
-      );
+      )) as { id: string }; // Ensure the expected type is asserted
       const publicRoom = `session:${sessionId}`;
       this.server.to(publicRoom).emit('chat.message.new', newMessage);
       return { success: true, messageId: newMessage.id };
@@ -89,7 +89,10 @@ export class ChatGateway {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
-      const editedMessage = await this.chatService.editMessage(user.sub, dto);
+      const editedMessage = (await this.chatService.editMessage(
+        user.sub,
+        dto,
+      )) as { id: string };
       const publicRoom = `session:${sessionId}`;
       this.server.to(publicRoom).emit('chat.message.updated', editedMessage);
       return { success: true, messageId: editedMessage.id };
@@ -125,14 +128,17 @@ export class ChatGateway {
 
     try {
       // The service handles the complex permission logic
-      const { deletedMessageId, sessionId } =
-        await this.chatService.deleteMessage(user.sub, dto, user.permissions);
+      const deleteResult = await this.chatService.deleteMessage(
+        user.sub,
+        dto,
+        user.permissions,
+      );
 
-      const publicRoom = `session:${sessionId}`;
-      const payload = { messageId: deletedMessageId };
+      const publicRoom = `session:${deleteResult.sessionId}`;
+      const payload = { messageId: deleteResult.deletedMessageId };
       this.server.to(publicRoom).emit('chat.message.deleted', payload);
 
-      return { success: true, deletedMessageId };
+      return { success: true, deletedMessageId: deleteResult.deletedMessageId };
     } catch (error) {
       this.logger.error(
         `Failed to delete message for user ${user.sub}:`,
@@ -160,10 +166,10 @@ export class ChatGateway {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
-      const updatedMessageWithReactions = await this.chatService.reactToMessage(
-        user.sub,
-        dto,
-      );
+      const updatedMessageWithReactions: {
+        id: string;
+        [key: string]: any;
+      } | null = await this.chatService.reactToMessage(user.sub, dto);
 
       if (updatedMessageWithReactions) {
         const publicRoom = `session:${sessionId}`;
