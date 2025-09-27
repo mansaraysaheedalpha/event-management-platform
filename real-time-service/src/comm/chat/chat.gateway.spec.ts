@@ -5,7 +5,8 @@ import { ChatService } from './chat.service';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Handshake } from 'socket.io/dist/socket-types';
+// import { Handshake } from 'socket.io/dist/socket-types';
+import { Socket } from 'socket.io';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 
 jest.mock('src/common/utils/auth.utils');
@@ -27,8 +28,7 @@ const mockIoServer = {
 
 describe('ChatGateway', () => {
   let gateway: ChatGateway;
-
-  const mockHandshake: Handshake = {
+  const mockHandshake: Socket['handshake'] = {
     headers: {},
     time: new Date().toUTCString(),
     address: '127.0.0.1',
