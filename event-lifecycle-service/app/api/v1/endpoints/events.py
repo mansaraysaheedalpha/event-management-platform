@@ -149,7 +149,38 @@ def delete_event(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ADD THIS NEW ENDPOINT
+@router.post(
+    "/organizations/{orgId}/events/{eventId}/restore", response_model=EventSchema
+)
+def restore_event(
+    orgId: str,
+    eventId: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Restores a soft-deleted (archived) event.
+    """
+    if current_user.org_id != orgId:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
+        )
+
+    event = crud_event.event.get(db, id=eventId)
+    if not event or event.organization_id != orgId:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
+
+    if not event.is_archived:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Event is not archived",
+        )
+
+    return crud_event.event.restore(db, id=eventId, user_id=current_user.sub)
+
+
 @router.post(
     "/organizations/{orgId}/events/{eventId}/publish", response_model=EventSchema
 )
@@ -255,6 +286,7 @@ def get_event_sync_bundle(
         speakers=all_speakers,
         venue=event_bundle_data.venue,
     )
+
 
 # ✅ --- ADD THESE TWO NEW ENDPOINTS AT THE BOTTOM OF THE FILE ---
 
