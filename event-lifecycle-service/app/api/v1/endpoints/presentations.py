@@ -40,14 +40,12 @@ def request_presentation_upload(
             detail="Not authorized for this organization",
         )
 
-    # --- FIX: Fetch session by its ID first ---
     session = crud_session.session.get(db=db, id=sessionId)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
 
-    # --- FIX: Now, verify the session belongs to the correct event ---
     if session.event_id != eventId:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -92,14 +90,12 @@ def process_uploaded_presentation(
             detail="Not authorized for this organization",
         )
 
-    # --- FIX: Fetch session by its ID first ---
     session = crud_session.session.get(db=db, id=sessionId)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
 
-    # --- FIX: Now, verify the session belongs to the correct event ---
     if session.event_id != eventId:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -31,18 +31,12 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         # Start with the base query for the organization
         query = db.query(self.model).filter(self.model.organization_id == org_id)
 
-        # --- THIS IS THE CORRECTED LOGIC ---
-        # First, determine if we are viewing archived events or active ones.
         if status == "archived":
-            # If the requested status is 'archived', filter for only archived events.
             query = query.filter(self.model.is_archived == True)
         else:
-            # For any other request, filter for ONLY non-archived (active) events.
             query = query.filter(self.model.is_archived == False)
-            # If a status like 'draft' or 'published' was provided, apply it as a sub-filter.
             if status:
                 query = query.filter(self.model.status == status)
-        # ------------------------------------
 
         # Filtering by search term
         if search:
@@ -164,8 +158,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
                     "new": update_data[field],
                 }
 
-        # --- THIS IS THE FIX ---
-        # A helper function to make sure all data is JSON-serializable
         def serialize_changes(data):
             for key, value in data.items():
                 if isinstance(value, dict):
@@ -175,7 +167,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
 
         serializable_change_data = change_data.copy()
         serialize_changes(serializable_change_data)
-        # ---------------------
 
         updated_event = super().update(db, db_obj=db_obj, obj_in=obj_in)
 
@@ -191,7 +182,7 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
 
     def publish(self, db: Session, *, db_obj: Event, user_id: str | None) -> Event:
         db_obj.status = "published"
-        db_obj.is_public = True  # <-- THIS IS THE FIX
+        db_obj.is_public = True
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
@@ -204,8 +195,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
             data={"status": "published", "is_public": True},
         )
         return db_obj
-
-    # ------------------------------------
 
     def archive(self, db: Session, *, id: str, user_id: str | None) -> Event:
         # Call the original archive method from the base class
@@ -220,7 +209,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         )
         return archived_event
 
-    # --- ADD THIS NEW METHOD ---
     def restore(self, db: Session, *, id: str, user_id: str | None) -> Event | None:
         restored_event = super().restore(db, id=id)
         if not restored_event:
@@ -235,8 +223,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         )
         return restored_event
 
-    # -------------------------
-    # ✅ --- NEW METHOD TO UPDATE IMAGE URL ---
     def update_image_url(
         self, db: Session, *, event_id: str, image_url: str
     ) -> Event | None:
@@ -251,7 +237,6 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
             db.refresh(event)
         return event
 
-    # ADD THIS NEW METHOD
     def get_sync_bundle(self, db: Session, *, event_id: str) -> Event | None:
         """
         Fetches a single event with all its related data (sessions, speakers, venue)
