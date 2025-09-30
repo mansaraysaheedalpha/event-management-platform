@@ -273,8 +273,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     env_file:
       - ./.env
 
