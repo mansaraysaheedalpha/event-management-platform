@@ -1,4 +1,3 @@
-# app/tasks.py
 import os
 import shutil
 from pathlib import Path
@@ -9,7 +8,7 @@ from app.worker import celery_app
 from app.db.session import SessionLocal
 from app.crud import crud_presentation
 from app.core.config import settings
-from app.core.s3 import get_s3_client  # --- CHANGE: Import the new helper ---
+from app.core.s3 import get_s3_client
 
 
 @celery_app.task
@@ -19,7 +18,6 @@ def process_presentation(session_id: str, s3_key: str):
     and update the database.
     """
     db: Session = SessionLocal()
-    # --- CHANGE: Use the centralized S3 client function ---
     s3_client = get_s3_client()
 
     temp_dir = Path(f"/tmp/{session_id}")
@@ -51,6 +49,10 @@ def process_presentation(session_id: str, s3_key: str):
             if settings.AWS_S3_ENDPOINT_URL:
                 # For MinIO, the URL structure is slightly different
                 public_url = f"{settings.AWS_S3_ENDPOINT_URL}/{settings.AWS_S3_BUCKET_NAME}/{public_s3_key}"
+                # For local dev, the URL is for 'minio:9000', which is not accessible from the browser.
+                # We replace it with the public-facing 'localhost:9000' before storing it.
+                if "minio:9000" in public_url:
+                    public_url = public_url.replace("minio:9000", "localhost:9000")
             else:
                 # For AWS S3
                 public_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{public_s3_key}"
@@ -71,7 +73,6 @@ def process_presentation(session_id: str, s3_key: str):
                 crud_presentation.presentation.create_with_session(
                     db, session_id=session_id, slide_urls=slide_urls
                 )
-
     finally:
         # 5. Clean up temporary local files
         shutil.rmtree(temp_dir)

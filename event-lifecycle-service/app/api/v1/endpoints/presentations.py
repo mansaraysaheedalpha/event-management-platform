@@ -1,4 +1,4 @@
-# app/api/v1/endpoints/presentations.py
+#app/api/v1/endpoints/presentations.py file:
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -6,12 +6,13 @@ from botocore.exceptions import ClientError
 
 from app.api import deps
 from app.db.session import get_db
-from app.crud import crud_session
+from app.crud import crud_session, crud_presentation
 from app.schemas.token import TokenPayload
 from app.schemas.presentation import (
     PresentationUploadRequest,
     PresentationUploadResponse,
     PresentationProcessRequest,
+    Presentation as PresentationSchema,
 )
 from app.tasks import process_presentation
 from app.core.s3 import generate_presigned_post
@@ -73,6 +74,7 @@ def request_presentation_upload(
         )
 
     upload_url = presigned_data["url"]
+
     # For local dev, the presigned URL is for 'minio:9000', which is not
     # accessible from the user's browser. We replace it with the public-facing
     # 'localhost:9000' before sending it to the client.
@@ -121,3 +123,49 @@ def process_uploaded_presentation(
     process_presentation.delay(session_id=sessionId, s3_key=process_request.s3_key)
 
     return {"message": "Presentation processing has been initiated."}
+
+
+@router.get(
+    "/organizations/{orgId}/events/{eventId}/sessions/{sessionId}/presentation",
+    response_model=PresentationSchema,
+)
+def get_presentation_by_session(
+    orgId: str,
+    eventId: str,
+    sessionId: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Get presentation details for a specific session.
+    This is used by the frontend to poll for the presentation status and retrieve the final slide URLs.
+    """
+    # if current_user.org_id != orgId:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="Not authorized for this organization",
+    #     )
+
+    session = crud_session.session.get(db=db, id=sessionId)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+
+    if session.event_id != eventId:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Session does not belong to the specified event.",
+        )
+
+    presentation = crud_presentation.presentation.get_by_session(
+        db=db, session_id=sessionId
+    )
+
+    if not presentation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Presentation not found or is still processing.",
+        )
+
+    return presentation
