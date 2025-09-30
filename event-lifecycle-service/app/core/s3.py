@@ -1,5 +1,6 @@
 # app/core/s3.py
 import boto3
+from botocore.client import Config
 from botocore.exceptions import ClientError
 from app.core.config import settings
 
@@ -17,6 +18,7 @@ def get_s3_client():
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
             region_name=settings.AWS_S3_REGION,
+            config=Config(signature_version="s3v4"),
         )
     # Otherwise, it will default to the standard AWS endpoint for production.
     else:
@@ -36,16 +38,12 @@ def generate_presigned_post(
     """
     # --- CHANGE: Use the new centralized S3 client function ---
     s3_client = get_s3_client()
-    try:
-        response = s3_client.generate_presigned_post(
-            Bucket=settings.AWS_S3_BUCKET_NAME,
-            Key=object_name,
-            Fields={"Content-Type": content_type},
-            Conditions=[{"Content-Type": content_type}],
-            ExpiresIn=expires_in,
-        )
-    except ClientError as e:
-        print(f"Failed to generate pre-signed URL: {e}")
-        return None
-
+    # Let ClientError exceptions propagate up to the caller for debugging
+    response = s3_client.generate_presigned_post(
+        Bucket=settings.AWS_S3_BUCKET_NAME,
+        Key=object_name,
+        Fields={"Content-Type": content_type},
+        Conditions=[{"Content-Type": content_type}],
+        ExpiresIn=expires_in,
+    )
     return response

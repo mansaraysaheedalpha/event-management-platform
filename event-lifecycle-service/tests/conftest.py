@@ -1,6 +1,11 @@
 # tests/conftest.py
 
 import pytest
+from dotenv import load_dotenv
+
+# Load environment variables from the root .env file before anything else
+load_dotenv()
+
 from starlette.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -25,7 +30,7 @@ engine = create_engine(TEST_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def setup_test_database():
     if database_exists(engine.url):
         drop_database(engine.url)
