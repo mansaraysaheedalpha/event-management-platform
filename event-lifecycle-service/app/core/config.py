@@ -1,5 +1,6 @@
 # event-lifecycle-service/app/core/config.py
 
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str
     AWS_S3_BUCKET_NAME: str
     AWS_S3_REGION: str
+    AWS_S3_ENDPOINT_URL: Optional[str] = None
 
     # --- Dynamic Properties ---
     # These properties will intelligently return the correct URL based on the ENV
