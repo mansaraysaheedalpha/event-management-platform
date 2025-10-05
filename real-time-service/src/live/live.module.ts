@@ -16,5 +16,6 @@ import { StreamingModule } from './streaming/streaming.module';
     ValidationModule,
     StreamingModule,
   ],
+  exports: [DashboardModule],
 })
 export class LiveModule {}
