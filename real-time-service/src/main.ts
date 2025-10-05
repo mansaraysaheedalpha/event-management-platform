@@ -12,7 +12,7 @@ async function bootstrap() {
     transport: Transport.KAFKA,
     options: {
       client: {
-        brokers: [process.env.KAFKA_BROKER_URL || 'localhost:9092'],
+        brokers: [process.env.KAFKA_BOOTSTRAP_SERVERS || 'kafka:29092'],
       },
       consumer: {
         groupId: 'real-time-consumer',

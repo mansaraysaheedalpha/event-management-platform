@@ -3,6 +3,7 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   WebSocketGateway,
+  WebSocketServer,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import {
@@ -21,6 +22,9 @@ import { Server } from 'socket.io';
   namespace: '/events',
 })
 export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
+
   private readonly logger = new Logger('AppGateway');
 
   constructor(
@@ -33,7 +37,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     server.setMaxListeners(20);
   }
 
-  // FIX: Create a dedicated error handling function
   private handleError(client: AuthenticatedSocket, error: unknown) {
     const errorMessage = getErrorMessage(error);
     this.logger.error(`🔴 Auth error for client ${client.id}: ${errorMessage}`);
@@ -48,7 +51,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const token = extractTokenSafely(client);
 
-      // FIX: Instead of throwing, call the handleError function
       if (!token) {
         return this.handleError(
           client,
@@ -68,7 +70,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('connectionAcknowledged', { userId: payload.sub });
       this.connectionService.startHeartbeat(client);
     } catch (error) {
-      // FIX: The catch block now properly handles JWT verification errors
       this.handleError(client, error);
     }
   }

@@ -1,3 +1,4 @@
+//real-time-service/src/shared/services/kafka.consumer.service.ts
 import {
   Injectable,
   OnModuleInit,
