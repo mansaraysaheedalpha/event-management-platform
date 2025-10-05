@@ -1,11 +1,13 @@
-//src/main.ts
+// src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Transport, KafkaOptions } from '@nestjs/microservices';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Connect to Kafka
   app.connectMicroservice<KafkaOptions>({
@@ -21,6 +23,7 @@ async function bootstrap() {
   });
 
   app.useGlobalPipes(new ValidationPipe());
+  app.enableShutdownHooks();
 
   // Start microservices and the main application
   await app.startAllMicroservices();

@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DashboardService } from './dashboard.service';
-import { DashboardGateway } from './dashboard.gateway';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 
 // Mocks
@@ -14,10 +13,6 @@ const mockRedis = {
   exec: jest.fn(),
   smembers: jest.fn(),
 };
-const mockDashboardGateway = {
-  broadcastCapacityUpdate: jest.fn(),
-  broadcastSystemMetrics: jest.fn(),
-};
 
 describe('DashboardService', () => {
   let service: DashboardService;
@@ -27,7 +22,6 @@ describe('DashboardService', () => {
       providers: [
         DashboardService,
         { provide: REDIS_CLIENT, useValue: mockRedis },
-        { provide: DashboardGateway, useValue: mockDashboardGateway },
       ],
     }).compile();
     service = module.get<DashboardService>(DashboardService);
