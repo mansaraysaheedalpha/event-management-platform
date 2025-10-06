@@ -1,4 +1,4 @@
-// In src/organizations/organizations.service.ts
+// src/organizations/organizations.service.ts
 import {
   BadRequestException,
   ForbiddenException,
@@ -46,7 +46,7 @@ export class OrganizationsService {
         },
       },
     });
-    return membershipRecord; // This returns the array directly
+    return membershipRecord;
   }
 
   async removeMember(
@@ -72,7 +72,6 @@ export class OrganizationsService {
   }
 
   async getRoles(organizationId: string) {
-    // Fetches all roles for an organization, excluding the non-assignable OWNER role.
     return this.prisma.role.findMany({
       where: {
         organizationId,
@@ -89,7 +88,7 @@ export class OrganizationsService {
   async updateMemberRole(
     orgId: string,
     userId: string,
-    newRoleId: string, // <-- Changed from newRoleName
+    newRoleId: string,
     actingUserId: string,
   ) {
     const membership = await this.prisma.membership.findUniqueOrThrow({
@@ -103,9 +102,8 @@ export class OrganizationsService {
       );
     }
 
-    // **REFINEMENT**: The service now finds the role by ID.
     const newRole = await this.prisma.role.findUnique({
-      where: { id: newRoleId, organizationId: orgId }, // Ensure role belongs to the org
+      where: { id: newRoleId, organizationId: orgId },
     });
     if (!newRole) {
       throw new NotFoundException(
@@ -159,40 +157,39 @@ export class OrganizationsService {
 
     const { organization, membership } = await this.prisma.$transaction(
       async (tx) => {
-        // 1. Create the new organization
         const newOrg = await tx.organization.create({
           data: { name: newOrgDto.organization_name },
         });
 
-        // --- THIS IS THE NEW CODE ---
-        // 2. Seed the default roles for the new organization
         await tx.role.createMany({
           data: [
             { name: 'ADMIN', organizationId: newOrg.id },
             { name: 'MEMBER', organizationId: newOrg.id },
           ],
         });
-        // ----------------------------
 
-        // 3. Find the system-wide OWNER role
         const ownerRole = await tx.role.findFirstOrThrow({
           where: { name: 'OWNER', isSystemRole: true },
         });
 
-        // 4. Assign the creator as the OWNER
         const newMembership = await tx.membership.create({
           data: {
             userId: existingUser.id,
             organizationId: newOrg.id,
             roleId: ownerRole.id,
           },
-          include: { role: true },
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
         });
 
         return { organization: newOrg, membership: newMembership };
       },
     );
-    // NOW, GENERATE FULL TOKENS FOR THE NEWLY CREATED ORG
     const tokens = await this.authService.getTokensForUser(
       existingUser,
       membership,
@@ -205,8 +202,6 @@ export class OrganizationsService {
     const organization = await this.prisma.organization.findFirst({
       where: {
         id: orgId,
-        // This 'some' clause ensures we only find the organization
-        // if a membership record exists linking it to the user.
         members: {
           some: {
             userId: userId,
@@ -264,7 +259,6 @@ export class OrganizationsService {
   }
 
   async deleteOrg(orgId: string, actingUserId: string, force = false) {
-    // 1. Verify the user is the owner of the organization.
     const membership = await this.prisma.membership.findUnique({
       where: {
         userId_organizationId: { userId: actingUserId, organizationId: orgId },
@@ -278,11 +272,10 @@ export class OrganizationsService {
       );
     }
 
-    // 2. Find other organizations the user belongs to BEFORE deleting.
     const otherMemberships = await this.prisma.membership.findMany({
       where: {
         userId: actingUserId,
-        organizationId: { not: orgId }, // Exclude the one being deleted
+        organizationId: { not: orgId },
       },
     });
 
@@ -292,7 +285,6 @@ export class OrganizationsService {
     const orgName = membership.organization.name;
     const userEmail = membership.user.email;
 
-    // 3. Perform either a "force" delete or a "soft" delete
     if (force) {
       await this.prisma.organization.delete({ where: { id: orgId } });
       await this.auditService.log({
@@ -311,7 +303,6 @@ export class OrganizationsService {
         console.error('Failed to send permanent deletion email:', error);
       }
     } else {
-      // --- Soft Delete Logic ---
       if (membership.organization.status === 'PENDING_DELETION') {
         throw new BadRequestException(
           'This organization is already scheduled for deletion.',
@@ -356,7 +347,6 @@ export class OrganizationsService {
       }
     }
 
-    // 4. Return the new intelligent payload
     return { success: true, nextOrganizationId: nextOrgId };
   }
 
@@ -376,13 +366,13 @@ export class OrganizationsService {
       data: {
         status: 'ACTIVE',
         deletionScheduledAt: null,
-        restoreToken: null, // Invalidate the token after use
+        restoreToken: null,
       },
     });
 
     await this.auditService.log({
       action: 'ORGANIZATION_RESTORED_VIA_TOKEN',
-      actingUserId: 'SYSTEM', // Or find the owner's ID if needed
+      actingUserId: 'SYSTEM',
       organizationId: orgToRestore.id,
     });
 
@@ -390,7 +380,7 @@ export class OrganizationsService {
       message: `Organization "${orgToRestore.name}" has been successfully restored.`,
     };
   }
-  // NEW: This method restores an organization
+
   async restoreOrg(orgId: string, actingUserId: string) {
     const membership = await this.prisma.membership.findUnique({
       where: {

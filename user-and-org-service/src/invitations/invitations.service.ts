@@ -1,4 +1,4 @@
-//src/invitations/invitation.service.ts
+// src/invitations/invitations.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -50,7 +50,7 @@ export class InvitationsService {
       data: {
         email: data.email,
         token: hashedToken,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // expires in 7 days
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         organization: {
           connect: { id: data.organizationId },
         },
@@ -91,7 +91,6 @@ export class InvitationsService {
       `,
     });
 
-    // 4. Return a success message instead of the token
     return {
       message: `Invitation successfully sent to ${invitation.email}.`,
     };
@@ -123,7 +122,13 @@ export class InvitationsService {
           organizationId: matchedInvitation.organizationId,
           roleId: matchedInvitation.roleId,
         },
-        include: { role: true },
+        include: {
+          role: {
+            include: {
+              permissions: true,
+            },
+          },
+        },
       });
 
       await tx.invitation.delete({ where: { id: matchedInvitation.id } });
@@ -131,12 +136,10 @@ export class InvitationsService {
       return { user, membership };
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...safeUser } = result.user;
     return { user: safeUser, membership: result.membership };
   }
 
-  // Helper to ensure the invitation is found and includes the role
   private async findAndValidateInvitation(token: string) {
     const unexpiredInvitations = await this.prisma.invitation.findMany({
       where: { expiresAt: { gte: new Date() } },
