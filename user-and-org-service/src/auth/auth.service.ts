@@ -1,4 +1,4 @@
-//src/auth/.auth.service.ts
+// src/auth/auth.service.ts
 import {
   ForbiddenException,
   Injectable,
@@ -14,10 +14,14 @@ import { randomBytes } from 'crypto';
 import { MailerService } from '@nestjs-modules/mailer';
 import { TwoFactorService } from 'src/two-factor/two-factor.service';
 import { AuditService } from 'src/audit/audit.service';
-import { User, Membership, Role as PrismaRole } from '@prisma/client';
+import {
+  User,
+  Membership,
+  Role as PrismaRole,
+  Permission,
+} from '@prisma/client';
 import { JwtPayload } from 'src/common/interfaces/auth.interface';
 
-// FIX: The missing 'Token' interface for password reset
 interface Token {
   id: string;
   hashedResetToken: string;
@@ -25,7 +29,6 @@ interface Token {
   expiresAt: Date;
 }
 
-// This is now the SINGLE SOURCE OF TRUTH for the user data needed to generate tokens.
 type UserForToken = Pick<
   User,
   | 'id'
@@ -39,7 +42,8 @@ type UserForToken = Pick<
   | 'isTwoFactorEnabled'
 >;
 
-type MembershipForToken = Membership & { role: PrismaRole };
+type RoleWithPermissions = PrismaRole & { permissions: Permission[] };
+type MembershipForToken = Membership & { role: RoleWithPermissions };
 
 type UserForLogin = UserForToken & {
   password?: string;
@@ -76,7 +80,6 @@ export class AuthService {
   }
 
   async login(loginDTO: LoginDTO): Promise<LoginResponse> {
-    // NOTE: This 'select' clause now fetches all fields required by UserForToken
     const existingUser = await this.prisma.user.findUnique({
       where: { email: loginDTO.email },
       select: {
@@ -90,7 +93,15 @@ export class AuthService {
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
-        memberships: { include: { role: true } },
+        memberships: {
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -128,7 +139,6 @@ export class AuthService {
   }
 
   async login2FA(userId: string, twoFactorCode: string) {
-    // NOTE: This 'select' clause is now IDENTICAL to the one in login()
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
@@ -141,7 +151,15 @@ export class AuthService {
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
-        memberships: { include: { role: true } },
+        memberships: {
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -181,7 +199,6 @@ export class AuthService {
   async refreshTokenService(userId: string, incomingRefreshToken: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      // NOTE: This 'select' clause is now IDENTICAL to the one in login()
       select: {
         id: true,
         email: true,
@@ -192,8 +209,16 @@ export class AuthService {
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
-        hashedRefreshToken: true, // Also include the refresh token
-        memberships: { include: { role: true } },
+        hashedRefreshToken: true,
+        memberships: {
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -235,7 +260,7 @@ export class AuthService {
       email: user.email,
       orgId: membership.organizationId,
       role: membership.role.name,
-      permissions: [], // Permissions logic can be added later
+      permissions: membership.role.permissions.map((p) => p.name),
       tier: (user.tier as 'default' | 'vip') || 'default',
       preferredLanguage: user.preferredLanguage || 'en',
       sponsorId: user.sponsorId || undefined,
@@ -251,7 +276,7 @@ export class AuthService {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(accessTokenPayload, {
         secret: this.configService.get<string>('JWT_SECRET'),
-        expiresIn: '30m', // Changed to 15m for easier testing
+        expiresIn: '30m',
       }),
       this.jwtService.signAsync(refreshTokenPayload, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
@@ -267,13 +292,13 @@ export class AuthService {
 
     return { access_token: accessToken, refresh_token: refreshToken };
   }
+
   async handlePasswordResetRequest(email: string) {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
 
     if (!user) {
-      // Silently return to prevent attackers from knowing if an email exists.
       return {
         message:
           'If an account with this email exists, a password reset link has been sent.',
@@ -353,8 +378,7 @@ export class AuthService {
     }
     const salt = await bcrypt.genSalt(10);
     const newHashedPassword = await bcrypt.hash(newPassword, salt);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const updatedPassword = await this.prisma.user.update({
+    await this.prisma.user.update({
       where: { id: validTokenRecord.userId },
       data: {
         password: newHashedPassword,
@@ -373,7 +397,14 @@ export class AuthService {
       where: {
         userId_organizationId: { userId, organizationId: orgId },
       },
-      include: { user: true, role: true },
+      include: {
+        user: true,
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+      },
     });
 
     if (!membership) {
@@ -388,7 +419,6 @@ export class AuthService {
       organizationId: orgId,
     });
 
-    // We can now reuse our main token generation function, passing the user and new membership.
     return this.getTokensForUser(membership.user, membership);
   }
 }
