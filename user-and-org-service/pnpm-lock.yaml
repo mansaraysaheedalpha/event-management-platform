@@ -74,6 +74,9 @@ importers:
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.2.3
       graphql:
         specifier: ^16.11.0
         version: 16.11.0
@@ -113,6 +116,9 @@ importers:
       speakeasy:
         specifier: ^2.0.0
         version: 2.0.0
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.12.11)(@types/node@22.16.2)(typescript@5.8.3)
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.2.0
@@ -198,9 +204,6 @@ importers:
       ts-loader:
         specifier: ^9.5.2
         version: 9.5.2(typescript@5.8.3)(webpack@5.99.6(@swc/core@1.12.11))
-      ts-node:
-        specifier: ^10.9.2
-        version: 10.9.2(@swc/core@1.12.11)(@types/node@22.16.2)(typescript@5.8.3)
       tsconfig-paths:
         specifier: ^4.2.0
         version: 4.2.0
@@ -2604,6 +2607,10 @@ packages:
 
   dotenv@16.4.7:
     resolution: {integrity: sha512-47qPchRCykZC03FhkYAhrvwU4xDBFIj1QPqaarj6mdM/hgUzfPHcpkHJOn3mJAufFeeAxAzeGsr5X0M4k6fLZQ==}
+    engines: {node: '>=12'}
+
+  dotenv@17.2.3:
+    resolution: {integrity: sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==}
     engines: {node: '>=12'}
 
   dset@3.1.4:
@@ -7984,6 +7991,8 @@ snapshots:
       dotenv: 16.4.7
 
   dotenv@16.4.7: {}
+
+  dotenv@17.2.3: {}
 
   dset@3.1.4: {}
 

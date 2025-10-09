@@ -8,7 +8,6 @@ import { HttpModule } from '@nestjs/axios';
 import { PublisherService } from './services/publisher.service';
 import { REDIS_CLIENT, REDIS_SUBSCRIBER_CLIENT } from './redis.constants';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { KafkaConsumerService } from './services/kafka.consumer.service';
 
 /**
  * SharedModule is a global, reusable NestJS module providing:
@@ -57,7 +56,6 @@ import { KafkaConsumerService } from './services/kafka.consumer.service';
     IdempotencyService,
     SubscriberService,
     PublisherService,
-    KafkaConsumerService,
   ],
   exports: [
     IdempotencyService,

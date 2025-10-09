@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Application starting up...")
+    Base.metadata.create_all(bind=engine)
     print("Database tables checked and created if necessary.")
     yield
     print("Application shutting down...")
