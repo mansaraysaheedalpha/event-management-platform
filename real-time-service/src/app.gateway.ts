@@ -3,6 +3,7 @@ import {
   ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -30,26 +31,29 @@ import { DashboardService } from './live/dashboard/dashboard.service';
 import { OnEvent } from '@nestjs/event-emitter';
 import { CapacityUpdateDto } from './live/dashboard/dto/capacity-update.dto';
 
-// Define the new DTO shape here for clarity in the gateway
 interface MultitenantMetricsDto {
   orgId: string;
   metrics: object;
 }
+
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/events',
 })
 export class AppGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, OnApplicationShutdown
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnApplicationShutdown
 {
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger('AppGateway');
-
-  // Tracks active timers for event dashboard broadcasts
   private activeDashboardTimers = new Map<string, NodeJS.Timeout>();
-  private readonly BROADCAST_INTERVAL = 5000; // Push updates every 5 seconds
+  private readonly BROADCAST_INTERVAL = 5000;
+  private isGatewayInitialized = false;
 
   constructor(
     private readonly connectionService: ConnectionService,
@@ -60,8 +64,9 @@ export class AppGateway
   ) {}
 
   afterInit(server: Server) {
-    // Increased listeners to prevent warnings during rapid client reconnects.
+    this.server = server;
     server.setMaxListeners(30);
+    this.isGatewayInitialized = true;
     this.logger.log('AppGateway initialized and max listeners set.');
   }
 
@@ -107,21 +112,23 @@ export class AppGateway
     this.connectionService.stopHeartbeat(client.id);
   }
 
-  /**
-   * Admin client joins dashboard updates for an event.
-   *
-   * @param client - Connected WebSocket client socket.
-   * @returns Object indicating success or error message.
-   */
   @SubscribeMessage('dashboard.join')
-  handleJoinDashboard(@ConnectedSocket() client: AuthenticatedSocket): {
+  async handleJoinDashboard(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): Promise<{
     success: boolean;
     error?: string;
-  } {
+  }> {
+    if (!this.isGatewayInitialized || !this.server) {
+      const errorMsg = 'Gateway not fully initialized. Please try again.';
+      this.logger.error(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+
     const user = getAuthenticatedUser(client);
     const { eventId } = client.handshake.query as { eventId: string };
     this.logger.log(
-      `Received dashboard.join from user ${user.sub} for event ${eventId}`,
+      `🎯 Received dashboard.join from user ${user.sub} for event ${eventId}`,
     );
 
     const requiredPermission = 'dashboard:read:live';
@@ -143,75 +150,75 @@ export class AppGateway
 
     const dashboardRoom = `dashboard:${eventId}`;
     void client.join(dashboardRoom);
-    this.logger.log(`Admin ${user.sub} joined dashboard for event ${eventId}`);
+    this.logger.log(`✅ Admin ${user.sub} joined room: ${dashboardRoom}`);
 
-    // If this is the first admin to join, start the broadcast loop for this event.
     if (!this.activeDashboardTimers.has(eventId)) {
       this.logger.log(
-        `Starting dashboard broadcast loop for event: ${eventId}`,
+        `🚀 Starting dashboard broadcast loop for event: ${eventId}`,
       );
-      this.scheduleNextBroadcast(eventId);
+      // ✅ CRITICAL FIX: Wait 1 second (1000ms) for Socket.IO to register the client
+      this.scheduleNextBroadcast(eventId, 1000);
+    } else {
+      this.logger.log(
+        `⏭️ Broadcast loop already running for event: ${eventId}`,
+      );
     }
 
     return { success: true };
   }
 
-  /**
-   * Schedule the next broadcast cycle for the event dashboard.
-   *
-   * @param eventId - ID of the event.
-   */
-  private scheduleNextBroadcast(eventId: string) {
+  private scheduleNextBroadcast(
+    eventId: string,
+    delay: number = this.BROADCAST_INTERVAL,
+  ) {
     const timer = setTimeout(() => {
       void this.runBroadcastCycle(eventId);
-    }, this.BROADCAST_INTERVAL);
+    }, delay);
     this.activeDashboardTimers.set(eventId, timer);
   }
 
-  /**
-   * Runs one cycle of fetching dashboard data and broadcasting to clients.
-   *
-   * Stops if no clients are listening.
-   *
-   * @param eventId - ID of the event.
-   * @returns Promise<void>
-   */
   private async runBroadcastCycle(eventId: string) {
-    const dashboardRoom = `dashboard:${eventId}`;
-
-    // Check if anyone is still listening before we do the work.
-    const room = this.server.sockets.adapter.rooms.get(dashboardRoom);
-    if (!room || room.size === 0) {
-      this.logger.log(
-        `No admins listening; stopping dashboard loop for event: ${eventId}`,
+    if (!this.isGatewayInitialized || !this.server || !this.server.sockets) {
+      this.logger.error(
+        `Gateway not initialized when trying to broadcast for event: ${eventId}`,
       );
       this.stopBroadcastingForEvent(eventId);
       return;
     }
 
+    const dashboardRoom = `dashboard:${eventId}`;
+
     try {
+      const room = this.server.sockets.adapter?.rooms?.get(dashboardRoom);
+
+      if (!room || room.size === 0) {
+        this.logger.log(
+          `No admins listening; stopping dashboard loop for event: ${eventId}`,
+        );
+        this.stopBroadcastingForEvent(eventId);
+        return;
+      }
+
+      this.logger.log(
+        `📡 Broadcasting to ${room.size} admin(s) for event: ${eventId}`,
+      );
+
       const dashboardData =
         await this.dashboardService.getDashboardData(eventId);
       this.server.to(dashboardRoom).emit('dashboard.update', dashboardData);
+      this.logger.log(`📊 Broadcasted data: ${JSON.stringify(dashboardData)}`);
     } catch (error) {
       this.logger.error(
         `Failed to fetch or broadcast dashboard data for event ${eventId}`,
         error,
       );
     } finally {
-      // If the timer hasn't been stopped, schedule the next run.
       if (this.activeDashboardTimers.has(eventId)) {
         this.scheduleNextBroadcast(eventId);
       }
     }
   }
 
-  /**
-   * Stops broadcasting dashboard updates for an event.
-   *
-   * @param eventId - ID of the event.
-   * @returns void
-   */
   private stopBroadcastingForEvent(eventId: string) {
     if (this.activeDashboardTimers.has(eventId)) {
       const timer = this.activeDashboardTimers.get(eventId);
@@ -220,9 +227,6 @@ export class AppGateway
     }
   }
 
-  /**
-   * Listens for capacity update events and triggers a broadcast.
-   */
   @OnEvent('capacity-events')
   handleCapacityUpdate(payload: CapacityUpdateDto) {
     this.logger.log(
@@ -231,25 +235,22 @@ export class AppGateway
     this.broadcastCapacityUpdate(payload);
   }
 
-  /**
-   * Broadcasts a capacity update to the private admin dashboard room.
-   */
   public broadcastCapacityUpdate(payload: CapacityUpdateDto) {
+    if (!this.isGatewayInitialized || !this.server) {
+      this.logger.warn('Cannot broadcast: Gateway not initialized');
+      return;
+    }
+
     const adminRoom = `dashboard:${payload.eventId}`;
     const eventName = 'dashboard.capacity.updated';
     this.server.to(adminRoom).emit(eventName, payload);
     this.logger.log(`Broadcasted capacity update to room ${adminRoom}`);
   }
 
-  /**
-   * Listens for system-wide metric events, finds all active events for the org,
-   * and triggers a broadcast to all relevant dashboards.
-   */
   @OnEvent('system-metrics-events')
   async handleSystemMetrics(payload: MultitenantMetricsDto) {
     this.logger.log(`Processing system metrics for org: ${payload.orgId}`);
 
-    // 1. Get the list of all active event IDs for this organization from Redis.
     const activeEventIds = await this.dashboardService.getActiveEventIdsForOrg(
       payload.orgId,
     );
@@ -264,16 +265,17 @@ export class AppGateway
     this.broadcastSystemMetrics(activeEventIds, payload);
   }
 
-  /**
-   * Broadcasts system-wide multitenant metrics to all active event dashboards for an organization.
-   */
   public broadcastSystemMetrics(
     eventIds: string[],
     payload: MultitenantMetricsDto,
   ) {
+    if (!this.isGatewayInitialized || !this.server) {
+      this.logger.warn('Cannot broadcast: Gateway not initialized');
+      return;
+    }
+
     const eventName = 'dashboard.metrics.updated';
 
-    // Loop through each active event and broadcast to its specific dashboard room.
     for (const eventId of eventIds) {
       const adminRoom = `dashboard:${eventId}`;
       this.server.to(adminRoom).emit(eventName, payload);
@@ -284,10 +286,6 @@ export class AppGateway
     );
   }
 
-  /**
-   * Called when the application is shutting down.
-   * Clears any active timers to prevent resource leaks.
-   */
   onApplicationShutdown() {
     this.logger.log(
       `Clearing ${this.activeDashboardTimers.size} active dashboard timers.`,

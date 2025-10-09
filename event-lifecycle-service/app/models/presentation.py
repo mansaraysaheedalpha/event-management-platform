@@ -1,7 +1,7 @@
-#app/models/presentation.py
+# app/models/presentation.py
 import uuid
 from sqlalchemy import Column, String, ForeignKey
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, VARCHAR
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
@@ -15,6 +15,11 @@ class Presentation(Base):
 
     # This creates a one-to-one relationship with a session
     session_id = Column(String, ForeignKey("sessions.id"), nullable=False, unique=True)
+
+    # Add this status column
+    status = Column(
+        VARCHAR(20), nullable=False, default="processing"
+    )  # States: processing, ready, failed
 
     # We will store the URLs of the processed slide images here
     slide_urls = Column(ARRAY(String), nullable=False)

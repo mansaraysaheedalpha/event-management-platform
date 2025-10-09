@@ -13,9 +13,20 @@ class CRUDPresentation(CRUDBase[Presentation, PresentationSchema, PresentationSc
         return db.query(self.model).filter(self.model.session_id == session_id).first()
 
     def create_with_session(
-        self, db: Session, *, session_id: str, slide_urls: List[str]
+        self, db: Session, *, session_id: str, slide_urls: List[str], status: str
     ) -> Presentation:
-        db_obj = self.model(session_id=session_id, slide_urls=slide_urls)
+        # Check if one already exists to avoid unique constraint errors
+        existing = self.get_by_session(db, session_id=session_id)
+        if existing:
+            # If we're retrying a failed upload, just update the existing one
+            existing.status = status
+            existing.slide_urls = slide_urls
+            db.add(existing)
+            db.commit()
+            db.refresh(existing)
+            return existing
+
+        db_obj = self.model(session_id=session_id, slide_urls=slide_urls, status=status)
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)

@@ -78,8 +78,6 @@ export class DashboardService {
    *
    * @returns Promise<void> Resolves when event handling and Redis updates are complete.
    */
-  @OnEvent('analytics-events')
-  @OnEvent('platform.analytics.check-in.v1')
   async handleAnalyticsEvent(payload: unknown): Promise<void> {
     if (!isAnalyticsEventPayload(payload)) {
       this.logger.warn('Received malformed analytics payload', payload);

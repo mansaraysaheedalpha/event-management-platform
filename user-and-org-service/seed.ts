@@ -1,4 +1,8 @@
+//src/seed.ts
 import { PrismaClient } from '@prisma/client';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
 
 const prisma = new PrismaClient();
 
@@ -21,6 +25,10 @@ const allPermissions = [
   },
   // DMs
   { name: 'dm:send', description: 'Can send direct messages' },
+  {
+    name: 'dashboard:read:live',
+    description: 'Can view the live event dashboard',
+  },
 ];
 
 const roles = {
@@ -36,6 +44,7 @@ const roles = {
     'chat:delete:own',
     'chat:delete:any',
     'dm:send',
+    'dashboard:read:live',
   ],
   ADMIN: [
     'poll:create',
@@ -49,6 +58,7 @@ const roles = {
     'chat:delete:own',
     'chat:delete:any',
     'dm:send',
+    'dashboard:read:live',
   ],
   MEMBER: [
     'poll:vote',

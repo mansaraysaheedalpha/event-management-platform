@@ -1,3 +1,4 @@
+//src/auth/gql_types/auth.types.ts
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { GqlUser } from 'src/users/gql_types/user.types';
 
