@@ -33,6 +33,7 @@ def get_concierge_response(request: ConciergeRequest) -> ConciergeResponse:
                 )
             ],
             follow_up_questions=["What is the schedule for the Main Hall?"],
+            is_processing=False,  # Response is complete
         )
 
     # Intent 2: Get Recommendation
@@ -46,6 +47,7 @@ def get_concierge_response(request: ConciergeRequest) -> ConciergeResponse:
                 )
             ],
             follow_up_questions=["Can you recommend a speaker?"],
+            is_processing=False,  # Response is complete
         )
 
     # Default Fallback Response (Intent Unknown)
@@ -57,6 +59,7 @@ def get_concierge_response(request: ConciergeRequest) -> ConciergeResponse:
             "Where is the keynote room?",
             "Can you recommend a session for me?",
         ],
+        is_processing=False,  # Response is complete
     )
 
 

@@ -19,6 +19,14 @@ class ConciergeResponse(BaseModel):
     response_type: str  # text, action, redirect
     actions: List[Action] = []
     follow_up_questions: List[str] = []
+    is_processing: bool = Field(
+        default=False,
+        description="Indicates if the AI is currently processing. Should only be true during active query processing."
+    )
+    processing_status: Optional[str] = Field(
+        default=None,
+        description="Optional status message during processing (e.g., 'analyzing query', 'generating response')"
+    )
 
 
 class SmartNotificationRequest(BaseModel):
