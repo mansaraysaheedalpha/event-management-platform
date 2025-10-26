@@ -35,7 +35,7 @@ class ABTestExperimentRequest(BaseModel):
 
     experiment_name: str = Field(..., max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    model_variants: List[ModelVariant] = Field(..., min_items=2, max_items=10)
+    model_variants: List[ModelVariant] = Field(..., min_length=2, max_length=10)
 
 
 class ABTestExperimentResponse(BaseModel):

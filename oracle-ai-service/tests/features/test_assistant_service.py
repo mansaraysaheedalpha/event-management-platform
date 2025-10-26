@@ -36,6 +36,9 @@ def test_get_concierge_response_recognizes_intents(
 
     # 3. Assert
     assert response.response_type == expected_response_type
+    # Verify new loading state fields are present and correct
+    assert response.is_processing == False, "Completed responses should have is_processing=False"
+    assert response.processing_status is None, "Completed responses should have processing_status=None"
 
     if expected_action_name:
         assert len(response.actions) == 1
