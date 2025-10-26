@@ -372,6 +372,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/SpeakerRecommendationResponse'
 
+  # Booking
+  /booking/call:
+    post:
+      summary: Book a call with a speaker
+      description: Schedule a call or meeting with a speaker or expert for consultation, discussion, or event planning.
+      tags: [Booking]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingCallRequest'
+      responses:
+        '200':
+          description: Call booking confirmation with meeting details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingCallResponse'
+
   # Advanced Predictions
   /predictions/event-creation:
     post:
@@ -1832,6 +1852,74 @@ components:
                 type: array
                 items:
                   type: string
+
+    # Booking schemas
+    BookingCallRequest:
+      type: object
+      required:
+        - user_id
+        - speaker_id
+        - event_id
+        - preferred_date
+        - duration_minutes
+        - topic
+      properties:
+        user_id:
+          type: string
+          description: ID of the user booking the call
+        speaker_id:
+          type: string
+          description: ID of the speaker to book
+        event_id:
+          type: string
+          description: ID of the event context
+        preferred_date:
+          type: string
+          format: date-time
+          description: Preferred date and time for the call (ISO 8601 format)
+        duration_minutes:
+          type: integer
+          default: 30
+          description: Desired call duration in minutes
+        topic:
+          type: string
+          description: Topic or purpose of the call
+        notes:
+          type: string
+          description: Additional notes or requirements
+
+    BookingCallResponse:
+      type: object
+      properties:
+        booking_id:
+          type: string
+          description: Unique booking confirmation ID
+        status:
+          type: string
+          description: Booking status (confirmed, pending, rejected)
+          enum: [confirmed, pending, rejected]
+        speaker_id:
+          type: string
+        speaker_name:
+          type: string
+        scheduled_time:
+          type: string
+          format: date-time
+          description: Confirmed call time (ISO 8601 format)
+        duration_minutes:
+          type: integer
+        meeting_link:
+          type: string
+          description: Video call link if available
+        confirmation_code:
+          type: string
+          description: Booking confirmation code
+        estimated_cost:
+          type: number
+          description: Estimated cost if applicable
+        message:
+          type: string
+          description: Confirmation or additional information message
 
     # Event Creation Prediction schemas
     EventCreationPredictionRequest:
