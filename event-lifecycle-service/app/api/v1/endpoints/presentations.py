@@ -1,6 +1,6 @@
-#app/api/v1/endpoints/presentations.py file:
+# app/api/v1/endpoints/presentations.py file:
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Security
 from sqlalchemy.orm import Session
 from botocore.exceptions import ClientError
 
@@ -109,18 +109,14 @@ def process_uploaded_presentation(
     #     )
 
     session = crud_session.session.get(db=db, id=sessionId)
-    if not session:
+    if not session or session.event_id != eventId:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found in this event.",
         )
-
-    if session.event_id != eventId:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Session does not belong to the specified event.",
-        )
-
-    process_presentation.delay(session_id=sessionId, s3_key=process_request.s3_key)
+    process_presentation.delay(
+        session_id=sessionId, s3_key=process_request.s3_key, user_id=current_user.sub
+    )
 
     return {"message": "Presentation processing has been initiated."}
 
@@ -134,7 +130,8 @@ def get_presentation_by_session(
     eventId: str,
     sessionId: str,
     db: Session = Depends(get_db),
-    current_user: TokenPayload = Depends(deps.get_current_user),
+    token_payload: TokenPayload | None = Depends(deps.get_current_user_optional),
+    api_key: str | None = Security(deps.get_internal_api_key_optional, scopes=[]),
 ):
     """
     Get presentation details for a specific session.
@@ -146,16 +143,19 @@ def get_presentation_by_session(
     #         detail="Not authorized for this organization",
     #     )
 
-    session = crud_session.session.get(db=db, id=sessionId)
-    if not session:
+    # --- ADD THIS AUTHORIZATION BLOCK ---
+    if not token_payload and not api_key:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
         )
+    # --- END OF ADDITION ---
 
-    if session.event_id != eventId:
+    session = crud_session.session.get(db=db, id=sessionId)
+    if not session or session.event_id != eventId:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Session does not belong to the specified event.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found in this event.",
         )
 
     presentation = crud_presentation.presentation.get_by_session(

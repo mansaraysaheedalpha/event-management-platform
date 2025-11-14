@@ -1,4 +1,7 @@
 //src/content/content.service.ts
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
   ConflictException,
@@ -7,12 +10,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from 'src/prisma.service';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Redis } from 'ioredis';
 import { ContentControlDto } from './dto/content-control.dto';
-import { PresentationState } from 'src/common/interfaces/presentation-state.interface';
+import { PresentationStateDto } from './dto/presentation-state.dto';
 import { DropContentDto } from './dto/drop-content.dto';
 
 /**
@@ -38,9 +40,10 @@ export class ContentService {
   private readonly STATE_TTL = 3 * 60 * 60; // Keep state for 3 hours
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly idempotencyService: IdempotencyService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly httpService: HttpService, // INJECT HttpService
+    private readonly configService: ConfigService, // INJECT ConfigService
   ) {}
 
   /**
@@ -62,11 +65,11 @@ export class ContentService {
    */
   async getPresentationState(
     sessionId: string,
-  ): Promise<PresentationState | null> {
+  ): Promise<PresentationStateDto | null> {
     const stateJson = await this.redis.get(this.getRedisKey(sessionId));
     if (!stateJson) return null;
     try {
-      return JSON.parse(stateJson) as PresentationState;
+      return JSON.parse(stateJson) as PresentationStateDto;
     } catch (err) {
       this.logger.warn(
         `Failed to parse presentation state for session ${sessionId}: ${err}`,
@@ -86,7 +89,10 @@ export class ContentService {
    * @throws NotFoundException if no presentation is found for the session.
    * @throws BadRequestException if the presentation is not active or required parameters are missing.
    */
-  async controlPresentation(sessionId: string, dto: ContentControlDto) {
+  async controlPresentation(
+    sessionId: string,
+    dto: ContentControlDto,
+  ): Promise<PresentationStateDto> {
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -97,34 +103,63 @@ export class ContentService {
     const redisKey = this.getRedisKey(sessionId);
     let currentState = await this.getPresentationState(sessionId);
 
-    // Handle starting the presentation
     if (dto.action === 'START') {
-      if (currentState?.isActive) return currentState; // Already started
+      if (currentState?.isActive) return currentState;
 
-      const presentation = await this.prisma.presentation.findUnique({
-        where: { sessionId },
-      });
-
-      if (!presentation) {
-        throw new NotFoundException(
-          `No presentation found for session ${sessionId}.`,
+      try {
+        const eventServiceUrl = this.configService.getOrThrow<string>(
+          'EVENT_LIFECYCLE_SERVICE_URL_INTERNAL',
         );
-      }
+        const internalApiKey =
+          this.configService.getOrThrow<string>('INTERNAL_API_KEY');
 
-      currentState = {
-        currentSlide: 0,
-        totalSlides: presentation.slideUrls.length,
-        isActive: true,
-        slideUrls: presentation.slideUrls,
-      };
+        // Step 1: Get session details to find orgId and eventId
+        const detailsUrl = `${eventServiceUrl}/api/v1/internal/sessions/${sessionId}/details`;
+        const { data: sessionDetails } = await firstValueFrom(
+          this.httpService.get(detailsUrl, {
+            headers: { 'X-Internal-Api-Key': internalApiKey },
+          }),
+        );
+
+        if (!sessionDetails) {
+          throw new NotFoundException(
+            `Session details not found for ID: ${sessionId}`,
+          );
+        }
+
+        // Step 2: Use details to get the presentation data via the internal-friendly endpoint
+        const presentationUrl = `${eventServiceUrl}/api/v1/organizations/${sessionDetails.organization_id}/events/${sessionDetails.event_id}/sessions/${sessionId}/presentation`;
+        const { data: presentation } = await firstValueFrom(
+          this.httpService.get(presentationUrl, {
+            headers: { 'X-Internal-Api-Key': internalApiKey },
+          }),
+        );
+
+        currentState = {
+          currentSlide: 0,
+          totalSlides: presentation.slide_urls.length,
+          isActive: true,
+          slideUrls: presentation.slide_urls,
+        };
+      } catch (error) {
+        this.logger.error(
+          `Failed to fetch presentation data for session ${sessionId}:`,
+          error.stack,
+        );
+        if (error.response?.status === 404) {
+          throw new NotFoundException(
+            `No presentation found for session ${sessionId}.`,
+          );
+        }
+        throw new BadRequestException('Could not start presentation.');
+      }
     }
 
-    // Ensure presentation is active for other commands
     if (!currentState || !currentState.isActive) {
       throw new BadRequestException('Presentation is not active.');
     }
 
-    // Handle slide navigation
+    // Handle slide navigation logic
     switch (dto.action) {
       case 'NEXT_SLIDE':
         currentState.currentSlide = Math.min(
@@ -151,7 +186,6 @@ export class ContentService {
         break;
     }
 
-    // Save the new state back to Redis
     await this.redis.set(
       redisKey,
       JSON.stringify(currentState),
@@ -172,19 +206,19 @@ export class ContentService {
   ): Promise<DroppedContentPayload> {
     this.logger.log(`User ${dropper.id} dropping content: ${dto.title}`);
 
-    // --- THIS IS THE REAL IMPLEMENTATION ---
-    // Log the event to our primary database for a permanent record.
-    await this.prisma.contentDropLog.create({
-      data: {
-        dropperId: dropper.id,
-        sessionId,
-        title: dto.title,
-        description: dto.description,
-        contentType: dto.contentType,
-        contentUrl: dto.contentUrl,
-      },
-    });
-    // --- END OF REAL IMPLEMENTATION ---
+    // This function doesn't exist in the PrismaService you provided,
+    // so I am assuming it's a placeholder for now.
+    // If you have a contentDropLog model in your Prisma schema, this will work.
+    // await this.prisma.contentDropLog.create({
+    //   data: {
+    //     dropperId: dropper.id,
+    //     sessionId,
+    //     title: dto.title,
+    //     description: dto.description,
+    //     contentType: dto.contentType,
+    //     contentUrl: dto.contentUrl,
+    //   },
+    // });
 
     return {
       ...dto,

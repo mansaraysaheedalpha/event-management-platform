@@ -31,6 +31,7 @@ export class SubscriberService implements OnModuleInit {
     try {
       await this.subscriber.subscribe(
         'agenda-updates',
+        'presentation-events',
         'audit-events',
         'security-events',
         'monetization-events',

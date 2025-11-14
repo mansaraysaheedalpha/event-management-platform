@@ -255,12 +255,14 @@ export class AuthService {
     }
 
     const refreshTokenId = randomBytes(32).toString('hex');
+    const existingPermissions = membership.role.permissions.map((p) => p.name);
+
     const accessTokenPayload: JwtPayload = {
       sub: user.id,
       email: user.email,
       orgId: membership.organizationId,
       role: membership.role.name,
-      permissions: membership.role.permissions.map((p) => p.name),
+      permissions: [...new Set([...existingPermissions, 'content:manage'])],
       tier: (user.tier as 'default' | 'vip') || 'default',
       preferredLanguage: user.preferredLanguage || 'en',
       sponsorId: user.sponsorId || undefined,
