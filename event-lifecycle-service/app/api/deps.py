@@ -33,6 +33,21 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenPayload:
     return token_data
 
 
+def get_current_user_optional(
+    token: str | None = Depends(oauth2_scheme),
+) -> TokenPayload | None:
+    if token is None:
+        return None
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
+        return TokenPayload(**payload)
+    except (JWTError, ValueError):
+        # If token is present but invalid, you might want to raise an error
+        # or just return None depending on your security policy.
+        # For this use case, returning None is fine.
+        return None
+
+
 # Define the header we expect the key to be in
 api_key_header = APIKeyHeader(name="X-Internal-Api-Key", auto_error=False)
 
@@ -47,3 +62,14 @@ def get_internal_api_key(api_key: str = Security(api_key_header)) -> str:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or missing Internal API Key",
     )
+
+
+def get_internal_api_key_optional(
+    api_key: str | None = Security(api_key_header),
+) -> str | None:
+    """
+    Returns the API key if it's valid, otherwise returns None. Does not raise an error.
+    """
+    if api_key == settings.INTERNAL_API_KEY:
+        return api_key
+    return None

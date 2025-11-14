@@ -30,6 +30,9 @@ export class ContentControlDto {
   @IsIn(VALID_ACTIONS)
   action: 'START' | 'END' | 'NEXT_SLIDE' | 'PREV_SLIDE' | 'GO_TO_SLIDE';
 
+  @IsString()
+  sessionId: string;
+
   @IsInt()
   @Min(0)
   @IsOptional()

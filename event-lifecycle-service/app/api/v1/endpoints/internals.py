@@ -5,10 +5,9 @@ from typing import List
 from datetime import datetime, timezone, timedelta
 from jose import jwt
 from app.core.config import settings
-from app.crud import crud_waitlist
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Security
 from sqlalchemy.orm import Session
-from app.crud import crud_ad, crud_offer
+from app.crud import crud_ad, crud_offer, crud_waitlist,  crud_session
 from app.models.registration import Registration
 
 from app.api import deps
@@ -204,3 +203,19 @@ def validate_ticket_internal(
         ticketCode=validation_request.ticketCode,
         validatedAt=registration.checked_in_at,
     )
+
+
+@router.get("/internal/sessions/{session_id}/details", response_model=SessionSchema)
+def get_session_details(
+    session_id: str,
+    db: Session = Depends(get_db),
+    api_key: str = Security(deps.get_internal_api_key),
+):
+    """
+    An internal endpoint to get full session details by its ID,
+    so other services don't need to guess orgId or eventId.
+    """
+    session = crud_session.session.get(db=db, id=session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
