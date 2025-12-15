@@ -17,6 +17,7 @@ import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { Inject } from '@nestjs/common';
 import { AuditLogPayload } from 'src/common/interfaces/audit.interface';
 import { PublisherService } from 'src/shared/services/publisher.service';
+import { SessionValidationService } from 'src/shared/services/session-validation.service';
 import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
 import { GamificationService } from 'src/gamification/gamification.service';
@@ -31,6 +32,7 @@ export class PollsService {
     private readonly idempotencyService: IdempotencyService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis, // Redis client for caching and messaging
     private readonly publisherService: PublisherService, // Publishes events to message bus
+    private readonly sessionValidationService: SessionValidationService,
     private readonly gamificationService: GamificationService,
   ) {}
 
@@ -53,6 +55,12 @@ export class PollsService {
         'Duplicate request. This poll has already been created.',
       );
     }
+
+    // Validate that the user is a participant in this session
+    await this.sessionValidationService.validateSessionMembership(
+      creatorId,
+      sessionId,
+    );
 
     this.logger.log(`User ${creatorId} creating poll in session ${sessionId}`);
 
@@ -451,6 +459,7 @@ export class PollsService {
 
   /**
    * Selects a random winner from users who voted for a specific poll option.
+   * Giveaways can only be run on closed polls to ensure all votes are in.
    */
   async selectGiveawayWinner(dto: StartGiveawayDto, adminId: string) {
     const canProceed = await this.idempotencyService.checkAndSet(
@@ -459,6 +468,23 @@ export class PollsService {
     if (!canProceed) {
       throw new ConflictException('Duplicate request.');
     }
+
+    // Verify the poll exists and is closed before running giveaway
+    const poll = await this.prisma.poll.findUnique({
+      where: { id: dto.pollId },
+      select: { isActive: true },
+    });
+
+    if (!poll) {
+      throw new NotFoundException(`Poll with ID ${dto.pollId} not found.`);
+    }
+
+    if (poll.isActive) {
+      throw new ForbiddenException(
+        'Giveaway can only be run on closed polls. Please close the poll first.',
+      );
+    }
+
     // 1. Get all users who voted for the winning option
     const voters = await this.prisma.pollVote.findMany({
       where: {
@@ -524,5 +550,76 @@ export class PollsService {
       winner: winnerDetails,
       prize: dto.prize, // Prize details could be added to the DTO
     };
+  }
+
+  /**
+   * Gets all polls for a session with their current results.
+   * Used to send poll history when a user joins a session.
+   *
+   * @param sessionId - The session to fetch polls for.
+   * @param userId - Optional user ID to include their vote status.
+   * @returns Array of polls with results and user vote status.
+   */
+  async getSessionPolls(sessionId: string, userId?: string) {
+    // Fetch all polls for this session
+    const polls = await this.prisma.poll.findMany({
+      where: { sessionId },
+      include: {
+        options: true,
+        creator: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // For each poll, calculate vote counts and check user's vote
+    const pollsWithResults = await Promise.all(
+      polls.map(async (poll) => {
+        // Get vote counts for each option
+        const voteCounts = await this.prisma.pollVote.groupBy({
+          by: ['optionId'],
+          where: { pollId: poll.id },
+          _count: { optionId: true },
+        });
+
+        // Map vote counts to options
+        const optionsWithVotes = poll.options.map((option) => {
+          const count =
+            voteCounts.find((vc) => vc.optionId === option.id)?._count
+              .optionId || 0;
+          return { ...option, voteCount: count };
+        });
+
+        // Calculate total votes
+        const totalVotes = optionsWithVotes.reduce(
+          (sum, opt) => sum + opt.voteCount,
+          0,
+        );
+
+        // Check if user has voted
+        let userVotedForOptionId: string | null = null;
+        if (userId) {
+          const userVote = await this.prisma.pollVote.findUnique({
+            where: {
+              userId_pollId: { userId, pollId: poll.id },
+            },
+            select: { optionId: true },
+          });
+          userVotedForOptionId = userVote?.optionId || null;
+        }
+
+        return {
+          poll: {
+            ...poll,
+            options: optionsWithVotes,
+            totalVotes,
+          },
+          userVotedForOptionId,
+        };
+      }),
+    );
+
+    return pollsWithResults;
   }
 }

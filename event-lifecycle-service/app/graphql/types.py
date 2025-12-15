@@ -28,9 +28,6 @@ class EventStatsType:
 @strawberry.federation.type(keys=["id"], extend=True)
 class User:
     id: strawberry.ID = strawberry.federation.field(external=True)
-    first_name: str = strawberry.federation.field(external=True)
-    last_name: str = strawberry.federation.field(external=True)
-    email: str = strawberry.federation.field(external=True)
 
 
 @strawberry.type
@@ -152,10 +149,55 @@ class SessionType:
     def isArchived(self, root: SessionModel) -> bool:
         return root.is_archived
 
+    @strawberry.field
+    def chatEnabled(self, root: SessionModel) -> bool:
+        """Whether chat is enabled for this session."""
+        return root.chat_enabled
+
+    @strawberry.field
+    def qaEnabled(self, root: SessionModel) -> bool:
+        """Whether Q&A is enabled for this session."""
+        return root.qa_enabled
+
+    @strawberry.field
+    def chatOpen(self, root: SessionModel) -> bool:
+        """Whether chat is currently open for this session (runtime control)."""
+        return root.chat_open
+
+    @strawberry.field
+    def qaOpen(self, root: SessionModel) -> bool:
+        """Whether Q&A is currently open for this session (runtime control)."""
+        return root.qa_open
+
+    @strawberry.field
+    def pollsEnabled(self, root: SessionModel) -> bool:
+        """Whether polls are enabled for this session."""
+        return root.polls_enabled
+
+    @strawberry.field
+    def pollsOpen(self, root: SessionModel) -> bool:
+        """Whether polls are currently open for this session (runtime control)."""
+        return root.polls_open
+
     # The 'speakers' relationship should also be explicitly resolved for safety
     @strawberry.field
     def speakers(self, root: SessionModel) -> typing.List[SpeakerType]:
         return root.speakers
+
+    @strawberry.field
+    def status(self, root: SessionModel) -> str:
+        """
+        Computed status field based on current time:
+        - UPCOMING: start_time > now
+        - LIVE: start_time <= now <= end_time
+        - ENDED: end_time < now
+        """
+        now = datetime.now(root.start_time.tzinfo)
+        if now < root.start_time:
+            return "UPCOMING"
+        if now <= root.end_time:
+            return "LIVE"
+        return "ENDED"
 
 @strawberry.type
 class RegistrationType:
@@ -181,7 +223,7 @@ class RegistrationType:
     @strawberry.field
     def user(self, root: RegistrationModel) -> typing.Optional["User"]:
         if root.user_id:
-            return User(id=root.user_id, first_name="", last_name="", email="")
+            return User(id=root.user_id)
         return None
 
 
@@ -218,4 +260,129 @@ class DomainEventType:
         # The `data` field is JSONB, so we serialize it to a string for GraphQL
         if root.data:
             return json.dumps(root.data)
+        return None
+
+
+# --- PUBLIC EVENT TYPES (No authentication required) ---
+
+@strawberry.type
+class PublicEventType:
+    """
+    A simplified event type for public discovery endpoints.
+    Contains only publicly-safe information.
+    """
+
+    @strawberry.field
+    def id(self, root) -> str:
+        return root.id
+
+    @strawberry.field
+    def name(self, root) -> str:
+        return root.name
+
+    @strawberry.field
+    def description(self, root) -> Optional[str]:
+        return root.description
+
+    @strawberry.field
+    def startDate(self, root) -> datetime:
+        return root.start_date
+
+    @strawberry.field
+    def endDate(self, root) -> datetime:
+        return root.end_date
+
+    @strawberry.field
+    def imageUrl(self, root) -> Optional[str]:
+        return root.imageUrl
+
+    @strawberry.field
+    def venue(self, info: Info, root) -> Optional[VenueType]:
+        """Resolves the full Venue object from the venue relationship."""
+        # The venue is already eager-loaded by the query
+        if hasattr(root, 'venue') and root.venue:
+            return root.venue
+        return None
+
+
+@strawberry.type
+class PublicEventsResponse:
+    """Response type for the publicEvents query with pagination info."""
+    totalCount: int
+    events: typing.List[PublicEventType]
+
+
+# --- ATTENDEE REGISTRATION TYPES ---
+
+@strawberry.type
+class MyRegistrationEventType:
+    """
+    Event details returned within an attendee's registration.
+    Contains publicly-safe event information.
+    """
+
+    @strawberry.field
+    def id(self, root) -> str:
+        return root.id
+
+    @strawberry.field
+    def name(self, root) -> str:
+        return root.name
+
+    @strawberry.field
+    def description(self, root) -> Optional[str]:
+        return root.description
+
+    @strawberry.field
+    def startDate(self, root) -> datetime:
+        return root.start_date
+
+    @strawberry.field
+    def endDate(self, root) -> datetime:
+        return root.end_date
+
+    @strawberry.field
+    def status(self, root) -> str:
+        return root.status
+
+    @strawberry.field
+    def imageUrl(self, root) -> Optional[str]:
+        return root.imageUrl
+
+    @strawberry.field
+    def venue(self, info: Info, root) -> Optional[VenueType]:
+        """Resolves the full Venue object from the venue relationship."""
+        db = info.context.db
+        if root.venue_id:
+            return crud.venue.get(db, id=root.venue_id)
+        return None
+
+
+@strawberry.type
+class MyRegistrationType:
+    """
+    Registration type for attendee dashboard queries.
+    Includes nested event information.
+    """
+    id: str
+    status: str
+
+    @strawberry.field
+    def ticketCode(self, root: RegistrationModel) -> str:
+        return root.ticket_code
+
+    @strawberry.field
+    def checkedInAt(self, root: RegistrationModel) -> Optional[datetime]:
+        return root.checked_in_at
+
+    @strawberry.field
+    def createdAt(self, root: RegistrationModel) -> Optional[datetime]:
+        # Registration model doesn't have createdAt, return None for now
+        return None
+
+    @strawberry.field
+    def event(self, root: RegistrationModel) -> Optional[MyRegistrationEventType]:
+        """Returns the event associated with this registration."""
+        if hasattr(root, 'event') and root.event:
+            return root.event
         return None

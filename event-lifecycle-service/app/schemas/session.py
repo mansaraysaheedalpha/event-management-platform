@@ -11,6 +11,12 @@ class Session(BaseModel):
     title: str
     start_time: datetime
     end_time: datetime
+    chat_enabled: bool = True
+    qa_enabled: bool = True
+    polls_enabled: bool = True
+    chat_open: bool = False
+    qa_open: bool = False
+    polls_open: bool = False
     speakers: List[Speaker] = []
     model_config = {"from_attributes": True}
 
@@ -21,6 +27,9 @@ class SessionCreate(BaseModel):
     start_time: datetime  # It expects the final, combined datetime
     end_time: datetime  # It expects the final, combined datetime
     speaker_ids: Optional[List[str]] = []
+    chat_enabled: bool = True  # Defaults to enabled
+    qa_enabled: bool = True  # Defaults to enabled
+    polls_enabled: bool = True  # Defaults to enabled
 
 
 # ------------------------------------
@@ -31,3 +40,9 @@ class SessionUpdate(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     speaker_ids: Optional[List[str]] = None
+    chat_enabled: Optional[bool] = None
+    qa_enabled: Optional[bool] = None
+    polls_enabled: Optional[bool] = None
+    chat_open: Optional[bool] = None
+    qa_open: Optional[bool] = None
+    polls_open: Optional[bool] = None

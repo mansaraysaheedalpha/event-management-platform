@@ -44,14 +44,17 @@ class SessionCreateInput:
     startTime: str
     endTime: str
     speakerIds: Optional[List[str]] = None
+    chatEnabled: Optional[bool] = True  # Defaults to enabled
+    qaEnabled: Optional[bool] = True  # Defaults to enabled
+    pollsEnabled: Optional[bool] = True  # Defaults to enabled
 
 
 @strawberry.input
 class RegistrationCreateInput:
-    user_id: Optional[str] = None
+    userId: Optional[str] = None
     email: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
 
 
 @strawberry.input
@@ -74,6 +77,9 @@ class SessionUpdateInput:
     startTime: Optional[str] = None
     endTime: Optional[str] = None
     speakerIds: Optional[List[str]] = None
+    chatEnabled: Optional[bool] = None
+    qaEnabled: Optional[bool] = None
+    pollsEnabled: Optional[bool] = None
 
 
 @strawberry.input
@@ -120,7 +126,7 @@ class Mutation:
             start_date=eventIn.startDate,
             end_date=eventIn.endDate,
             venue_id=eventIn.venueId,
-            image_url=eventIn.imageUrl,
+            imageUrl=eventIn.imageUrl,
         )
         return crud.event.create_with_organization(
             db, obj_in=event_schema, org_id=org_id
@@ -151,8 +157,7 @@ class Mutation:
             update_data["venue_id"] = update_data.pop("venueId")
         if "isPublic" in update_data:
             update_data["is_public"] = update_data.pop("isPublic")
-        if "imageUrl" in update_data:
-            update_data["image_url"] = update_data.pop("imageUrl")
+        # imageUrl stays as-is since schema uses imageUrl (matches model column)
 
         update_schema = EventUpdate(**update_data)
         return crud.event.update(
@@ -242,6 +247,9 @@ class Mutation:
             start_time=full_start_datetime,
             end_time=full_end_datetime,
             speaker_ids=sessionIn.speakerIds,
+            chat_enabled=sessionIn.chatEnabled if sessionIn.chatEnabled is not None else True,
+            qa_enabled=sessionIn.qaEnabled if sessionIn.qaEnabled is not None else True,
+            polls_enabled=sessionIn.pollsEnabled if sessionIn.pollsEnabled is not None else True,
         )
         return crud.session.create_with_event(
             db, obj_in=session_schema, event_id=sessionIn.eventId, producer=producer
@@ -280,6 +288,12 @@ class Mutation:
             update_data["end_time"] = datetime.fromisoformat(update_data.pop("endTime"))
         if "speakerIds" in update_data:
             update_data["speaker_ids"] = update_data.pop("speakerIds")
+        if "chatEnabled" in update_data:
+            update_data["chat_enabled"] = update_data.pop("chatEnabled")
+        if "qaEnabled" in update_data:
+            update_data["qa_enabled"] = update_data.pop("qaEnabled")
+        if "pollsEnabled" in update_data:
+            update_data["polls_enabled"] = update_data.pop("pollsEnabled")
         update_schema = SessionUpdate(**update_data)
         return crud.session.update(db, db_obj=session, obj_in=update_schema)
 
@@ -395,8 +409,21 @@ class Mutation:
         self, registrationIn: RegistrationCreateInput, eventId: str, info: Info
     ) -> RegistrationType:
         db = info.context.db
+        user = info.context.user
+
         is_guest_reg = registrationIn.email is not None
-        is_user_reg = registrationIn.userId is not None
+
+        # Determine the effective user_id:
+        # 1. If userId provided, use it (will be validated below)
+        # 2. If authenticated and not guest reg, auto-use JWT sub
+        # 3. Otherwise None (guest registration)
+        effective_user_id = registrationIn.userId
+        if not effective_user_id and not is_guest_reg and user:
+            # Auto-fill user_id from authenticated user for self-registration
+            effective_user_id = user.get("sub")
+
+        is_user_reg = effective_user_id is not None
+
         if is_guest_reg and is_user_reg:
             raise HTTPException(
                 status_code=400,
@@ -405,7 +432,7 @@ class Mutation:
         if not is_guest_reg and not is_user_reg:
             raise HTTPException(
                 status_code=400,
-                detail="Either user_id or guest details must be provided.",
+                detail="You must be logged in or provide guest details to register.",
             )
         if is_guest_reg and (
             not registrationIn.firstName or not registrationIn.lastName
@@ -419,13 +446,13 @@ class Mutation:
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
 
-        user = info.context.user
         if not event.is_public and not user:
             raise HTTPException(
                 status_code=403,
                 detail="You must be logged in to register for this private event.",
             )
 
+        # If userId was explicitly provided, validate it matches the authenticated user
         if registrationIn.userId and (
             not user or user.get("sub") != registrationIn.userId
         ):
@@ -435,7 +462,7 @@ class Mutation:
             )
 
         reg_schema = RegistrationCreate(
-            user_id=registrationIn.userId,
+            user_id=effective_user_id,
             email=registrationIn.email,
             first_name=registrationIn.firstName,
             last_name=registrationIn.lastName,
@@ -453,9 +480,46 @@ class Mutation:
                 detail="A registration already exists for this user or email.",
             )
 
-        return crud.registration.create_for_event(
+        registration = crud.registration.create_for_event(
             db, obj_in=reg_schema, event_id=eventId
         )
+
+        # Publish Kafka event for email notification
+        producer = info.context.producer
+        if producer:
+            try:
+                # Determine recipient email and name
+                if is_guest_reg:
+                    recipient_email = registrationIn.email
+                    recipient_name = f"{registrationIn.firstName} {registrationIn.lastName}"
+                else:
+                    # For user registrations, get email from JWT
+                    recipient_email = user.get("email") if user else None
+                    recipient_name = user.get("name", "Attendee") if user else "Attendee"
+
+                # Publish registration event to Kafka
+                producer.send(
+                    "registration.events.v1",
+                    value={
+                        "type": "REGISTRATION_CONFIRMED",
+                        "registrationId": registration.id,
+                        "ticketCode": registration.ticket_code,
+                        "eventId": eventId,
+                        "eventName": event.name,
+                        "eventStartDate": event.start_date.isoformat(),
+                        "eventEndDate": event.end_date.isoformat(),
+                        "userId": effective_user_id,
+                        "recipientEmail": recipient_email,
+                        "recipientName": recipient_name,
+                        "venueName": event.venue.name if event.venue else None,
+                    },
+                )
+                print(f"[KAFKA] Published registration event for ticket: {registration.ticket_code}")
+            except Exception as e:
+                # Log but don't fail the registration if Kafka publish fails
+                print(f"[KAFKA ERROR] Failed to publish registration event: {e}")
+
+        return registration
 
     @strawberry.mutation
     def createBlueprint(
@@ -517,3 +581,159 @@ class Mutation:
         return crud.event.create_with_organization(
             db, obj_in=event_schema, org_id=org_id
         )
+
+    @strawberry.mutation
+    def toggleSessionChat(self, id: str, open: bool, info: Info) -> SessionType:
+        """
+        Toggle the chat open/closed state for a session.
+        Only works if chat is enabled for this session.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        user_role = user.get("role")
+        user_id = user["sub"]
+
+        session = crud.session.get(db, id=id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        event = crud.event.get(db, id=session.event_id)
+        if not event or event.organization_id != org_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+        if event.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+
+        if not session.chat_enabled:
+            raise HTTPException(
+                status_code=400, detail="Chat is disabled for this session"
+            )
+
+        # Update the chat_open state
+        session.chat_open = open
+        db.commit()
+        db.refresh(session)
+
+        # Publish to Redis for real-time broadcast
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.chat.v1",
+            json.dumps({
+                "sessionId": id,
+                "chatOpen": open,
+                "eventId": session.event_id,
+            })
+        )
+
+        return session
+
+    @strawberry.mutation
+    def toggleSessionQA(self, id: str, open: bool, info: Info) -> SessionType:
+        """
+        Toggle the Q&A open/closed state for a session.
+        Only works if Q&A is enabled for this session.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        user_role = user.get("role")
+        user_id = user["sub"]
+
+        session = crud.session.get(db, id=id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        event = crud.event.get(db, id=session.event_id)
+        if not event or event.organization_id != org_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+        if event.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+
+        if not session.qa_enabled:
+            raise HTTPException(
+                status_code=400, detail="Q&A is disabled for this session"
+            )
+
+        # Update the qa_open state
+        session.qa_open = open
+        db.commit()
+        db.refresh(session)
+
+        # Publish to Redis for real-time broadcast
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.qa.v1",
+            json.dumps({
+                "sessionId": id,
+                "qaOpen": open,
+                "eventId": session.event_id,
+            })
+        )
+
+        return session
+
+    @strawberry.mutation
+    def toggleSessionPolls(self, id: str, open: bool, info: Info) -> SessionType:
+        """
+        Toggle the polls open/closed state for a session.
+        Only works if polls are enabled for this session.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        user_role = user.get("role")
+        user_id = user["sub"]
+
+        session = crud.session.get(db, id=id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        event = crud.event.get(db, id=session.event_id)
+        if not event or event.organization_id != org_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+        if event.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+
+        if not session.polls_enabled:
+            raise HTTPException(
+                status_code=400, detail="Polls are disabled for this session"
+            )
+
+        # Update the polls_open state
+        session.polls_open = open
+        db.commit()
+        db.refresh(session)
+
+        # Publish to Redis for real-time broadcast
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.polls.v1",
+            json.dumps({
+                "sessionId": id,
+                "pollsOpen": open,
+                "eventId": session.event_id,
+            })
+        )
+
+        return session
