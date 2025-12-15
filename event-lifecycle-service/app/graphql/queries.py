@@ -229,3 +229,24 @@ class Query:
         # Get all registrations for this user with their associated events
         registrations = crud.registration.get_multi_by_user(db, user_id=user_id)
         return registrations
+
+    @strawberry.field
+    def myRegistrationForEvent(
+        self, eventId: strawberry.ID, info: Info
+    ) -> Optional[MyRegistrationType]:
+        """
+        Returns the current user's registration for a specific event, if one exists.
+        This is used to check if the user is already registered for an event.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        # Get the registration for this user and event
+        registration = crud.registration.get_by_user_or_email(
+            db, event_id=str(eventId), user_id=user_id
+        )
+        return registration
