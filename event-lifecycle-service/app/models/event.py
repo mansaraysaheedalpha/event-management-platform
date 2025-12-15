@@ -1,5 +1,6 @@
 # app/models/event.py
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, text
+from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 import uuid
 
@@ -24,3 +25,6 @@ class Event(Base):
     createdAt = Column(DateTime, nullable=False, server_default=text("now()"))
     updatedAt = Column(DateTime, nullable=False, server_default=text("now()"))
     imageUrl = Column(String, nullable=True)
+
+    # Relationship to registrations for eager loading
+    registrations = relationship("Registration", back_populates="event")

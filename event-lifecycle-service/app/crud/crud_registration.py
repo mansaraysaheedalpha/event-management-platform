@@ -68,6 +68,22 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
         """
         return db.query(self.model).filter(self.model.event_id == event_id).count()
 
+    def get_multi_by_user(
+        self, db: Session, *, user_id: str, skip: int = 0, limit: int = 100
+    ) -> list[Registration]:
+        """
+        Fetches all registrations for a specific user, with their associated events.
+        Used for the attendee dashboard to show their registered events.
+        """
+        return (
+            db.query(self.model)
+            .options(joinedload(self.model.event))
+            .filter(self.model.user_id == user_id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
     def create_for_event(
         self, db: Session, *, obj_in: RegistrationCreate, event_id: str
     ) -> Registration:

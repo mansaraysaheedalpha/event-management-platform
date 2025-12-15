@@ -32,3 +32,6 @@ class Registration(Base):
         server_default="confirmed",
     )
     is_archived = Column(String, nullable=False, server_default=text("false"))
+
+    # Relationship to the Event model for eager loading
+    event = relationship("Event", back_populates="registrations")
