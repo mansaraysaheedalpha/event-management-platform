@@ -15,6 +15,7 @@ from .types import (
     VenueType,
     BlueprintType,
     DomainEventType,
+    MyRegistrationType,
 )
 
 
@@ -211,3 +212,20 @@ class Query:
             raise HTTPException(status_code=404, detail="Event not found")
 
         return crud.domain_event.get_for_event(db, event_id=str(eventId))
+
+    @strawberry.field
+    def myRegistrations(self, info: Info) -> List[MyRegistrationType]:
+        """
+        Returns all registrations for the currently authenticated user.
+        This is for attendees to view their own event registrations.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        # Get all registrations for this user with their associated events
+        registrations = crud.registration.get_multi_by_user(db, user_id=user_id)
+        return registrations
