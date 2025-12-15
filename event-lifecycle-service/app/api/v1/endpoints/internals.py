@@ -23,6 +23,7 @@ from app.schemas.internal import (
     ValidationResult,
 )
 from app.schemas.waitlist import WaitlistEntry
+from app.schemas.session import Session as SessionSchema
 
 router = APIRouter(tags=["Internal"])
 
