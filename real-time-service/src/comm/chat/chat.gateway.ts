@@ -8,6 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { HttpException, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { ChatService } from './chat.service';
@@ -17,6 +18,16 @@ import { DeleteMessageDto } from './dto/delete-message.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { ReactToMessageDto } from './dto/react-to-message.dto';
 import { Throttle } from '@nestjs/throttler';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
+import { SessionSettingsService } from 'src/shared/services/session-settings.service';
+
+// Admin/moderator permissions that bypass registration checks
+const ADMIN_PERMISSIONS = [
+  'content:manage',
+  'chat:moderate',
+  'qna:moderate',
+  'event:manage',
+];
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -26,7 +37,105 @@ export class ChatGateway {
   private readonly logger = new Logger(ChatGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly eventRegistrationValidationService: EventRegistrationValidationService,
+    private readonly sessionSettingsService: SessionSettingsService,
+  ) {}
+
+  /**
+   * Checks if user has any admin/moderator permissions that bypass registration checks.
+   */
+  private hasAdminPermissions(permissions: string[] | undefined): boolean {
+    if (!permissions) return false;
+    return permissions.some((p) => ADMIN_PERMISSIONS.includes(p));
+  }
+
+  /**
+   * Validates that a non-admin user is registered for the event.
+   * Returns an error response object if not registered, null otherwise.
+   */
+  private async validateRegistration(
+    userId: string,
+    eventId: string,
+    permissions: string[] | undefined,
+  ): Promise<{ success: false; error: { message: string; statusCode: number } } | null> {
+    if (this.hasAdminPermissions(permissions)) {
+      return null; // Admin users bypass registration check
+    }
+
+    const isRegistered =
+      await this.eventRegistrationValidationService.isUserRegistered(
+        userId,
+        eventId,
+      );
+
+    if (!isRegistered) {
+      this.logger.warn(
+        `[Chat] User ${userId} denied - not registered for event ${eventId}`,
+      );
+      return {
+        success: false,
+        error: {
+          message: 'You are not registered for this event.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    return null; // User is registered
+  }
+
+  /**
+   * Validates that chat is active for the session.
+   * - If chat_enabled is false: Block everyone (feature completely disabled)
+   * - If chat_open is false: Block attendees, but allow organizers/speakers (bypass)
+   * - If both are true: Allow everyone
+   *
+   * @param sessionId - The session ID to check
+   * @param permissions - Optional user permissions to check for bypass
+   * @returns Error response if blocked, null if allowed
+   */
+  private async validateChatActive(
+    sessionId: string,
+    permissions?: string[],
+  ): Promise<{ success: false; error: { message: string; statusCode: number } } | null> {
+    const settings = await this.sessionSettingsService.getSessionSettings(sessionId);
+
+    // If chat feature is completely disabled, block everyone (no bypass)
+    if (!settings?.chat_enabled) {
+      this.logger.warn(`[Chat] Chat is disabled for session ${sessionId}`);
+      return {
+        success: false,
+        error: {
+          message: 'Chat is disabled for this session.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    // If chat is closed, check if user has organizer/speaker permissions to bypass
+    if (!settings?.chat_open) {
+      // Organizers and speakers (with admin permissions) can bypass the chat_open check
+      if (this.hasAdminPermissions(permissions)) {
+        this.logger.log(
+          `[Chat] Chat is closed for session ${sessionId}, but user has admin permissions - allowing bypass`,
+        );
+        return null; // Allow the message through
+      }
+
+      this.logger.warn(`[Chat] Chat is closed for session ${sessionId}`);
+      return {
+        success: false,
+        error: {
+          message: 'Chat is currently closed for this session.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    return null; // Chat is enabled and open
+  }
 
   /**
    * Handles incoming 'chat.message.send' events.
@@ -46,20 +155,46 @@ export class ChatGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
-    const { sessionId } = client.handshake.query as { sessionId: string };
+    const { sessionId } = dto; // sessionId from DTO = which chat session
+    // eventId from query params = parent event for dashboard analytics
+    const eventId = (client.handshake.query.eventId as string) || sessionId;
+
+    // Validate event registration for non-admin users
+    const registrationError = await this.validateRegistration(
+      user.sub,
+      eventId,
+      user.permissions,
+    );
+    if (registrationError) return registrationError;
+
+    // Validate that chat is enabled AND open for this session
+    // Pass permissions so organizers/speakers can bypass the chat_open check
+    const chatActiveError = await this.validateChatActive(sessionId, user.permissions);
+    if (chatActiveError) return chatActiveError;
+
+    this.logger.log(
+      `📨 Received chat.message.send from user ${user.sub} for session ${sessionId}, eventId ${eventId}`,
+    );
 
     try {
       const newMessage = (await this.chatService.sendMessage(
         user.sub,
-        sessionId,
+        sessionId, // The chat session ID
         dto,
-      )) as { id: string }; // Ensure the expected type is asserted
+        eventId, // Pass eventId for dashboard analytics
+      )) as { id: string };
+
       const publicRoom = `session:${sessionId}`;
       this.server.to(publicRoom).emit('chat.message.new', newMessage);
+
+      this.logger.log(
+        `✅ Message ${newMessage.id} sent successfully, broadcasted to ${publicRoom}`,
+      );
+
       return { success: true, messageId: newMessage.id };
     } catch (error) {
       this.logger.error(
-        `Failed to send message for user ${user.sub}:`,
+        `❌ Failed to send message for user ${user.sub}:`,
         getErrorMessage(error),
       );
       if (error instanceof HttpException) {
@@ -86,7 +221,7 @@ export class ChatGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
-    const { sessionId } = client.handshake.query as { sessionId: string };
+    const { sessionId } = dto; // Read sessionId from DTO body
 
     try {
       const editedMessage = (await this.chatService.editMessage(
@@ -163,13 +298,28 @@ export class ChatGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
-    const { sessionId } = client.handshake.query as { sessionId: string };
+    const { sessionId } = dto; // Read sessionId from DTO body
+    // eventId from query params = parent event for dashboard analytics
+    const eventId = (client.handshake.query.eventId as string) || sessionId;
+
+    // Validate event registration for non-admin users
+    const registrationError = await this.validateRegistration(
+      user.sub,
+      eventId,
+      user.permissions,
+    );
+    if (registrationError) return registrationError;
+
+    // Validate that chat is enabled AND open for this session
+    // Pass permissions so organizers/speakers can bypass the chat_open check
+    const chatActiveError = await this.validateChatActive(sessionId, user.permissions);
+    if (chatActiveError) return chatActiveError;
 
     try {
       const updatedMessageWithReactions: {
         id: string;
         [key: string]: any;
-      } | null = await this.chatService.reactToMessage(user.sub, dto);
+      } | null = await this.chatService.reactToMessage(user.sub, dto, eventId);
 
       if (updatedMessageWithReactions) {
         const publicRoom = `session:${sessionId}`;
@@ -196,5 +346,31 @@ export class ChatGateway {
       }
       return { success: false, error: 'An internal server error occurred.' };
     }
+  }
+
+  /**
+   * Handles Redis events for chat status changes.
+   * Broadcasts the status change to all clients in the session room.
+   */
+  @OnEvent('platform.sessions.chat.v1')
+  handleChatStatusChange(payload: {
+    sessionId: string;
+    chatOpen: boolean;
+    eventId: string;
+  }) {
+    const { sessionId, chatOpen } = payload;
+    const publicRoom = `session:${sessionId}`;
+
+    this.server.to(publicRoom).emit('chat.status.changed', {
+      sessionId,
+      isOpen: chatOpen,
+    });
+
+    // Clear cached settings so next validation fetches fresh data
+    this.sessionSettingsService.clearCache(sessionId);
+
+    this.logger.log(
+      `📢 Broadcasted chat.status.changed (isOpen: ${chatOpen}) to room ${publicRoom}`,
+    );
   }
 }

@@ -9,7 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Server } from 'socket.io';
-import { ForbiddenException, Logger } from '@nestjs/common';
+import { ForbiddenException, forwardRef, Inject, Logger } from '@nestjs/common';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getErrorMessage } from 'src/common/utils/error.utils';
@@ -19,6 +19,19 @@ import { PresentationStateDto } from './dto/presentation-state.dto';
 import { DropContentDto } from './dto/drop-content.dto';
 import { PresentationStatusDto } from './dto/presentation-status.dto';
 import { PrismaService } from 'src/prisma.service';
+import { ChatService } from 'src/comm/chat/chat.service';
+import { QnaService } from 'src/comm/qna/qna.service';
+import { PollsService } from 'src/comm/polls/polls.service';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
+import { SessionSettingsService } from 'src/shared/services/session-settings.service';
+
+// Admin/moderator permissions that bypass registration checks
+const ADMIN_PERMISSIONS = [
+  'content:manage',
+  'chat:moderate',
+  'qna:moderate',
+  'event:manage',
+];
 
 export interface RequestStateResponse {
   success: boolean;
@@ -61,18 +74,156 @@ export class ContentGateway {
   constructor(
     private readonly contentService: ContentService,
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => ChatService))
+    private readonly chatService: ChatService,
+    @Inject(forwardRef(() => QnaService))
+    private readonly qnaService: QnaService,
+    @Inject(forwardRef(() => PollsService))
+    private readonly pollsService: PollsService,
+    private readonly eventRegistrationValidationService: EventRegistrationValidationService,
+    private readonly sessionSettingsService: SessionSettingsService,
   ) {}
 
+  /**
+   * Checks if user has any admin/moderator permissions that bypass registration checks.
+   */
+  private hasAdminPermissions(permissions: string[] | undefined): boolean {
+    if (!permissions) return false;
+    return permissions.some((p) => ADMIN_PERMISSIONS.includes(p));
+  }
+
   @SubscribeMessage('session.join')
-  handleJoinSession(
-    @MessageBody() data: { sessionId: string },
+  async handleJoinSession(
+    @MessageBody() data: { sessionId: string; eventId?: string },
     @ConnectedSocket() client: AuthenticatedSocket,
-  ): void {
-    if (data.sessionId) {
-      const room = `session:${data.sessionId}`;
-      client.join(room);
-      this.logger.log(`Client ${client.id} joined room: ${room}`);
+  ): Promise<{
+    success: boolean;
+    session?: {
+      chatOpen: boolean;
+      qaOpen: boolean;
+      pollsOpen: boolean;
+      chatEnabled: boolean;
+      qaEnabled: boolean;
+      pollsEnabled: boolean;
+    };
+    error?: { message: string; statusCode: number };
+  }> {
+    if (!data.sessionId) {
+      return {
+        success: false,
+        error: { message: 'Session ID is required.', statusCode: 400 },
+      };
     }
+
+    const user = getAuthenticatedUser(client);
+    const sessionId = data.sessionId;
+
+    // Determine the eventId - check message body first, then query params, then lookup
+    let eventId = data.eventId || (client.handshake.query.eventId as string);
+
+    this.logger.log(
+      `[session.join] sessionId: ${sessionId}, eventId from body: ${data.eventId}, eventId from query: ${client.handshake.query.eventId}`,
+    );
+
+    if (!eventId) {
+      // Look up eventId from session/chatSession as last resort
+      const session = await this.prisma.chatSession.findFirst({
+        where: { OR: [{ id: sessionId }, { eventId: sessionId }] },
+        select: { eventId: true },
+      });
+      eventId = session?.eventId || sessionId;
+      this.logger.log(`[session.join] eventId resolved from lookup/fallback: ${eventId}`);
+    }
+
+    // Check registration for non-admin users
+    if (!this.hasAdminPermissions(user.permissions)) {
+      this.logger.log(
+        `[session.join] Validating registration for user ${user.sub} on event ${eventId}`,
+      );
+      const isRegistered =
+        await this.eventRegistrationValidationService.isUserRegistered(
+          user.sub,
+          eventId,
+        );
+
+      if (!isRegistered) {
+        this.logger.warn(
+          `[session.join] User ${user.sub} denied - not registered for event ${eventId}`,
+        );
+        return {
+          success: false,
+          error: {
+            message: 'You are not registered for this event.',
+            statusCode: 403,
+          },
+        };
+      }
+      this.logger.log(
+        `[session.join] User ${user.sub} registration validated for event ${eventId}`,
+      );
+    } else {
+      this.logger.log(
+        `[session.join] User ${user.sub} has admin permissions - skipping registration check`,
+      );
+    }
+
+    const room = `session:${sessionId}`;
+    await client.join(room);
+    this.logger.log(`Client ${client.id} (user ${user.sub}) joined room: ${room}`);
+
+    // Send chat history to the joining client
+    try {
+      const messages = await this.chatService.getSessionHistory(sessionId);
+      client.emit('chat.history', { messages });
+      this.logger.log(
+        `Sent ${messages.length} chat history messages to client ${client.id}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send chat history: ${getErrorMessage(error)}`,
+      );
+    }
+
+    // Send Q&A history to the joining client
+    try {
+      const questions = await this.qnaService.getSessionQuestions(sessionId);
+      client.emit('qa.history', { questions });
+      this.logger.log(
+        `Sent ${questions.length} Q&A questions to client ${client.id}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send Q&A history: ${getErrorMessage(error)}`,
+      );
+    }
+
+    // Send poll history to the joining client
+    try {
+      const polls = await this.pollsService.getSessionPolls(sessionId, user.sub);
+      client.emit('poll.history', { polls });
+      this.logger.log(
+        `Sent ${polls.length} polls to client ${client.id}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send poll history: ${getErrorMessage(error)}`,
+      );
+    }
+
+    // Get session settings for the response
+    const settings = await this.sessionSettingsService.getSessionSettings(sessionId);
+
+    return {
+      success: true,
+      session: {
+        chatEnabled: settings?.chat_enabled ?? true,
+        qaEnabled: settings?.qa_enabled ?? true,
+        pollsEnabled: settings?.polls_enabled ?? true,
+        chatOpen: settings?.chat_open ?? false,
+        qaOpen: settings?.qa_open ?? false,
+        pollsOpen: settings?.polls_open ?? false,
+      },
+    };
   }
 
   // --- NEW: Method to handle clients leaving a session room ---

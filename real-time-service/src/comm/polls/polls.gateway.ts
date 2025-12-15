@@ -6,6 +6,7 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Server } from 'socket.io';
 import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
@@ -16,6 +17,15 @@ import { ManagePollDto } from './dto/manage-polls.dto';
 import { SubmitVoteDto } from './dto/submit-vote.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { StartGiveawayDto } from './dto/start-giveaway.dto';
+import { SessionSettingsService } from 'src/shared/services/session-settings.service';
+
+// Admin/organizer permissions that can bypass polls_open check
+const ADMIN_PERMISSIONS = [
+  'content:manage',
+  'poll:create',
+  'poll:manage',
+  'event:manage',
+];
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -25,7 +35,64 @@ export class PollsGateway {
   private readonly logger = new Logger(PollsGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly pollsService: PollsService) {}
+  constructor(
+    private readonly pollsService: PollsService,
+    private readonly sessionSettingsService: SessionSettingsService,
+  ) {}
+
+  /**
+   * Checks if user has admin/organizer permissions that bypass polls_open check.
+   */
+  private hasAdminPermissions(permissions: string[] | undefined): boolean {
+    if (!permissions) return false;
+    return permissions.some((p) => ADMIN_PERMISSIONS.includes(p));
+  }
+
+  /**
+   * Validates that polls are active for the session.
+   * - If polls_enabled is false: Block everyone (feature disabled)
+   * - If polls_open is false: Block attendees, allow organizers (bypass)
+   * - If both true: Allow everyone
+   */
+  private async validatePollsActive(
+    sessionId: string,
+    permissions?: string[],
+  ): Promise<{ success: false; error: { message: string; statusCode: number } } | null> {
+    const settings = await this.sessionSettingsService.getSessionSettings(sessionId);
+
+    // If polls feature is completely disabled, block everyone
+    if (!settings?.polls_enabled) {
+      this.logger.warn(`[Polls] Polls are disabled for session ${sessionId}`);
+      return {
+        success: false,
+        error: {
+          message: 'Polls are disabled for this session.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    // If polls are closed, check if user has admin permissions to bypass
+    if (!settings?.polls_open) {
+      if (this.hasAdminPermissions(permissions)) {
+        this.logger.log(
+          `[Polls] Polls are closed for session ${sessionId}, but user has admin permissions - allowing bypass`,
+        );
+        return null; // Allow through
+      }
+
+      this.logger.warn(`[Polls] Polls are closed for session ${sessionId}`);
+      return {
+        success: false,
+        error: {
+          message: 'Polls are currently closed for this session.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    return null; // Polls are enabled and open
+  }
 
   /**
    * Handles incoming request to create a new poll.
@@ -50,6 +117,10 @@ export class PollsGateway {
         'You do not have permission to create a poll.',
       );
     }
+
+    // Validate that polls are enabled AND open (organizers bypass open check)
+    const pollsActiveError = await this.validatePollsActive(sessionId, user.permissions);
+    if (pollsActiveError) return pollsActiveError;
 
     try {
       // We must `await` the promise from the service.
@@ -97,6 +168,10 @@ export class PollsGateway {
   ) {
     const user = getAuthenticatedUser(client);
     const { sessionId } = client.handshake.query as { sessionId: string };
+
+    // Validate that polls are enabled AND open (no bypass for voting - everyone must wait for polls to open)
+    const pollsActiveError = await this.validatePollsActive(sessionId, user.permissions);
+    if (pollsActiveError) return pollsActiveError;
 
     try {
       const updatedPollWithResults = await this.pollsService.submitVote(
@@ -218,5 +293,36 @@ export class PollsGateway {
       );
       return { success: false, error: getErrorMessage(error) };
     }
+  }
+
+  /**
+   * Handles polls status change events from Redis (when organizer toggles pollsOpen).
+   * Broadcasts the status change to all clients in the session room.
+   * Also clears the session settings cache so the new status is used immediately.
+   */
+  @OnEvent('platform.sessions.polls.v1')
+  async handlePollsStatusChange(payload: {
+    sessionId: string;
+    pollsOpen: boolean;
+    eventId: string;
+  }) {
+    const { sessionId, pollsOpen } = payload;
+
+    // Clear the cache so the new status is fetched on next request
+    this.sessionSettingsService.clearCache(sessionId);
+
+    // Broadcast to all clients in the session room
+    const room = `session:${sessionId}`;
+    this.server.to(room).emit('polls.status.changed', {
+      sessionId,
+      isOpen: pollsOpen,
+      message: pollsOpen
+        ? 'Polls are now open! You can create polls and vote.'
+        : 'Polls are now closed.',
+    });
+
+    this.logger.log(
+      `[Polls] Status changed for session ${sessionId}: pollsOpen=${pollsOpen}`,
+    );
   }
 }

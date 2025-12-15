@@ -46,6 +46,10 @@ export class SubscriberService implements OnModuleInit {
         'capacity-events',
         'notification-events',
         'system-metrics-events',
+        'analytics-events', // For chat/poll/qna analytics to update dashboard
+        'platform.sessions.chat.v1', // Chat open/close status changes
+        'platform.sessions.qa.v1', // Q&A open/close status changes
+        'platform.sessions.polls.v1', // Polls open/close status changes
       );
       this.logger.log('Successfully subscribed to all Redis Pub/Sub channels.');
     } catch (err) {
