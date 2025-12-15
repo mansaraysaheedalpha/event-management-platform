@@ -30,7 +30,11 @@
       "Bash(git revert:*)",
       "Bash(git reset:*)",
       "Bash(git cherry-pick:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(docker cp:*)",
+      "Bash(cp:*)",
+      "Bash(git checkout:*)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
