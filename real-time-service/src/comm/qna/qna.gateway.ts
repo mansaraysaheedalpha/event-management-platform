@@ -9,6 +9,7 @@ import {
 import { Inject, forwardRef } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { ForbiddenException, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { QnaService } from './qna.service';
@@ -18,6 +19,7 @@ import { ModerateQuestionDto } from './dto/moderate-question.dto';
 import { AnswerQuestionDto } from './dto/answer-question.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { TagQuestionDto } from './dto/tag-question.dto';
+import { SessionSettingsService } from 'src/shared/services/session-settings.service';
 
 /**
  * WebSocket gateway for managing Q&A events during live sessions.
@@ -36,6 +38,7 @@ export class QnaGateway {
   constructor(
     @Inject(forwardRef(() => QnaService))
     private readonly qnaService: QnaService,
+    private readonly sessionSettingsService: SessionSettingsService,
   ) {}
 
   /**
@@ -58,12 +61,17 @@ export class QnaGateway {
       return { success: false, error: 'Session ID is required.' };
     }
 
+    // Get eventId from query params (defaults to sessionId if not provided)
+    const eventId = (client.handshake.query.eventId as string) || sessionId;
+
     try {
       const newQuestion = await this.qnaService.askQuestion(
         user.sub,
         user.email,
         sessionId,
         dto,
+        eventId, // Pass eventId for auto-creating sessions
+        user.orgId, // Pass organizationId from JWT
       );
 
       const moderationRoom = `session:${sessionId}:moderation`;
@@ -315,5 +323,35 @@ export class QnaGateway {
 
     this.server.to(moderationRoom).emit(eventName, payload);
     this.logger.log(`Broadcasted moderation alert to room: ${moderationRoom}`);
+  }
+
+  /**
+   * Handles Q&A status change events from Redis (when organizer toggles qaOpen).
+   * Broadcasts the status change to all clients in the session room.
+   * Also clears the session settings cache so the new status is used immediately.
+   */
+  @OnEvent('platform.sessions.qa.v1')
+  handleQaStatusChange(payload: {
+    sessionId: string;
+    qaOpen: boolean;
+    eventId: string;
+  }) {
+    const { sessionId, qaOpen } = payload;
+    const publicRoom = `session:${sessionId}`;
+
+    this.server.to(publicRoom).emit('qa.status.changed', {
+      sessionId,
+      isOpen: qaOpen,
+      message: qaOpen
+        ? 'Q&A is now open! You can submit questions.'
+        : 'Q&A is now closed.',
+    });
+
+    // Clear cached settings so next validation fetches fresh data
+    this.sessionSettingsService.clearCache(sessionId);
+
+    this.logger.log(
+      `📢 Broadcasted qa.status.changed (isOpen: ${qaOpen}) to room ${publicRoom}`,
+    );
   }
 }

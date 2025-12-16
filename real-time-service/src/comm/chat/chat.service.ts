@@ -22,6 +22,9 @@ import { GamificationService } from 'src/gamification/gamification.service';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { DeleteMessageDto } from './dto/delete-message.dto';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { UserDataDto } from 'src/common/dto/user-data.dto';
 
 @Injectable()
 export class ChatService {
@@ -35,6 +38,7 @@ export class ChatService {
     private readonly publisherService: PublisherService,
     private readonly gamificationService: GamificationService,
     private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
   ) {
     this.EDIT_WINDOW_SECONDS = this.configService.get<number>(
       'CHAT_EDIT_WINDOW_SECONDS',
@@ -45,14 +49,24 @@ export class ChatService {
   /**
    * Sends a chat message in a session after idempotency and session checks.
    * Broadcasts sync and analytics events, and publishes to an external stream.
+   * Auto-creates the ChatSession if it doesn't exist.
    *
    * @param authorId - ID of the user sending the message.
    * @param sessionId - ID of the chat session.
    * @param dto - DTO containing message content and idempotency key.
+   * @param eventId - The parent event ID (for auto-creating sessions).
+   * @param organizationId - The organization ID (for auto-creating sessions).
    * @returns The newly created message.
-   * @throws ConflictException, NotFoundException
+   * @throws ConflictException
    */
-  async sendMessage(authorId: string, sessionId: string, dto: SendMessageDto) {
+  async sendMessage(
+    authorId: string,
+    authorEmail: string,
+    sessionId: string,
+    dto: SendMessageDto,
+    eventId?: string,
+    organizationId?: string,
+  ) {
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -60,16 +74,41 @@ export class ChatService {
       throw new ConflictException('Duplicate message request.');
     }
 
-    const session = (await this.prisma.chatSession.findUnique({
+    // Ensure the user exists in the UserReference table
+    await this.findOrCreateUserReference(authorId, authorEmail);
+
+    // Auto-create ChatSession if it doesn't exist (upsert pattern)
+    const session = await this.prisma.chatSession.upsert({
       where: { id: sessionId },
+      update: {
+        // Add the author to participants if not already present
+        participants: {
+          push: authorId,
+        },
+      },
+      create: {
+        id: sessionId,
+        name: `Chat for ${sessionId}`,
+        eventId: eventId || sessionId,
+        organizationId: organizationId || 'default',
+        participants: [authorId],
+      },
       select: { participants: true },
-    })) as { participants: string[] } | null;
-    if (!session) {
-      throw new NotFoundException('Session not found.');
-    }
+    });
+
+    // Deduplicate participants (in case of duplicate pushes)
+    const uniqueParticipants = [...new Set(session.participants)];
 
     // --- REFACTOR to use a transaction ---
     const newMessage = await this.prisma.$transaction(async (tx) => {
+      // Update participants to deduplicated list if needed
+      if (uniqueParticipants.length !== session.participants.length) {
+        await tx.chatSession.update({
+          where: { id: sessionId },
+          data: { participants: uniqueParticipants },
+        });
+      }
+
       // 1. Create the message
       const createdMessage = await tx.message.create({
         data: {
@@ -111,7 +150,7 @@ export class ChatService {
         payload: plainMessagePayload,
       };
       await tx.syncLog.createMany({
-        data: session.participants.map((userId) => ({
+        data: uniqueParticipants.map((userId) => ({
           userId: userId,
           ...syncLogPayload,
         })),
@@ -409,6 +448,10 @@ export class ChatService {
       throw new ConflictException('This reaction has already been processed.');
     }
 
+    // Track whether a reaction was added (for analytics)
+    let reactionAdded = false;
+    let messageSessionId: string | null = null;
+
     await this.prisma.$transaction(async (tx) => {
       const existingReaction = await tx.messageReaction.findUnique({
         where: {
@@ -436,6 +479,13 @@ export class ChatService {
         );
       } else {
         try {
+          // Get the message to obtain sessionId for analytics
+          const message = await tx.message.findUnique({
+            where: { id: messageId },
+            select: { sessionId: true },
+          });
+          messageSessionId = message?.sessionId || null;
+
           await this.prisma.messageReaction.create({
             data: {
               userId,
@@ -443,6 +493,7 @@ export class ChatService {
               emoji,
             },
           });
+          reactionAdded = true;
           this.logger.log(
             `User ${userId} added reaction '${emoji}' to message ${messageId}`,
           );
@@ -460,6 +511,11 @@ export class ChatService {
         }
       }
     });
+
+    // Publish analytics event for reactions added (not removed)
+    if (reactionAdded && messageSessionId) {
+      void this._publishAnalyticsEvent('REACTION_SENT', { sessionId: messageSessionId });
+    }
 
     // After changing a reaction, fetch the updated message with aggregated reaction counts
     return this._getMessageWithReactions(messageId);
@@ -502,5 +558,147 @@ export class ChatService {
       ...message,
       reactionsSummary, // e.g., { "👍": 3, "❤️": 1 }
     };
+  }
+
+  /**
+   * Gets the sessionId for a given message.
+   * Used when frontend doesn't send sessionId in reaction requests.
+   *
+   * @param messageId - The message ID to look up.
+   * @returns The sessionId or null if message not found.
+   */
+  async getMessageSessionId(messageId: string): Promise<string | null> {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { sessionId: true },
+    });
+    return message?.sessionId || null;
+  }
+
+  /**
+   * Retrieves chat history for a session.
+   * Used when a client joins a session to send them existing messages.
+   *
+   * @param sessionId - The session ID to get history for.
+   * @returns Array of messages with author info and reactions.
+   */
+  async getSessionHistory(sessionId: string) {
+    const messages = await this.prisma.message.findMany({
+      where: { sessionId },
+      orderBy: { timestamp: 'asc' },
+      include: {
+        author: { select: { id: true, firstName: true, lastName: true } },
+        parentMessage: {
+          include: {
+            author: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
+        reactions: {
+          select: { emoji: true, userId: true },
+        },
+      },
+    });
+
+    // Transform messages to include reaction summaries
+    return messages.map((message) => {
+      const reactionsSummary = message.reactions.reduce(
+        (acc, reaction) => {
+          acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
+
+      return {
+        id: message.id,
+        text: message.text,
+        timestamp: message.timestamp,
+        isEdited: (message.metadata as any)?.isEdited || false,
+        editedAt: (message.metadata as any)?.editedAt || null,
+        authorId: message.authorId,
+        sessionId: message.sessionId,
+        author: message.author,
+        parentMessage: message.parentMessage,
+        reactionsSummary,
+      };
+    });
+  }
+
+  /**
+   * Finds or creates a user reference locally.
+   * Attempts to fetch user data from the User & Org service, falling back to default values.
+   * @param userId User's unique ID.
+   * @param email User's email.
+   * @returns The existing or newly created user reference.
+   */
+  private async findOrCreateUserReference(userId: string, email: string) {
+    const existingRef = await this.prisma.userReference.findUnique({
+      where: { id: userId },
+    });
+
+    // Check if existing record has placeholder values that need refreshing
+    const hasPlaceholderValues =
+      existingRef &&
+      (existingRef.firstName === 'Guest' || existingRef.lastName === 'User');
+
+    if (existingRef && !hasPlaceholderValues) {
+      return existingRef;
+    }
+
+    // Fetch real user data from the User & Org service
+    try {
+      const userOrgServiceUrl =
+        process.env.USER_ORG_SERVICE_URL || 'http://user-and-org-service:3001';
+      const response = await firstValueFrom(
+        this.httpService.get<UserDataDto>(
+          `${userOrgServiceUrl}/internal/users/${userId}`,
+          {
+            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
+          },
+        ),
+      );
+
+      const userData = response.data;
+
+      if (existingRef) {
+        // Update existing placeholder record with real data
+        return this.prisma.userReference.update({
+          where: { id: userId },
+          data: {
+            email: userData.email,
+            firstName: userData.first_name,
+            lastName: userData.last_name,
+          },
+        });
+      }
+
+      return this.prisma.userReference.create({
+        data: {
+          id: userId,
+          email: userData.email,
+          firstName: userData.first_name,
+          lastName: userData.last_name,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch user data for ${userId}. Using default values.`,
+        error,
+      );
+
+      if (existingRef) {
+        return existingRef; // Keep existing record even if placeholder
+      }
+
+      // Fallback in case the User service is down
+      return this.prisma.userReference.create({
+        data: {
+          id: userId,
+          email: email || `${userId}@unknown.local`,
+          firstName: 'Guest',
+          lastName: 'User',
+        },
+      });
+    }
   }
 }

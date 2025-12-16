@@ -47,11 +47,14 @@ export class QnaService {
   /**
    * Creates a new question within a session.
    * Ensures a user reference exists locally before creating the question.
+   * Auto-creates the ChatSession if it doesn't exist.
    * Enforces idempotency to avoid duplicate questions.
    * @param userId The ID of the user asking the question.
    * @param userEmail The user's email from JWT.
    * @param sessionId The session ID where the question is asked.
    * @param dto The question data payload.
+   * @param eventId The parent event ID (for auto-creating sessions).
+   * @param organizationId The organization ID (for auto-creating sessions).
    * @returns The created question object with author info.
    */
   async askQuestion(
@@ -59,6 +62,8 @@ export class QnaService {
     userEmail: string,
     sessionId: string,
     dto: AskQuestionDto,
+    eventId?: string,
+    organizationId?: string,
   ) {
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
@@ -75,6 +80,19 @@ export class QnaService {
     // In a microservice architecture, we can't assume the user exists
     // in our DB. This command creates a local reference if one doesn't exist.
     await this.findOrCreateUserReference(userId, userEmail);
+
+    // Auto-create ChatSession if it doesn't exist (upsert pattern)
+    await this.prisma.chatSession.upsert({
+      where: { id: sessionId },
+      update: {},
+      create: {
+        id: sessionId,
+        name: `Session ${sessionId}`,
+        eventId: eventId || sessionId,
+        organizationId: organizationId || 'default',
+        participants: [userId],
+      },
+    });
 
     this.logger.log(
       `Creating question in session ${sessionId} for user ${userId}`,
@@ -363,14 +381,20 @@ export class QnaService {
     const existingRef = await this.prisma.userReference.findUnique({
       where: { id: userId },
     });
-    if (existingRef) {
+
+    // Check if existing record has placeholder values that need refreshing
+    const hasPlaceholderValues =
+      existingRef &&
+      (existingRef.firstName === 'Guest' || existingRef.lastName === 'User');
+
+    if (existingRef && !hasPlaceholderValues) {
       return existingRef;
     }
 
-    // --- FIX: Fetch real user data from the User & Org service ---
+    // Fetch real user data from the User & Org service
     try {
       const userOrgServiceUrl =
-        process.env.USER_ORG_SERVICE_URL || 'http://localhost:3001';
+        process.env.USER_ORG_SERVICE_URL || 'http://user-and-org-service:3001';
       const response = await firstValueFrom(
         this.httpService.get<UserDataDto>(
           `${userOrgServiceUrl}/internal/users/${userId}`,
@@ -381,6 +405,19 @@ export class QnaService {
       );
 
       const userData = response.data;
+
+      if (existingRef) {
+        // Update existing placeholder record with real data
+        return this.prisma.userReference.update({
+          where: { id: userId },
+          data: {
+            email: userData.email,
+            firstName: userData.first_name,
+            lastName: userData.last_name,
+          },
+        });
+      }
+
       return this.prisma.userReference.create({
         data: {
           id: userId,
@@ -391,14 +428,19 @@ export class QnaService {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to fetch user data for ${userId}. Creating with default values.`,
+        `Failed to fetch user data for ${userId}. Using default values.`,
         error,
       );
+
+      if (existingRef) {
+        return existingRef; // Keep existing record even if placeholder
+      }
+
       // Fallback in case the User service is down
       return this.prisma.userReference.create({
         data: {
           id: userId,
-          email: email,
+          email: email || `${userId}@unknown.local`,
           firstName: 'Guest',
           lastName: 'User',
         },
@@ -596,5 +638,32 @@ export class QnaService {
     void this.publisherService.publish('sync-events', syncPayload);
 
     return finalQuestion;
+  }
+
+  /**
+   * Retrieves all questions for a session.
+   * Used when a client joins a session to send them existing Q&A history.
+   *
+   * @param sessionId - The session ID to get questions for.
+   * @returns Array of questions with author info and upvote counts.
+   */
+  async getSessionQuestions(sessionId: string) {
+    const questions = await this.prisma.question.findMany({
+      where: { sessionId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        author: { select: { id: true, firstName: true, lastName: true } },
+        answer: {
+          include: {
+            author: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
+        _count: {
+          select: { upvotes: true },
+        },
+      },
+    });
+
+    return questions;
   }
 }

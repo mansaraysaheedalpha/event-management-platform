@@ -6,8 +6,13 @@ import { IdempotencyService } from './services/idempotency.service';
 import { SubscriberService } from './services/subscriber.service';
 import { HttpModule } from '@nestjs/axios';
 import { PublisherService } from './services/publisher.service';
+import { SessionSettingsService } from './services/session-settings.service';
+import { SessionValidationService } from './services/session-validation.service';
+import { UserValidationService } from './services/user-validation.service';
+import { EventRegistrationValidationService } from './services/event-registration-validation.service';
 import { REDIS_CLIENT, REDIS_SUBSCRIBER_CLIENT } from './redis.constants';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { KafkaService } from './kafka/kafka.service';
 
 /**
  * SharedModule is a global, reusable NestJS module providing:
@@ -56,11 +61,21 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     IdempotencyService,
     SubscriberService,
     PublisherService,
+    SessionSettingsService,
+    SessionValidationService,
+    UserValidationService,
+    EventRegistrationValidationService,
+    KafkaService,
   ],
   exports: [
     IdempotencyService,
     HttpModule,
     PublisherService,
+    SessionSettingsService,
+    SessionValidationService,
+    UserValidationService,
+    EventRegistrationValidationService,
+    KafkaService,
     REDIS_CLIENT,
     REDIS_SUBSCRIBER_CLIENT,
   ],

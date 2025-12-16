@@ -6,7 +6,7 @@ from kafka import KafkaProducer
 # --- CONFIGURATION ---
 KAFKA_BROKER_URL = "localhost:9092"
 # IMPORTANT: Replace this with a real event ID from your dashboard
-EVENT_ID = "evt_191cc94a7cf1"
+EVENT_ID = "evt_c01153ab3afa"
 # ---------------------
 
 # A list of fake names to use for the simulation

@@ -22,6 +22,10 @@ import { isSessionMetadata } from 'src/common/utils/session.utils';
 import { SessionMetadata } from 'src/common/interfaces/session.interface';
 import { GamificationService } from 'src/gamification/gamification.service';
 import { StartGiveawayDto } from './dto/start-giveaway.dto';
+import { KafkaService, GiveawayWinnerEmailEvent } from 'src/shared/kafka/kafka.service';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { UserDataDto } from 'src/common/dto/user-data.dto';
 
 @Injectable()
 export class PollsService {
@@ -34,6 +38,8 @@ export class PollsService {
     private readonly publisherService: PublisherService, // Publishes events to message bus
     private readonly sessionValidationService: SessionValidationService,
     private readonly gamificationService: GamificationService,
+    private readonly kafkaService: KafkaService, // Kafka producer for email events
+    private readonly httpService: HttpService, // HTTP client for fetching user data
   ) {}
 
   /**
@@ -111,7 +117,7 @@ export class PollsService {
    * @param dto - Vote data including pollId, optionId, and idempotencyKey.
    * @returns The poll with updated vote counts.
    */
-  async submitVote(userId: string, dto: SubmitVoteDto) {
+  async submitVote(userId: string, userEmail: string, dto: SubmitVoteDto) {
     const { pollId, optionId, idempotencyKey } = dto;
 
     const canProceed =
@@ -121,6 +127,9 @@ export class PollsService {
         'Duplicate request. This vote has already been submitted.',
       );
     }
+
+    // Ensure user reference exists before creating the vote (foreign key constraint)
+    await this.findOrCreateUserReference(userId, userEmail);
 
     // Use a transaction to ensure data consistency. We read the poll's state
     // and write the vote in a single, atomic operation.
@@ -458,8 +467,44 @@ export class PollsService {
   }
 
   /**
+   * Gets the event name for a given event ID.
+   * Attempts to fetch from cache first, then falls back to database.
+   */
+  private async _getEventName(eventId: string): Promise<string> {
+    const cacheKey = `event:name:${eventId}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) return cached;
+
+    // Fallback: Try to get from session which has eventId relation
+    // Since we don't have direct event table access, return a generic name
+    // The event-lifecycle-service owns the event data
+    const eventName = `Event ${eventId.slice(0, 8)}`;
+    await this.redis.set(cacheKey, eventName, 'EX', 3600);
+    return eventName;
+  }
+
+  /**
+   * Gets the session name/title for a given session ID.
+   */
+  private async _getSessionName(sessionId: string): Promise<string> {
+    const cacheKey = `session:name:${sessionId}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) return cached;
+
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { name: true },
+    });
+
+    const sessionName = session?.name || `Session ${sessionId.slice(0, 8)}`;
+    await this.redis.set(cacheKey, sessionName, 'EX', 3600);
+    return sessionName;
+  }
+
+  /**
    * Selects a random winner from users who voted for a specific poll option.
    * Giveaways can only be run on closed polls to ensure all votes are in.
+   * Persists the winner to the database and returns complete winner info.
    */
   async selectGiveawayWinner(dto: StartGiveawayDto, adminId: string) {
     const canProceed = await this.idempotencyService.checkAndSet(
@@ -472,7 +517,9 @@ export class PollsService {
     // Verify the poll exists and is closed before running giveaway
     const poll = await this.prisma.poll.findUnique({
       where: { id: dto.pollId },
-      select: { isActive: true },
+      include: {
+        options: true,
+      },
     });
 
     if (!poll) {
@@ -485,14 +532,31 @@ export class PollsService {
       );
     }
 
-    // 1. Get all users who voted for the winning option
+    // Find the winning option text
+    const winningOption = poll.options.find(
+      (opt) => opt.id === dto.winningOptionId,
+    );
+    if (!winningOption) {
+      throw new NotFoundException(
+        `Option with ID ${dto.winningOptionId} not found in poll.`,
+      );
+    }
+
+    // 1. Get all users who voted for the winning option with full details
     const voters = await this.prisma.pollVote.findMany({
       where: {
         pollId: dto.pollId,
         optionId: dto.winningOptionId,
       },
-      select: {
-        userId: true,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
     });
 
@@ -500,56 +564,486 @@ export class PollsService {
       this.logger.warn(
         `No voters found for option ${dto.winningOptionId} in poll ${dto.pollId}. No winner selected.`,
       );
-      return null;
+      return {
+        success: false,
+        message: 'No eligible voters found for this option.',
+        totalEligibleVoters: 0,
+      };
     }
 
     // 2. Select a random winner
     const winnerIndex = Math.floor(Math.random() * voters.length);
-    const winnerId = voters[winnerIndex].userId;
+    const winnerVote = voters[winnerIndex];
+    const winner = winnerVote.user;
 
-    // 3. Fetch winner's details and session details for the payload
-    const [winnerDetails, pollDetails] = await Promise.all([
-      this.prisma.userReference.findUnique({
-        where: { id: winnerId },
-        select: { id: true, firstName: true, lastName: true },
-      }),
-      this.prisma.poll.findUnique({
-        where: { id: dto.pollId },
-        select: { sessionId: true },
-      }),
-    ]);
+    // Get session metadata
+    const metadata = await this._getSessionMetadata(poll.sessionId);
 
-    if (!pollDetails) {
-      throw new NotFoundException(`Poll with ID ${dto.pollId} not found.`);
+    // 3. Get real user data - ALWAYS fetch from user-and-org-service to get accurate data
+    let realFirstName: string | null = null;
+    let realLastName: string | null = null;
+    let realEmail: string | null = null;
+
+    // Helper function to check if an email is a placeholder (contains user ID as prefix or fake domain)
+    const isPlaceholderEmail = (email: string | null, userId: string): boolean => {
+      if (!email) return true;
+      const emailPrefix = email.split('@')[0];
+      const domain = email.split('@')[1] || '';
+      // Check if email prefix is the user ID or if domain is a placeholder
+      return (
+        emailPrefix === userId ||
+        domain.includes('unknown.local') ||
+        domain.includes('placeholder.local')
+      );
+    };
+
+    // Check if we have placeholder values that need refreshing
+    const hasPlaceholderValues =
+      winner.firstName === 'Guest' ||
+      winner.lastName === 'User' ||
+      isPlaceholderEmail(winner.email, winner.id);
+
+    // Always try to fetch real user data from user-and-org-service
+    try {
+      const userOrgServiceUrl =
+        process.env.USER_ORG_SERVICE_URL || 'http://user-and-org-service:3001';
+      const response = await firstValueFrom(
+        this.httpService.get<UserDataDto>(
+          `${userOrgServiceUrl}/internal/users/${winner.id}`,
+          {
+            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
+          },
+        ),
+      );
+
+      const userData = response.data;
+      realFirstName = userData.first_name || null;
+      realLastName = userData.last_name || null;
+      realEmail = userData.email || null;
+
+      // Update the UserReference with real data for future use
+      if (hasPlaceholderValues && userData.email) {
+        await this.prisma.userReference.update({
+          where: { id: winner.id },
+          data: {
+            email: userData.email,
+            firstName: userData.first_name,
+            lastName: userData.last_name,
+          },
+        });
+      }
+
+      this.logger.log(
+        `Fetched real user data for winner ${winner.id}: ${userData.first_name} ${userData.last_name} (${userData.email})`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not fetch real user data for ${winner.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      // If we can't fetch and original data is not placeholder, use it
+      if (!hasPlaceholderValues) {
+        realFirstName = winner.firstName;
+        realLastName = winner.lastName;
+        realEmail = winner.email;
+      }
+      // If placeholder, realFirstName/realLastName/realEmail stay null
     }
 
-    // --- THIS IS THE FIX ---
-    // 4. Fetch the real metadata using our helper to get the organizationId
-    const metadata = await this._getSessionMetadata(pollDetails.sessionId);
+    // Build display name with priority: real name > email prefix > fallback
+    let winnerName: string;
+    if (realFirstName || realLastName) {
+      winnerName = [realFirstName, realLastName].filter(Boolean).join(' ');
+    } else if (realEmail && !isPlaceholderEmail(realEmail, winner.id)) {
+      // Only use email prefix if it's a real email, not a placeholder
+      winnerName = realEmail.split('@')[0];
+    } else {
+      winnerName = 'Winner'; // Final fallback - no real data available
+    }
 
-    // 5. Publish an audit event with the real organizationId
+    // 4. Calculate claim deadline if provided
+    const claimDeadline = dto.prize?.claimDeadlineHours
+      ? new Date(Date.now() + dto.prize.claimDeadlineHours * 60 * 60 * 1000)
+      : null;
+
+    // 5. Persist the winner to database
+    const giveawayWinner = await this.prisma.giveawayWinner.create({
+      data: {
+        sessionId: poll.sessionId,
+        eventId: metadata.eventId,
+        pollId: dto.pollId,
+        userId: winner.id,
+        winnerName,
+        winnerEmail: winner.email,
+        giveawayType: 'SINGLE_POLL',
+        winningOptionText: winningOption.text,
+        prizeTitle: dto.prize?.title,
+        prizeDescription: dto.prize?.description,
+        prizeType: dto.prize?.type,
+        prizeValue: dto.prize?.value,
+        claimInstructions: dto.prize?.claimInstructions,
+        claimLocation: dto.prize?.claimLocation,
+        claimDeadline,
+        createdById: adminId,
+      },
+    });
+
+    // 6. Publish an audit event
     const auditPayload: AuditLogPayload = {
       action: 'GIVEAWAY_WINNER_SELECTED',
       actingUserId: adminId,
-      organizationId: metadata.organizationId, // <-- Placeholder removed
-      sessionId: pollDetails.sessionId,
+      organizationId: metadata.organizationId,
+      sessionId: poll.sessionId,
       details: {
         pollId: dto.pollId,
         winningOptionId: dto.winningOptionId,
-        winnerId,
+        winnerId: winner.id,
+        winnerEmail: winner.email,
+        giveawayWinnerId: giveawayWinner.id,
       },
     };
     void this._publishAuditEvent(auditPayload);
 
     this.logger.log(
-      `User ${winnerId} selected as giveaway winner for poll ${dto.pollId}`,
+      `User ${winner.id} (${winner.email}) selected as giveaway winner for poll ${dto.pollId}`,
     );
 
-    return {
-      pollId: dto.pollId,
-      winner: winnerDetails,
-      prize: dto.prize, // Prize details could be added to the DTO
+    // 7. Send email notification via Kafka
+    const emailEvent: GiveawayWinnerEmailEvent = {
+      type: 'GIVEAWAY_WINNER_SINGLE_POLL',
+      giveawayWinnerId: giveawayWinner.id,
+      winnerEmail: winner.email,
+      winnerName,
+      eventId: metadata.eventId,
+      eventName: await this._getEventName(metadata.eventId),
+      sessionId: poll.sessionId,
+      sessionName: await this._getSessionName(poll.sessionId),
+      prizeTitle: dto.prize?.title,
+      prizeDescription: dto.prize?.description,
+      claimInstructions: dto.prize?.claimInstructions,
+      claimLocation: dto.prize?.claimLocation,
+      claimDeadline: claimDeadline?.toISOString(),
+      winningOptionText: winningOption.text,
     };
+
+    const emailSent = await this.kafkaService.sendGiveawayWinnerEmail(emailEvent);
+
+    // Update emailSent status in database
+    if (emailSent) {
+      await this.prisma.giveawayWinner.update({
+        where: { id: giveawayWinner.id },
+        data: { emailSent: true },
+      });
+    }
+
+    // 8. Return complete winner info for frontend display
+    return {
+      success: true,
+      giveawayWinnerId: giveawayWinner.id,
+      pollId: dto.pollId,
+      winner: {
+        id: winner.id,
+        name: winnerName,
+        email: realEmail, // Real email from user-and-org-service
+        firstName: realFirstName,
+        lastName: realLastName,
+        optionText: winningOption.text,
+      },
+      prize: dto.prize
+        ? {
+            title: dto.prize.title,
+            description: dto.prize.description,
+            type: dto.prize.type,
+            value: dto.prize.value,
+            claimInstructions: dto.prize.claimInstructions,
+            claimLocation: dto.prize.claimLocation,
+            claimDeadline: claimDeadline?.toISOString(),
+          }
+        : null,
+      totalEligibleVoters: voters.length,
+      emailSent,
+    };
+  }
+
+  // ============================================================
+  // QUIZ GIVEAWAY METHODS
+  // ============================================================
+
+  /**
+   * Configures quiz settings for a session.
+   */
+  async configureQuizSettings(
+    sessionId: string,
+    settings: {
+      quizEnabled: boolean;
+      passingScore: number;
+      prize?: {
+        title?: string;
+        description?: string;
+        type?: string;
+        value?: number;
+        claimInstructions?: string;
+        claimLocation?: string;
+        claimDeadlineHours?: number;
+      };
+      maxWinners?: number;
+    },
+  ) {
+    const totalQuestions = await this.prisma.poll.count({
+      where: { sessionId, isQuiz: true },
+    });
+
+    return this.prisma.sessionQuizSettings.upsert({
+      where: { sessionId },
+      update: {
+        quizEnabled: settings.quizEnabled,
+        passingScore: settings.passingScore,
+        totalQuestions,
+        prizeTitle: settings.prize?.title,
+        prizeDescription: settings.prize?.description,
+        prizeType: settings.prize?.type,
+        prizeValue: settings.prize?.value,
+        claimInstructions: settings.prize?.claimInstructions,
+        claimLocation: settings.prize?.claimLocation,
+        claimDeadlineHours: settings.prize?.claimDeadlineHours ?? 72,
+        maxWinners: settings.maxWinners,
+      },
+      create: {
+        sessionId,
+        quizEnabled: settings.quizEnabled,
+        passingScore: settings.passingScore,
+        totalQuestions,
+        prizeTitle: settings.prize?.title,
+        prizeDescription: settings.prize?.description,
+        prizeType: settings.prize?.type,
+        prizeValue: settings.prize?.value,
+        claimInstructions: settings.prize?.claimInstructions,
+        claimLocation: settings.prize?.claimLocation,
+        claimDeadlineHours: settings.prize?.claimDeadlineHours ?? 72,
+        maxWinners: settings.maxWinners,
+      },
+    });
+  }
+
+  /**
+   * Gets quiz settings for a session.
+   */
+  async getQuizSettings(sessionId: string) {
+    return this.prisma.sessionQuizSettings.findUnique({
+      where: { sessionId },
+    });
+  }
+
+  /**
+   * Calculates quiz leaderboard for a session.
+   */
+  async getQuizLeaderboard(sessionId: string, currentUserId?: string): Promise<{
+    leaderboard: Array<{ rank: number; userId: string; name: string; score: number; totalQuestions: number; percentage: number; completedAt: string }>;
+    totalParticipants: number;
+    totalQuestions: number;
+    quizComplete: boolean;
+    currentUser?: { rank: number; score: number; percentage: number } | null;
+  }> {
+    const quizPolls = await this.prisma.poll.findMany({
+      where: { sessionId, isQuiz: true, correctOptionId: { not: null } },
+      select: { id: true, correctOptionId: true },
+    });
+
+    if (quizPolls.length === 0) {
+      return { leaderboard: [], totalParticipants: 0, totalQuestions: 0, quizComplete: false, currentUser: null };
+    }
+
+    const activePolls = await this.prisma.poll.count({
+      where: { sessionId, isQuiz: true, isActive: true },
+    });
+    const quizComplete = activePolls === 0;
+
+    const votes = await this.prisma.pollVote.findMany({
+      where: { pollId: { in: quizPolls.map((p) => p.id) } },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+
+    const userScores = new Map<string, {
+      userId: string; name: string; email: string;
+      correctAnswers: number; totalAnswered: number; lastAnsweredAt: Date;
+    }>();
+
+    for (const vote of votes) {
+      const poll = quizPolls.find((p) => p.id === vote.pollId);
+      if (!poll) continue;
+
+      const isCorrect = vote.optionId === poll.correctOptionId;
+
+      if (!userScores.has(vote.userId)) {
+        userScores.set(vote.userId, {
+          userId: vote.userId,
+          name: [vote.user.firstName, vote.user.lastName].filter(Boolean).join(' ') || vote.user.email.split('@')[0],
+          email: vote.user.email,
+          correctAnswers: 0,
+          totalAnswered: 0,
+          lastAnsweredAt: vote.createdAt,
+        });
+      }
+
+      const userScore = userScores.get(vote.userId)!;
+      userScore.totalAnswered++;
+      if (isCorrect) userScore.correctAnswers++;
+      if (vote.createdAt > userScore.lastAnsweredAt) userScore.lastAnsweredAt = vote.createdAt;
+    }
+
+    const sortedScores = Array.from(userScores.values()).sort((a, b) => {
+      if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
+      return a.lastAnsweredAt.getTime() - b.lastAnsweredAt.getTime();
+    });
+
+    const leaderboard = sortedScores.map((score, index) => ({
+      rank: index + 1,
+      userId: score.userId,
+      name: score.name,
+      score: score.correctAnswers,
+      totalQuestions: quizPolls.length,
+      percentage: Math.round((score.correctAnswers / quizPolls.length) * 100),
+      completedAt: score.lastAnsweredAt.toISOString(),
+    }));
+
+    let currentUserData: { rank: number; score: number; percentage: number } | null = null;
+    if (currentUserId) {
+      const userEntry = leaderboard.find((e) => e.userId === currentUserId);
+      if (userEntry) currentUserData = { rank: userEntry.rank, score: userEntry.score, percentage: userEntry.percentage };
+    }
+
+    return { leaderboard: leaderboard.slice(0, 100), totalParticipants: leaderboard.length, totalQuestions: quizPolls.length, quizComplete, currentUser: currentUserData };
+  }
+
+  /**
+   * Runs a quiz giveaway, selecting winners based on their scores.
+   */
+  async runQuizGiveaway(sessionId: string, adminId: string, idempotencyKey: string) {
+    const canProceed = await this.idempotencyService.checkAndSet(idempotencyKey);
+    if (!canProceed) throw new ConflictException('Duplicate request. Quiz giveaway already processed.');
+
+    const quizSettings = await this.prisma.sessionQuizSettings.findUnique({ where: { sessionId } });
+    if (!quizSettings || !quizSettings.quizEnabled) {
+      throw new ForbiddenException('Quiz giveaway is not enabled for this session.');
+    }
+
+    const metadata = await this._getSessionMetadata(sessionId);
+    const leaderboardData = await this.getQuizLeaderboard(sessionId);
+
+    if (!leaderboardData.quizComplete) {
+      throw new ForbiddenException('Cannot run quiz giveaway while polls are still active.');
+    }
+
+    let qualifyingWinners = leaderboardData.leaderboard.filter((e) => e.score >= quizSettings.passingScore);
+    if (quizSettings.maxWinners && quizSettings.maxWinners > 0) {
+      qualifyingWinners = qualifyingWinners.slice(0, quizSettings.maxWinners);
+    }
+
+    const scoreDistribution: Record<number, number> = {};
+    for (const entry of leaderboardData.leaderboard) {
+      scoreDistribution[entry.score] = (scoreDistribution[entry.score] || 0) + 1;
+    }
+
+    const claimDeadline = new Date(Date.now() + (quizSettings.claimDeadlineHours ?? 72) * 60 * 60 * 1000);
+
+    // Get event and session names for emails
+    const eventName = await this._getEventName(metadata.eventId);
+    const sessionName = await this._getSessionName(sessionId);
+
+    const winnerRecords = await Promise.all(
+      qualifyingWinners.map(async (winner) => {
+        const user = await this.prisma.userReference.findUnique({ where: { id: winner.userId }, select: { email: true } });
+        const winnerEmail = user?.email || 'unknown';
+
+        const record = await this.prisma.giveawayWinner.create({
+          data: {
+            sessionId, eventId: metadata.eventId, pollId: null,
+            userId: winner.userId, winnerName: winner.name, winnerEmail,
+            giveawayType: 'QUIZ_SCORE', quizScore: winner.score, quizTotal: leaderboardData.totalQuestions,
+            prizeTitle: quizSettings.prizeTitle, prizeDescription: quizSettings.prizeDescription,
+            prizeType: quizSettings.prizeType, prizeValue: quizSettings.prizeValue,
+            claimInstructions: quizSettings.claimInstructions, claimLocation: quizSettings.claimLocation,
+            claimDeadline, createdById: adminId,
+          },
+        });
+
+        // Send email notification via Kafka
+        if (winnerEmail !== 'unknown') {
+          const emailEvent: GiveawayWinnerEmailEvent = {
+            type: 'GIVEAWAY_WINNER_QUIZ',
+            giveawayWinnerId: record.id,
+            winnerEmail,
+            winnerName: winner.name,
+            eventId: metadata.eventId,
+            eventName,
+            sessionId,
+            sessionName,
+            prizeTitle: quizSettings.prizeTitle ?? undefined,
+            prizeDescription: quizSettings.prizeDescription ?? undefined,
+            claimInstructions: quizSettings.claimInstructions ?? undefined,
+            claimLocation: quizSettings.claimLocation ?? undefined,
+            claimDeadline: claimDeadline.toISOString(),
+            quizScore: winner.score,
+            quizTotal: leaderboardData.totalQuestions,
+          };
+
+          const emailSent = await this.kafkaService.sendGiveawayWinnerEmail(emailEvent);
+          if (emailSent) {
+            await this.prisma.giveawayWinner.update({
+              where: { id: record.id },
+              data: { emailSent: true },
+            });
+          }
+        }
+
+        return record;
+      }),
+    );
+
+    const auditPayload: AuditLogPayload = {
+      action: 'QUIZ_GIVEAWAY_COMPLETED', actingUserId: adminId, organizationId: metadata.organizationId, sessionId,
+      details: { totalWinners: winnerRecords.length, passingScore: quizSettings.passingScore, totalParticipants: leaderboardData.totalParticipants },
+    };
+    void this._publishAuditEvent(auditPayload);
+
+    this.logger.log(`Quiz giveaway completed for session ${sessionId}: ${winnerRecords.length} winners`);
+
+    return {
+      success: true,
+      quizStats: { totalPolls: leaderboardData.totalQuestions, totalParticipants: leaderboardData.totalParticipants, passingScore: quizSettings.passingScore, scoreDistribution },
+      winners: qualifyingWinners.map((w) => ({ id: winnerRecords.find((r) => r.userId === w.userId)?.id, name: w.name, score: w.score, totalQuestions: leaderboardData.totalQuestions, percentage: w.percentage })),
+      totalWinners: winnerRecords.length,
+      prize: { title: quizSettings.prizeTitle, description: quizSettings.prizeDescription, type: quizSettings.prizeType, claimInstructions: quizSettings.claimInstructions, claimLocation: quizSettings.claimLocation, claimDeadline: claimDeadline.toISOString() },
+    };
+  }
+
+  // ============================================================
+  // GIVEAWAY MANAGEMENT METHODS
+  // ============================================================
+
+  /**
+   * Gets all giveaway winners for a session.
+   */
+  async getSessionGiveawayWinners(sessionId: string) {
+    return this.prisma.giveawayWinner.findMany({ where: { sessionId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  /**
+   * Gets all giveaway winners for an event.
+   */
+  async getEventGiveawayWinners(eventId: string) {
+    return this.prisma.giveawayWinner.findMany({ where: { eventId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  /**
+   * Marks a prize as claimed.
+   */
+  async markPrizeClaimed(winnerId: string) {
+    return this.prisma.giveawayWinner.update({
+      where: { id: winnerId },
+      data: { claimStatus: 'CLAIMED', claimedAt: new Date() },
+    });
   }
 
   /**
@@ -621,5 +1115,84 @@ export class PollsService {
     );
 
     return pollsWithResults;
+  }
+
+  /**
+   * Finds or creates a user reference locally.
+   * If the existing record has placeholder values, fetches real data and updates it.
+   * Attempts to fetch user data from the User & Org service, falling back to default values.
+   * @param userId User's unique ID.
+   * @param email User's email.
+   * @returns The existing or newly created user reference.
+   */
+  private async findOrCreateUserReference(userId: string, email: string) {
+    const existingRef = await this.prisma.userReference.findUnique({
+      where: { id: userId },
+    });
+
+    // Check if existing record has placeholder values that need refreshing
+    const hasPlaceholderValues =
+      existingRef &&
+      (existingRef.firstName === 'Guest' || existingRef.lastName === 'User');
+
+    if (existingRef && !hasPlaceholderValues) {
+      return existingRef;
+    }
+
+    // Fetch real user data from the User & Org service
+    try {
+      const userOrgServiceUrl =
+        process.env.USER_ORG_SERVICE_URL || 'http://user-and-org-service:3001';
+      const response = await firstValueFrom(
+        this.httpService.get<UserDataDto>(
+          `${userOrgServiceUrl}/internal/users/${userId}`,
+          {
+            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
+          },
+        ),
+      );
+
+      const userData = response.data;
+
+      if (existingRef) {
+        // Update existing placeholder record with real data
+        return this.prisma.userReference.update({
+          where: { id: userId },
+          data: {
+            email: userData.email,
+            firstName: userData.first_name,
+            lastName: userData.last_name,
+          },
+        });
+      }
+
+      return this.prisma.userReference.create({
+        data: {
+          id: userId,
+          email: userData.email,
+          firstName: userData.first_name,
+          lastName: userData.last_name,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch user data for ${userId}. Using default values.`,
+        error,
+      );
+
+      if (existingRef) {
+        return existingRef; // Keep existing record even if placeholder
+      }
+
+      // Fallback in case the User service is down
+      return this.prisma.userReference.create({
+        data: {
+          id: userId,
+          email: email || `${userId}@unknown.local`,
+          firstName: 'Guest',
+          lastName: 'User',
+        },
+      });
+    }
   }
 }

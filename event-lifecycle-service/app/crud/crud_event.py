@@ -252,5 +252,45 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
             .first()
         )
 
+    def get_public_events(
+        self,
+        db: Session,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        search: str | None = None,
+        include_past: bool = False,
+    ) -> dict:
+        """
+        Gets a list of public events for the event discovery page.
+        Returns only published, non-archived events visible to the public.
+        """
+        from app.models.venue import Venue
+
+        query = db.query(self.model).options(joinedload(self.model.venue)).filter(
+            self.model.is_public == True,
+            self.model.is_archived == False,
+        )
+
+        # By default, only show upcoming events (end_date >= now)
+        if not include_past:
+            query = query.filter(self.model.end_date >= datetime.utcnow())
+
+        # Filter by search term
+        if search:
+            query = query.filter(self.model.name.ilike(f"%{search}%"))
+
+        # Get total count before pagination
+        total_count = query.count()
+
+        # Order by start date (upcoming first)
+        query = query.order_by(self.model.start_date.asc())
+
+        # Pagination
+        query = query.offset(skip).limit(limit)
+        events = query.all()
+
+        return {"events": events, "totalCount": total_count}
+
 
 event = CRUDEvent(Event)

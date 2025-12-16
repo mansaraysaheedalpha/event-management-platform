@@ -6,6 +6,7 @@ import { AuthPayload, LoginPayload } from './gql_types/auth.types';
 import {
   LoginInput,
   RegisterUserInput,
+  RegisterAttendeeInput,
   Login2FAInput,
   RequestResetInput,
   PerformResetInput,
@@ -51,6 +52,25 @@ export class AuthResolver {
       };
     }
 
+    // Handle attendee login (isAttendee flag indicates attendee response)
+    if ('isAttendee' in loginResult && loginResult.isAttendee) {
+      context.res.cookie('refresh_token', loginResult.refresh_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV !== 'development',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      const user = await this.usersService.findOneByEmail(loginInput.email);
+      return {
+        token: loginResult.access_token,
+        user,
+        requires2FA: false,
+        isAttendee: true,
+      };
+    }
+
+    // Handle organizer login (has access_token but no isAttendee flag)
     if ('access_token' in loginResult) {
       context.res.cookie('refresh_token', loginResult.refresh_token, {
         httpOnly: true,
@@ -114,6 +134,33 @@ export class AuthResolver {
     }
 
     throw new Error('Registration succeeded but automatic login failed.');
+  }
+
+  /**
+   * Register a new attendee user.
+   * Attendees don't need organizations - returns regular token immediately.
+   */
+  @Mutation(() => AuthPayload)
+  async registerAttendee(
+    @Args('input') input: RegisterAttendeeInput,
+    @Context() context: { res: Response },
+  ): Promise<AuthPayload> {
+    const { user, tokens } = await this.authService.registerAttendee({
+      email: input.email,
+      password: input.password,
+      first_name: input.first_name,
+      last_name: input.last_name,
+    });
+
+    // Set the refresh token cookie
+    context.res.cookie('refresh_token', tokens.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return { token: tokens.access_token, user };
   }
 
   @Mutation(() => Boolean)

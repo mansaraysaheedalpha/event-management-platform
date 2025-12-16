@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_NAME: str
     AWS_S3_REGION: str
     AWS_S3_ENDPOINT_URL: Optional[str] = None
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_DOMAIN: Optional[str] = "onboarding@resend.dev"
 
     # --- Dynamic Properties ---
     # These properties will intelligently return the correct URL based on the ENV

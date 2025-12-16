@@ -11,6 +11,12 @@ export class WsThrottlerGuard extends ThrottlerGuard {
    * This is the main entry point for the guard. We override it to add our custom logic.
    */
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Skip throttling for HTTP requests - this guard is designed for WebSockets only.
+    // HTTP requests don't have WebSocket user data attached.
+    if (context.getType() === 'http') {
+      return true;
+    }
+
     const data = context.switchToWs().getData();
 
     // If the event is an internal 'ping', bypass the throttler entirely.

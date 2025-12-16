@@ -27,7 +27,9 @@ export class LoginPayload {
   @Field(() => ID, { nullable: true })
   userIdFor2FA?: string | null;
 
-  // ADD THIS NEW FIELD
   @Field(() => String, { nullable: true })
   onboardingToken?: string;
+
+  @Field(() => Boolean, { nullable: true })
+  isAttendee?: boolean;
 }

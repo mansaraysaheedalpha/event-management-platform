@@ -40,6 +40,7 @@ type UserForToken = Pick<
   | 'preferredLanguage'
   | 'sponsorId'
   | 'isTwoFactorEnabled'
+  | 'userType'
 >;
 
 type RoleWithPermissions = PrismaRole & { permissions: Permission[] };
@@ -55,10 +56,18 @@ type OnboardingResponse = {
   user: UserForLogin;
 };
 
+// Response type for attendee login (token without orgId)
+type AttendeeTokenResponse = {
+  access_token: string;
+  refresh_token: string;
+  isAttendee: true;
+};
+
 type LoginResponse =
   | { requires2FA: true; userId: string }
   | { access_token: string; refresh_token: string }
-  | OnboardingResponse;
+  | OnboardingResponse
+  | AttendeeTokenResponse;
 
 @Injectable()
 export class AuthService {
@@ -93,6 +102,7 @@ export class AuthService {
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
+        userType: true,
         memberships: {
           include: {
             role: {
@@ -117,7 +127,23 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Handle 2FA first (applies to both organizers and attendees)
+    if (existingUser.isTwoFactorEnabled) {
+      return { requires2FA: true, userId: existingUser.id };
+    }
+
+    // Check if user is an ATTENDEE - they never need organizations
+    if (existingUser.userType === 'ATTENDEE') {
+      await this.auditService.log({
+        action: 'USER_LOGIN',
+        actingUserId: existingUser.id,
+      });
+      return this.getTokensForAttendee(existingUser);
+    }
+
+    // User is an ORGANIZER - check if they have an organization
     if (existingUser.memberships.length === 0) {
+      // Organizer without organization - needs onboarding
       const onboardingToken = await this.getOnboardingToken(existingUser.id);
       return {
         onboardingToken,
@@ -125,10 +151,7 @@ export class AuthService {
       };
     }
 
-    if (existingUser.isTwoFactorEnabled) {
-      return { requires2FA: true, userId: existingUser.id };
-    }
-
+    // Organizer with organization - return normal token with orgId
     const defaultMembership = existingUser.memberships[0];
     await this.auditService.log({
       action: 'USER_LOGIN',
@@ -151,6 +174,7 @@ export class AuthService {
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
+        userType: true,
         memberships: {
           include: {
             role: {
@@ -209,6 +233,7 @@ export class AuthService {
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
+        userType: true,
         hashedRefreshToken: true,
         memberships: {
           include: {
@@ -293,6 +318,56 @@ export class AuthService {
     });
 
     return { access_token: accessToken, refresh_token: refreshToken };
+  }
+
+  /**
+   * Generate tokens for attendee users (no organization required).
+   * JWT payload does NOT include orgId.
+   */
+  async getTokensForAttendee(
+    user: UserForToken,
+  ): Promise<AttendeeTokenResponse> {
+    const refreshTokenId = randomBytes(32).toString('hex');
+
+    // Attendee JWT payload - no orgId, no role, minimal permissions
+    const accessTokenPayload: Omit<JwtPayload, 'orgId' | 'role' | 'orgRequires2FA'> = {
+      sub: user.id,
+      email: user.email,
+      permissions: [], // Attendees have no special permissions
+      tier: (user.tier as 'default' | 'vip') || 'default',
+      preferredLanguage: user.preferredLanguage || 'en',
+      sponsorId: user.sponsorId || undefined,
+      is2FAEnabled: user.isTwoFactorEnabled,
+    };
+
+    const refreshTokenPayload = {
+      sub: user.id,
+      jti: refreshTokenId,
+      // Note: no orgId for attendees
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessTokenPayload, {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: '30m',
+      }),
+      this.jwtService.signAsync(refreshTokenPayload, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: '7d',
+      }),
+    ]);
+
+    const hashedRefreshToken = await bcrypt.hash(refreshTokenId, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { hashedRefreshToken },
+    });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      isAttendee: true,
+    };
   }
 
   async handlePasswordResetRequest(email: string) {
@@ -422,5 +497,66 @@ export class AuthService {
     });
 
     return this.getTokensForUser(membership.user, membership);
+  }
+
+  /**
+   * Register a new attendee user.
+   * Attendees are created with userType='ATTENDEE' and don't need organizations.
+   * Returns tokens immediately (no onboarding required).
+   */
+  async registerAttendee(input: {
+    email: string;
+    password: string;
+    first_name: string;
+    last_name: string;
+  }) {
+    // Check if email already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: input.email },
+    });
+
+    if (existingUser) {
+      throw new ForbiddenException('An account with this email already exists.');
+    }
+
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(input.password, salt);
+
+    // Create the attendee user with userType='ATTENDEE'
+    const newUser = await this.prisma.user.create({
+      data: {
+        email: input.email,
+        password: hashedPassword,
+        first_name: input.first_name,
+        last_name: input.last_name,
+        userType: 'ATTENDEE', // Mark as attendee
+      },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        tier: true,
+        preferredLanguage: true,
+        sponsorId: true,
+        isTwoFactorEnabled: true,
+        userType: true,
+      },
+    });
+
+    await this.auditService.log({
+      action: 'USER_REGISTER_ATTENDEE',
+      actingUserId: newUser.id,
+    });
+
+    // Generate tokens for the new attendee (no orgId)
+    const tokens = await this.getTokensForAttendee(newUser);
+
+    return {
+      user: newUser,
+      tokens,
+    };
   }
 }

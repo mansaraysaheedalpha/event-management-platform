@@ -5,6 +5,10 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 
+// --- CONTROLLER & SERVICE ---
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
 // --- GUARDS & MAIN GATEWAY ---
 import { AppGateway } from './app.gateway';
 import { WsThrottlerGuard } from './common/guards/ws-throttler.guard';
@@ -77,11 +81,13 @@ import { ConnectionModule } from './system/connection/connection.module';
       },
     ]),
   ],
+  controllers: [AppController],
   providers: [
     {
       provide: APP_GUARD,
       useClass: WsThrottlerGuard,
     },
+    AppService,
     AppGateway, // The main connection handler
   ],
 })

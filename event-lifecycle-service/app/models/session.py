@@ -28,7 +28,8 @@ class Session(Base):
     qa_open = Column(Boolean, nullable=False, server_default=text("false"))
     polls_open = Column(Boolean, nullable=False, server_default=text("false"))
 
-    # This is the other "many" side of the relationship
+    # Relationships
     speakers = relationship(
         "Speaker", secondary=session_speaker_association, back_populates="sessions"
     )
+    event = relationship("Event", back_populates="sessions")

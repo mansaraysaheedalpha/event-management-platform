@@ -179,9 +179,11 @@ export class ChatGateway {
     try {
       const newMessage = (await this.chatService.sendMessage(
         user.sub,
+        user.email || '', // Pass email for user reference creation
         sessionId, // The chat session ID
         dto,
-        eventId, // Pass eventId for dashboard analytics
+        eventId, // Pass eventId for auto-creating sessions
+        user.orgId, // Pass organizationId from JWT
       )) as { id: string };
 
       const publicRoom = `session:${sessionId}`;
@@ -298,7 +300,38 @@ export class ChatGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
-    const { sessionId } = dto; // Read sessionId from DTO body
+
+    this.logger.log(`📨 Received chat.message.react from user ${user.sub}, dto: ${JSON.stringify(dto)}`);
+
+    const { messageId, emoji } = dto;
+
+    // Defensive validation - ensure required fields are present
+    if (!messageId || !emoji) {
+      this.logger.warn(`[Chat] Invalid reaction request - missing fields. messageId: ${messageId}, emoji: ${emoji}`);
+      return {
+        success: false,
+        error: {
+          message: 'Invalid request: messageId and emoji are required.',
+          statusCode: 400,
+        },
+      };
+    }
+
+    // Get sessionId from DTO or look it up from the message
+    let sessionId = dto.sessionId;
+    if (!sessionId) {
+      // Look up sessionId from the message
+      const messageSessionId = await this.chatService.getMessageSessionId(messageId);
+      if (!messageSessionId) {
+        return {
+          success: false,
+          error: { message: 'Message not found.', statusCode: 404 },
+        };
+      }
+      sessionId = messageSessionId;
+      this.logger.log(`[Chat] Resolved sessionId ${sessionId} from messageId ${messageId}`);
+    }
+
     // eventId from query params = parent event for dashboard analytics
     const eventId = (client.handshake.query.eventId as string) || sessionId;
 
@@ -319,7 +352,7 @@ export class ChatGateway {
       const updatedMessageWithReactions: {
         id: string;
         [key: string]: any;
-      } | null = await this.chatService.reactToMessage(user.sub, dto, eventId);
+      } | null = await this.chatService.reactToMessage(user.sub, dto);
 
       if (updatedMessageWithReactions) {
         const publicRoom = `session:${sessionId}`;

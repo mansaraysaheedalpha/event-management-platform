@@ -74,3 +74,24 @@ export class PerformResetInput {
   @MinLength(8)
   newPassword: string;
 }
+
+@InputType()
+export class RegisterAttendeeInput {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  first_name: string;
+
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  last_name: string;
+
+  @Field()
+  @IsEmail()
+  email: string;
+
+  @Field()
+  @MinLength(8)
+  password: string;
+}
