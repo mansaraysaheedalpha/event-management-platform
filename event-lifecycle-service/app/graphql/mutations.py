@@ -40,9 +40,8 @@ class EventUpdateInput:
 class SessionCreateInput:
     eventId: str
     title: str
-    sessionDate: str
-    startTime: str
-    endTime: str
+    startTime: str  # ISO datetime string (e.g., "2024-03-15T09:00:00")
+    endTime: str    # ISO datetime string (e.g., "2024-03-15T10:00:00")
     speakerIds: Optional[List[str]] = None
     chatEnabled: Optional[bool] = True  # Defaults to enabled
     qaEnabled: Optional[bool] = True  # Defaults to enabled
@@ -232,15 +231,13 @@ class Mutation:
         db = info.context.db
         producer = info.context.producer
         try:
-            session_date_obj = datetime.fromisoformat(sessionIn.sessionDate).date()
-            start_time_obj = datetime.strptime(sessionIn.startTime, "%H:%M").time()
-            end_time_obj = datetime.strptime(sessionIn.endTime, "%H:%M").time()
-            full_start_datetime = datetime.combine(session_date_obj, start_time_obj)
-            full_end_datetime = datetime.combine(session_date_obj, end_time_obj)
+            # Parse ISO datetime strings directly
+            full_start_datetime = datetime.fromisoformat(sessionIn.startTime.replace("Z", "+00:00"))
+            full_end_datetime = datetime.fromisoformat(sessionIn.endTime.replace("Z", "+00:00"))
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid date or time format. Use YYYY-MM-DD and HH:MM.",
+                detail="Invalid datetime format. Use ISO format (e.g., 2024-03-15T09:00:00).",
             )
         session_schema = SessionCreate(
             title=sessionIn.title,

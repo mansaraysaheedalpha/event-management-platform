@@ -63,6 +63,15 @@ export class DashboardService {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
   /**
+   * Listens to analytics events from Redis Pub/Sub and updates dashboard metrics.
+   * This wires up the 'analytics-events' channel to the handleAnalyticsEvent method.
+   */
+  @OnEvent('analytics-events')
+  async onAnalyticsEvent(payload: unknown): Promise<void> {
+    await this.handleAnalyticsEvent(payload);
+  }
+
+  /**
    * Listens to analytics events and updates Redis stats accordingly.
    *
    * @param payload - The analytics event payload. Should match the AnalyticsEventPayload type:

@@ -102,3 +102,159 @@ def send_registration_confirmation(
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send email to {to_email}: {e}")
         return {"success": False, "error": str(e)}
+
+
+def send_giveaway_winner_email(
+    to_email: str,
+    winner_name: str,
+    event_name: str,
+    session_name: str = None,
+    giveaway_type: str = "SINGLE_POLL",  # SINGLE_POLL or QUIZ_SCORE
+    prize_title: str = None,
+    prize_description: str = None,
+    claim_instructions: str = None,
+    claim_location: str = None,
+    claim_deadline: str = None,
+    quiz_score: int = None,
+    quiz_total: int = None,
+    winning_option_text: str = None,
+) -> dict:
+    """
+    Send a giveaway winner notification email.
+
+    Args:
+        to_email: Winner's email address
+        winner_name: Name of the winner
+        event_name: Name of the event
+        session_name: Optional session name
+        giveaway_type: Type of giveaway (SINGLE_POLL or QUIZ_SCORE)
+        prize_title: Title of the prize
+        prize_description: Description of the prize
+        claim_instructions: How to claim the prize
+        claim_location: Where to claim (for physical prizes)
+        claim_deadline: Deadline to claim the prize
+        quiz_score: For quiz giveaways - the winner's score
+        quiz_total: For quiz giveaways - total questions
+        winning_option_text: For poll giveaways - the winning option
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    # Build the winning context based on giveaway type
+    if giveaway_type == "QUIZ_SCORE" and quiz_score is not None:
+        win_context = f"""
+        <div class="score-box">
+            <p style="margin: 0 0 5px 0; color: #666;">Your Quiz Score</p>
+            <div class="score">{quiz_score}/{quiz_total}</div>
+            <p style="margin: 5px 0 0 0; font-size: 14px; color: #888;">Outstanding performance!</p>
+        </div>
+        """
+    elif winning_option_text:
+        win_context = f"""
+        <div class="win-context">
+            <p style="margin: 0; color: #666;">Your winning answer: <strong>{winning_option_text}</strong></p>
+        </div>
+        """
+    else:
+        win_context = ""
+
+    # Build prize details section
+    prize_html = ""
+    if prize_title:
+        prize_html = f"""
+        <div class="prize-box">
+            <h3 style="margin: 0 0 10px 0; color: #667eea;">🎁 Your Prize</h3>
+            <p style="font-size: 18px; font-weight: bold; margin: 0 0 10px 0;">{prize_title}</p>
+            {"<p style='color: #666; margin: 0;'>" + prize_description + "</p>" if prize_description else ""}
+        </div>
+        """
+
+    # Build claim instructions section
+    claim_html = ""
+    if claim_instructions or claim_location or claim_deadline:
+        claim_details = []
+        if claim_instructions:
+            claim_details.append(f"<p><strong>How to claim:</strong> {claim_instructions}</p>")
+        if claim_location:
+            claim_details.append(f"<p><strong>Where:</strong> {claim_location}</p>")
+        if claim_deadline:
+            claim_details.append(f"<p><strong>Claim by:</strong> {claim_deadline}</p>")
+
+        claim_html = f"""
+        <div class="claim-box">
+            <h4 style="margin: 0 0 10px 0;">📋 Claim Instructions</h4>
+            {"".join(claim_details)}
+        </div>
+        """
+
+    session_text = f" during <strong>{session_name}</strong>" if session_name else ""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0; font-size: 32px; }}
+            .header .emoji {{ font-size: 48px; margin-bottom: 10px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .score-box {{ background: white; border: 2px solid #f5576c; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px; }}
+            .score {{ font-size: 36px; font-weight: bold; color: #f5576c; }}
+            .win-context {{ background: white; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center; }}
+            .prize-box {{ background: linear-gradient(135deg, #fff6e6 0%, #fff0f0 100%); padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f5576c; }}
+            .claim-box {{ background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border: 1px dashed #ddd; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; margin: 20px 0; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="emoji">🎉</div>
+                <h1>Congratulations!</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">You're a Winner!</p>
+            </div>
+            <div class="content">
+                <p>Hi {winner_name},</p>
+                <p>Amazing news! You've won the giveaway at <strong>{event_name}</strong>{session_text}!</p>
+
+                {win_context}
+                {prize_html}
+                {claim_html}
+
+                <p style="text-align: center; margin-top: 25px;">
+                    We're thrilled to have you as a winner. Don't forget to claim your prize!
+                </p>
+
+                <p>Best regards,<br>The Event Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by GlobalConnect Event Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    subject = f"🎉 You Won! Giveaway Winner at {event_name}"
+
+    params = {
+        "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Giveaway winner notification sent to {to_email} for event: {event_name}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send giveaway email to {to_email}: {e}")
+        return {"success": False, "error": str(e)}

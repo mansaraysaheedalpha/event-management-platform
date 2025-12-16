@@ -149,7 +149,7 @@ export class AppGateway
     }
 
     const dashboardRoom = `dashboard:${eventId}`;
-    void client.join(dashboardRoom);
+    await client.join(dashboardRoom);
     this.logger.log(`✅ Admin ${user.sub} joined room: ${dashboardRoom}`);
 
     if (!this.activeDashboardTimers.has(eventId)) {
@@ -189,9 +189,11 @@ export class AppGateway
     const dashboardRoom = `dashboard:${eventId}`;
 
     try {
-      const room = this.server.sockets.adapter?.rooms?.get(dashboardRoom);
+      // Use the namespace's adapter (this.server is the /events namespace Server)
+      // fetchSockets() is the reliable way to get sockets in a room across namespaces
+      const socketsInRoom = await this.server.in(dashboardRoom).fetchSockets();
 
-      if (!room || room.size === 0) {
+      if (socketsInRoom.length === 0) {
         this.logger.log(
           `No admins listening; stopping dashboard loop for event: ${eventId}`,
         );
@@ -200,7 +202,7 @@ export class AppGateway
       }
 
       this.logger.log(
-        `📡 Broadcasting to ${room.size} admin(s) for event: ${eventId}`,
+        `📡 Broadcasting to ${socketsInRoom.length} admin(s) for event: ${eventId}`,
       );
 
       const dashboardData =

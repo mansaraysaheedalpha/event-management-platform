@@ -69,27 +69,53 @@ export class GamificationService {
       return 0;
     }
 
-    const totalScore = await this.prisma.$transaction(async (tx) => {
-      await tx.gamificationPointEntry.create({
-        data: { userId, sessionId, reason, points: pointsToAward },
+    try {
+      const totalScore = await this.prisma.$transaction(async (tx) => {
+        // Use upsert to handle unique constraint - increment points if entry exists
+        await tx.gamificationPointEntry.upsert({
+          where: {
+            userId_sessionId_reason: { userId, sessionId, reason },
+          },
+          update: {
+            points: { increment: pointsToAward },
+          },
+          create: {
+            userId,
+            sessionId,
+            reason,
+            points: pointsToAward,
+          },
+        });
+        const aggregate = await tx.gamificationPointEntry.aggregate({
+          _sum: { points: true },
+          where: { userId, sessionId },
+        });
+        return aggregate._sum.points || 0;
       });
-      const aggregate = await tx.gamificationPointEntry.aggregate({
+
+      // After points are awarded, send a private notification to the user.
+      this.gamificationGateway.sendPointsAwardedNotification(userId, {
+        points: pointsToAward,
+        reason: reason,
+        newTotalScore: totalScore,
+      });
+
+      void this._checkAndGrantAchievements(userId, sessionId, totalScore, reason);
+      void this.gamificationGateway.broadcastLeaderboardUpdate(sessionId);
+      return totalScore;
+    } catch (error) {
+      // Log the error but don't crash - return current score
+      this.logger.error(
+        `Failed to award points to user ${userId}:`,
+        getErrorMessage(error),
+      );
+      // Return current score even if awarding failed
+      const aggregate = await this.prisma.gamificationPointEntry.aggregate({
         _sum: { points: true },
         where: { userId, sessionId },
       });
       return aggregate._sum.points || 0;
-    });
-
-    // After points are awarded, send a private notification to the user.
-    this.gamificationGateway.sendPointsAwardedNotification(userId, {
-      points: pointsToAward,
-      reason: reason,
-      newTotalScore: totalScore,
-    });
-
-    void this._checkAndGrantAchievements(userId, sessionId, totalScore, reason);
-    void this.gamificationGateway.broadcastLeaderboardUpdate(sessionId);
-    return totalScore;
+    }
   }
 
   /**

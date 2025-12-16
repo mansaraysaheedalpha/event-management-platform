@@ -13,6 +13,11 @@ enum OrganizationStatus {
   ACTIVE
   PENDING_DELETION
 }
+
+enum UserType {
+  ORGANIZER
+  ATTENDEE
+}
 // NEW: Stores a master list of all possible permissions in the system.
 model Permission {
   id          String @id @default(cuid())
@@ -46,9 +51,12 @@ model User {
   password                  String
   createdAt                 DateTime               @default(now())
   updatedAt                 DateTime               @updatedAt
-  
+
+  // User type: ORGANIZER (needs org) or ATTENDEE (no org needed)
+  userType                  UserType               @default(ORGANIZER)
+
   hashedRefreshToken        String?
-  
+
   // Fields for 2FA
   twoFactorSecret           String?
   isTwoFactorEnabled        Boolean                @default(false)

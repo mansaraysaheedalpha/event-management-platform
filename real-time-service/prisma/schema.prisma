@@ -120,6 +120,8 @@ model ChatSession {
   backchannelMessages         BackchannelMessage[]
   teams                       Team[]
   contentDrops                ContentDropLog[]
+  giveawayWinners             GiveawayWinner[]
+  quizSettings                SessionQuizSettings?
   @@map("chat_sessions")
 }
 
@@ -253,17 +255,24 @@ model MessageReaction {
 }
 
 model Poll {
-  id        String   @id @default(cuid())
-  question  String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  expiresAt DateTime?
-  creatorId String
-  creator   UserReference @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  sessionId String
-  session   ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  options   PollOption[]
-  votes     PollVote[]
+  id              String   @id @default(cuid())
+  question        String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime?
+  creatorId       String
+  creator         UserReference @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  sessionId       String
+  session         ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  options         PollOption[]
+  votes           PollVote[]
+  giveawayWinners GiveawayWinner[]
+
+  // Quiz/Giveaway fields
+  correctOptionId String?     // For quiz mode - the correct answer
+  isQuiz          Boolean  @default(false)  // Whether this poll is part of a quiz
+  giveawayEnabled Boolean  @default(false)  // Whether giveaway can be run on this poll
+
   @@map("polls")
 }
 
@@ -286,6 +295,94 @@ model PollVote {
   createdAt DateTime   @default(now())
   @@id([userId, pollId])
   @@map("poll_votes")
+}
+
+enum GiveawayType {
+  SINGLE_POLL
+  QUIZ_SCORE
+}
+
+enum ClaimStatus {
+  PENDING
+  CLAIMED
+  EXPIRED
+}
+
+model GiveawayWinner {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Context
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  eventId   String
+  pollId    String?     // NULL for quiz giveaways
+  poll      Poll?       @relation(fields: [pollId], references: [id], onDelete: SetNull)
+
+  // Winner Identity
+  userId      String
+  winnerName  String
+  winnerEmail String
+
+  // Giveaway Details
+  giveawayType      GiveawayType
+  winningOptionText String?       // For single poll
+  quizScore         Int?          // For quiz (e.g., 4 out of 5)
+  quizTotal         Int?          // Total quiz questions
+
+  // Prize Details
+  prizeTitle       String?
+  prizeDescription String?
+  prizeType        String?       // 'physical' | 'virtual' | 'voucher'
+  prizeValue       Decimal?      @db.Decimal(10, 2)
+
+  // Claim Information
+  claimInstructions String?
+  claimLocation     String?       // For physical prizes
+  claimDeadline     DateTime?
+  claimedAt         DateTime?
+  claimStatus       ClaimStatus   @default(PENDING)
+
+  // Notification Status
+  emailSent     Boolean   @default(false)
+  emailSentAt   DateTime?
+  notificationError String?
+
+  // Who ran the giveaway
+  createdById   String?
+
+  @@index([sessionId])
+  @@index([eventId])
+  @@index([userId])
+  @@map("giveaway_winners")
+}
+
+model SessionQuizSettings {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // Quiz Configuration
+  quizEnabled    Boolean @default(false)
+  passingScore   Int     @default(3)      // Minimum correct answers to win
+  totalQuestions Int?                      // Auto-calculated from polls
+
+  // Prize Configuration
+  prizeTitle         String?
+  prizeDescription   String?
+  prizeType          String?   @default("virtual")
+  prizeValue         Decimal?  @db.Decimal(10, 2)
+  claimInstructions  String?
+  claimLocation      String?
+  claimDeadlineHours Int       @default(72)  // Hours after giveaway to claim
+
+  // Limits
+  maxWinners Int?                          // NULL = unlimited
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("session_quiz_settings")
 }
 
 model Presentation {

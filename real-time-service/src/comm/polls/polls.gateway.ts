@@ -176,6 +176,7 @@ export class PollsGateway {
     try {
       const updatedPollWithResults = await this.pollsService.submitVote(
         user.sub,
+        user.email || '', // Pass email for user reference creation
         dto,
       );
 
@@ -254,6 +255,7 @@ export class PollsGateway {
 
   /**
    * Handles an admin starting a giveaway for a poll.
+   * Broadcasts to all users and sends a personal notification to the winner.
    */
   @SubscribeMessage('poll.giveaway.start')
   async handleStartGiveaway(
@@ -276,19 +278,146 @@ export class PollsGateway {
         user.sub,
       );
 
-      if (giveawayResult) {
+      if (giveawayResult && giveawayResult.success && giveawayResult.winner) {
         const publicRoom = `session:${sessionId}`;
-        const eventName = 'poll.giveaway.winner';
-        this.server.to(publicRoom).emit(eventName, giveawayResult);
+        const winner = giveawayResult.winner;
+
+        // 1. Broadcast to all users (without email for privacy)
+        const publicPayload = {
+          ...giveawayResult,
+          winner: {
+            id: winner.id,
+            name: winner.name,
+            firstName: winner.firstName,
+            lastName: winner.lastName,
+            optionText: winner.optionText,
+            // Email is intentionally excluded from public broadcast
+          },
+        };
+        this.server.to(publicRoom).emit('poll.giveaway.winner', publicPayload);
         this.logger.log(
           `Broadcasted giveaway winner for poll ${dto.pollId} to room ${publicRoom}`,
         );
+
+        // 2. Send a private notification to the winner
+        const winnerRoom = `user:${winner.id}`;
+        this.server.to(winnerRoom).emit('poll.giveaway.you-won', {
+          pollId: dto.pollId,
+          giveawayWinnerId: giveawayResult.giveawayWinnerId,
+          prize: giveawayResult.prize,
+          message: 'Congratulations! You won the giveaway! 🎉',
+        });
+        this.logger.log(
+          `Sent private winner notification to user ${winner.id}`,
+        );
       }
 
-      return { success: true, winner: giveawayResult?.winner };
+      return {
+        success: giveawayResult?.success ?? false,
+        winner: giveawayResult?.winner,
+        totalEligibleVoters: giveawayResult?.totalEligibleVoters,
+        giveawayWinnerId: giveawayResult?.giveawayWinnerId,
+      };
     } catch (error) {
       this.logger.error(
         `Failed to start giveaway for admin ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  // ============================================================
+  // QUIZ GIVEAWAY HANDLERS
+  // ============================================================
+
+  /**
+   * Handles request to get quiz leaderboard.
+   */
+  @SubscribeMessage('quiz.leaderboard.get')
+  async handleGetQuizLeaderboard(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      const leaderboard = await this.pollsService.getQuizLeaderboard(
+        sessionId,
+        user.sub,
+      );
+      return { success: true, ...leaderboard };
+    } catch (error) {
+      this.logger.error('Failed to get quiz leaderboard', getErrorMessage(error));
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Handles admin running a quiz giveaway.
+   * Broadcasts results to all users and sends private notifications to winners.
+   */
+  @SubscribeMessage('quiz.giveaway.start')
+  async handleStartQuizGiveaway(
+    @MessageBody() dto: { idempotencyKey: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    const requiredPermission = 'poll:manage';
+    if (!user.permissions?.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        'You do not have permission to run quiz giveaways.',
+      );
+    }
+
+    try {
+      const giveawayResult = await this.pollsService.runQuizGiveaway(
+        sessionId,
+        user.sub,
+        dto.idempotencyKey,
+      );
+
+      if (giveawayResult.success) {
+        const publicRoom = `session:${sessionId}`;
+
+        // 1. Broadcast results to all users
+        this.server.to(publicRoom).emit('quiz.giveaway.results', {
+          sessionId,
+          stats: giveawayResult.quizStats,
+          totalWinners: giveawayResult.totalWinners,
+          prize: giveawayResult.prize,
+        });
+        this.logger.log(
+          `Broadcasted quiz giveaway results to room ${publicRoom}`,
+        );
+
+        // 2. Send private notifications to each winner
+        for (const winner of giveawayResult.winners) {
+          const winnerRoom = `user:${winner.id}`;
+          this.server.to(winnerRoom).emit('quiz.giveaway.you-won', {
+            sessionId,
+            score: winner.score,
+            totalQuestions: winner.totalQuestions,
+            percentage: winner.percentage,
+            prize: giveawayResult.prize,
+            message: `Congratulations! You scored ${winner.score}/${winner.totalQuestions} and won! 🏆`,
+          });
+        }
+        this.logger.log(
+          `Sent private winner notifications to ${giveawayResult.winners.length} users`,
+        );
+      }
+
+      return {
+        success: true,
+        totalWinners: giveawayResult.totalWinners,
+        quizStats: giveawayResult.quizStats,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to run quiz giveaway for admin ${user.sub}`,
         getErrorMessage(error),
       );
       return { success: false, error: getErrorMessage(error) };

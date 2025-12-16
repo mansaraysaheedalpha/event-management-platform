@@ -16,6 +16,7 @@ from .types import (
     BlueprintType,
     DomainEventType,
     MyRegistrationType,
+    PublicEventsResponse,
 )
 
 
@@ -30,13 +31,37 @@ class Query:
         if not event_obj:
             return None
 
-        # --- NEW SECURITY CHECK ---
-        # If the user is authenticated, they must belong to the same organization.
-        if user and event_obj.organization_id != user.get("orgId"):
-            return None
+        # --- AUTHORIZATION LOGIC ---
+        # Determine if user can access this event
+        can_access = False
 
-        # If the user is not authenticated, only show public, non-archived events.
-        if not user and (not event_obj.is_public or event_obj.is_archived):
+        # Case 1: Event is public and not archived - anyone can view (authenticated or not)
+        if event_obj.is_public and not event_obj.is_archived:
+            can_access = True
+        elif user:
+            user_org_id = user.get("orgId")
+            user_id = user.get("sub")
+
+            # Case 2: User is an organizer in the same organization
+            if user_org_id and event_obj.organization_id == user_org_id:
+                can_access = True
+            # Case 3: User is registered for this event (attendees can view non-public events)
+            elif user_id:
+                from ..models.registration import Registration
+                registration = (
+                    db.query(Registration)
+                    .filter(
+                        Registration.event_id == event_id,
+                        Registration.user_id == user_id,
+                        Registration.is_archived == "false",
+                        Registration.status != "cancelled",
+                    )
+                    .first()
+                )
+                if registration:
+                    can_access = True
+
+        if not can_access:
             return None
         # ------------------------
 
@@ -250,3 +275,29 @@ class Query:
             db, event_id=str(eventId), user_id=user_id
         )
         return registration
+
+    @strawberry.field
+    def publicEvents(
+        self,
+        info: Info,
+        search: typing.Optional[str] = None,
+        limit: typing.Optional[int] = 100,
+        offset: typing.Optional[int] = 0,
+        includePast: typing.Optional[bool] = False,
+    ) -> PublicEventsResponse:
+        """
+        Returns all published, public events for the event discovery page.
+        No authentication required.
+        """
+        db = info.context.db
+        payload_data = crud.event.get_public_events(
+            db,
+            search=search,
+            skip=offset,
+            limit=limit,
+            include_past=includePast,
+        )
+        return PublicEventsResponse(
+            events=payload_data["events"],
+            totalCount=payload_data["totalCount"],
+        )

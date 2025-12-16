@@ -220,3 +220,41 @@ def get_session_details(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
+
+
+@router.get("/internal/events/{event_id}/registrations/{user_id}")
+def check_user_registration(
+    event_id: str,
+    user_id: str,
+    db: Session = Depends(get_db),
+    api_key: str = Security(deps.get_internal_api_key),
+):
+    """
+    Internal endpoint to check if a user is registered for an event.
+    Used by real-time service to validate chat/Q&A access.
+    Returns registration details if found and active, 404 otherwise.
+    """
+    registration = (
+        db.query(Registration)
+        .filter(
+            Registration.event_id == event_id,
+            Registration.user_id == user_id,
+            Registration.is_archived == "false",
+            Registration.status != "cancelled",
+        )
+        .first()
+    )
+
+    if not registration:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User is not registered for this event",
+        )
+
+    return {
+        "id": registration.id,
+        "event_id": registration.event_id,
+        "user_id": registration.user_id,
+        "status": registration.status,
+        "ticket_code": registration.ticket_code,
+    }

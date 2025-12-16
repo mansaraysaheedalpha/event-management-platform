@@ -48,13 +48,14 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
         self, db: Session, *, event_id: str, skip: int = 0, limit: int = 100
     ) -> list[Registration]:
         """
-        Fetches registrations for a specific event.
+        Fetches active registrations for a specific event.
         """
         return (
             db.query(self.model)
             .filter(
                 self.model.event_id == event_id,
-                self.model.is_archived == 'false'  # <-- THIS IS THE FIX
+                self.model.is_archived == "false",
+                self.model.status != "cancelled",
             )
             .offset(skip)
             .limit(limit)
@@ -64,21 +65,38 @@ class CRUDRegistration(CRUDBase[Registration, RegistrationCreate, RegistrationUp
 
     def get_count_by_event(self, db: Session, *, event_id: str) -> int:
         """
-        Counts the number of registrations for a specific event.
+        Counts the number of active (non-archived, non-cancelled) registrations for a specific event.
         """
-        return db.query(self.model).filter(self.model.event_id == event_id).count()
+        return (
+            db.query(self.model)
+            .filter(
+                self.model.event_id == event_id,
+                self.model.is_archived == "false",
+                self.model.status != "cancelled",
+            )
+            .count()
+        )
 
     def get_multi_by_user(
         self, db: Session, *, user_id: str, skip: int = 0, limit: int = 100
     ) -> list[Registration]:
         """
-        Fetches all registrations for a specific user, with their associated events.
+        Fetches active registrations for a specific user, with their associated events.
         Used for the attendee dashboard to show their registered events.
+        Filters out archived and cancelled registrations.
         """
+        from app.models.event import Event
+
         return (
             db.query(self.model)
+            .join(Event, self.model.event_id == Event.id)
             .options(joinedload(self.model.event))
-            .filter(self.model.user_id == user_id)
+            .filter(
+                self.model.user_id == user_id,
+                self.model.is_archived == "false",
+                self.model.status != "cancelled",
+            )
+            .order_by(Event.start_date.desc())
             .offset(skip)
             .limit(limit)
             .all()

@@ -12,6 +12,14 @@ import {
  */
 export class SendMessageDto {
   /**
+   * The session ID where the message will be sent.
+   * Can be a UUID or custom ID format (e.g., evt_xxx, ses_xxx).
+   */
+  @IsNotEmpty()
+  @IsString()
+  sessionId: string;
+
+  /**
    * The text content of the message, max 1000 characters.
    */
   @IsString()

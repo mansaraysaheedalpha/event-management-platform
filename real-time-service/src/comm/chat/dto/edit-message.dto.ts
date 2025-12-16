@@ -6,6 +6,14 @@ import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
  */
 export class EditMessageDto {
   /**
+   * The session ID where the message belongs.
+   * Can be a UUID or custom ID format (e.g., evt_xxx, ses_xxx).
+   */
+  @IsNotEmpty()
+  @IsString()
+  sessionId: string;
+
+  /**
    * The ID of the message to be edited (UUID v4).
    */
   @IsNotEmpty()
