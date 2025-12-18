@@ -7,7 +7,7 @@ import {
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma.service';
-import { MailerService } from '@nestjs-modules/mailer';
+import { EmailService } from 'src/email/email.service';
 
 interface CreateInvitationData {
   email: string;
@@ -26,7 +26,7 @@ interface AcceptInvitationData {
 export class InvitationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mailerService: MailerService,
+    private readonly emailService: EmailService,
   ) {}
 
   async create(data: CreateInvitationData) {
@@ -73,23 +73,12 @@ export class InvitationsService {
     const inviterName = `${invitation.invitedBy.first_name} ${invitation.invitedBy.last_name}`;
     const invitationUrl = `http://yourapp.com/accept-invitation?token=${rawToken}`;
 
-    await this.mailerService.sendMail({
-      to: invitation.email,
-      subject: `You're Invited to Join ${invitation.organization.name} on GlobalConnect`,
-      html: `
-        <h2>You've Been Invited!</h2>
-        <p>Hi there,</p>
-        <p><strong>${inviterName}</strong> has invited you to join their organization <strong>${invitation.organization.name}</strong> on <strong>GlobalConnect</strong>.</p>
-        <p>Click the button below to accept your invitation and create your account:</p>
-        <p style="margin: 20px 0;">
-          <a href="${invitationUrl}" target="_blank" style="background-color:#4CAF50;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;">Accept Invitation</a>
-        </p>
-        <p>This invitation link will expire in <strong>7 days</strong> for your security.</p>
-        <p>If you weren't expecting this invitation, you can safely ignore this email.</p>
-        <br />
-        <p>— The GlobalConnect Team</p>
-      `,
-    });
+    await this.emailService.sendInvitationEmail(
+      invitation.email,
+      inviterName,
+      invitation.organization.name,
+      invitationUrl,
+    );
 
     return {
       message: `Invitation successfully sent to ${invitation.email}.`,

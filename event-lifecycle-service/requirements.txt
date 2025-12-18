@@ -25,6 +25,7 @@ redis
 httpx
 kafka-python-ng # <-- The modern, correct Kafka library
 boto3
+resend
 
 # For background tasks
 celery

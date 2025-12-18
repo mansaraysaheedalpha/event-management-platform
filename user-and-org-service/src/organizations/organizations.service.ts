@@ -11,7 +11,7 @@ import { PrismaService } from 'src/prisma.service';
 import { CreateNewOrganizationDTO } from './dto/create-new-organization.dto';
 import { UpdateOrganizationDTO } from './dto/update-organization.dto';
 import { AuditService } from 'src/audit/audit.service';
-import { MailerService } from '@nestjs-modules/mailer';
+import { EmailService } from 'src/email/email.service';
 import { randomBytes } from 'crypto';
 import { AuthService } from 'src/auth/auth.service';
 
@@ -20,7 +20,7 @@ export class OrganizationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
-    private readonly mailerService: MailerService,
+    private readonly emailService: EmailService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
   ) {}
@@ -294,11 +294,7 @@ export class OrganizationsService {
       });
 
       try {
-        await this.mailerService.sendMail({
-          to: userEmail,
-          subject: `Your Organization "${orgName}" Has Been Permanently Deleted`,
-          html: `<p>This is a confirmation that the organization, <strong>${orgName}</strong>, has been permanently deleted from GlobalConnect. This action cannot be undone.</p>`,
-        });
+        await this.emailService.sendOrgPermanentlyDeletedEmail(userEmail, orgName);
       } catch (error) {
         console.error('Failed to send permanent deletion email:', error);
       }
@@ -332,16 +328,12 @@ export class OrganizationsService {
       });
 
       try {
-        await this.mailerService.sendMail({
-          to: userEmail,
-          subject: `Your Organization "${orgName}" is Scheduled for Deletion`,
-          html: `
-          <p>This is a notification that the organization, <strong>${orgName}</strong>, is scheduled to be permanently deleted on ${deletionDate.toLocaleDateString()}.</p>
-          <p>If this was a mistake, you can restore your organization by clicking the link below:</p>
-          <p><a href="${restoreUrl}">Restore My Organization</a></p>
-          <p>This restore link is valid until the deletion date.</p>
-        `,
-        });
+        await this.emailService.sendOrgDeletionScheduledEmail(
+          userEmail,
+          orgName,
+          deletionDate,
+          restoreUrl,
+        );
       } catch (error) {
         console.error('Failed to send scheduled deletion email:', error);
       }

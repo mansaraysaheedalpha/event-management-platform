@@ -11,7 +11,7 @@ import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
 import { AccessTokenStrategy } from './strategies/access-token.strategy';
 import { InvitationsModule } from 'src/invitations/invitations.module';
 import { TwoFactorModule } from 'src/two-factor/two-factor.module';
-import { MailerModule } from '@nestjs-modules/mailer';
+import { EmailModule } from 'src/email/email.module';
 import { AuditModule } from 'src/audit/audit.module';
 import { PermissionsModule } from 'src/permissions/permissions.module';
 import { AuthResolver } from './auth.resolver';
@@ -32,7 +32,7 @@ import { OrganizationsModule } from 'src/organizations/organizations.module';
       inject: [ConfigService], // Inject the ConfigService
     }),
     InvitationsModule,
-    MailerModule,
+    EmailModule,
     TwoFactorModule,
     AuditModule,
     PermissionsModule,

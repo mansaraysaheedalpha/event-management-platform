@@ -17,6 +17,8 @@ import { join } from 'path';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { AuditModule } from './audit/audit.module';
+import { InternalModule } from './internal/internal.module';
+import { EmailModule } from './email/email.module';
 import * as Joi from 'joi';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
@@ -36,11 +38,15 @@ import {
         PORT: Joi.number().default(3001),
         JWT_SECRET: Joi.string().required(),
         JWT_REFRESH_SECRET: Joi.string().required(),
-        MAIL_HOST: Joi.string().required(),
-        MAIL_PORT: Joi.number().required(),
-        MAIL_USER: Joi.string().required(),
-        MAIL_PASS: Joi.string().required(),
-        MAIL_FROM: Joi.string().required(),
+        // Resend email configuration
+        RESEND_API_KEY: Joi.string().required(),
+        RESEND_FROM_EMAIL: Joi.string().default('noreply@infinite-dynamics.com'),
+        // Legacy SMTP config (kept for backward compatibility)
+        MAIL_HOST: Joi.string().optional(),
+        MAIL_PORT: Joi.number().optional(),
+        MAIL_USER: Joi.string().optional(),
+        MAIL_PASS: Joi.string().optional(),
+        MAIL_FROM: Joi.string().optional(),
       }),
     }),
     AuthModule,
@@ -83,6 +89,8 @@ import {
     }),
     TwoFactorModule,
     AuditModule,
+    InternalModule,
+    EmailModule,
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: {

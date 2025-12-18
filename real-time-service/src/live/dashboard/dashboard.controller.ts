@@ -1,8 +1,9 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller, Get, Logger, Query, UseGuards } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
-import { DashboardService } from './dashboard.service';
+import { DashboardService, EngagementBreakdownData } from './dashboard.service';
+import { InternalApiKeyGuard } from 'src/common/guards/internal-api-key.guard';
 
-@Controller()
+@Controller('internal/dashboard')
 export class DashboardController {
   private readonly logger = new Logger(DashboardController.name);
 
@@ -14,5 +15,48 @@ export class DashboardController {
       `Received check-in event from Kafka: ${JSON.stringify(data)}`,
     );
     await this.dashboardService.handleAnalyticsEvent(data);
+  }
+
+  /**
+   * Internal API endpoint for fetching engagement breakdown data.
+   * Protected by internal API key - only accessible by other services.
+   *
+   * @param eventId - Optional event ID to scope metrics
+   * @param orgId - Organization ID (required if no eventId)
+   * @param totalAttendees - Total attendees for rate calculations
+   */
+  @Get('engagement-breakdown')
+  @UseGuards(InternalApiKeyGuard)
+  async getEngagementBreakdown(
+    @Query('eventId') eventId?: string,
+    @Query('orgId') orgId?: string,
+    @Query('totalAttendees') totalAttendeesStr?: string,
+  ): Promise<EngagementBreakdownData> {
+    const totalAttendees = totalAttendeesStr
+      ? parseInt(totalAttendeesStr, 10)
+      : 0;
+
+    this.logger.log(
+      `Fetching engagement breakdown - eventId: ${eventId}, orgId: ${orgId}, totalAttendees: ${totalAttendees}`,
+    );
+
+    return this.dashboardService.getEngagementBreakdown(
+      eventId,
+      orgId,
+      totalAttendees,
+    );
+  }
+
+  /**
+   * Internal API endpoint for fetching dashboard data for an event.
+   * Protected by internal API key.
+   *
+   * @param eventId - Event ID to fetch dashboard data for
+   */
+  @Get('data')
+  @UseGuards(InternalApiKeyGuard)
+  async getDashboardData(@Query('eventId') eventId: string) {
+    this.logger.log(`Fetching dashboard data for event: ${eventId}`);
+    return this.dashboardService.getDashboardData(eventId);
   }
 }
