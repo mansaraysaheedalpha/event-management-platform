@@ -18,6 +18,8 @@ class Session(BaseModel):
     qa_open: bool = False
     polls_open: bool = False
     speakers: List[Speaker] = []
+    # Optional organization_id - populated from the event relationship for internal API calls
+    organization_id: Optional[str] = None
     model_config = {"from_attributes": True}
 
 

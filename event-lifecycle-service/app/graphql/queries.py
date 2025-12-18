@@ -4,6 +4,8 @@ import typing
 from typing import List, Optional
 from strawberry.types import Info
 from fastapi import HTTPException
+import httpx
+from ..core.config import settings
 from .. import crud
 from .types import (
     EventType,
@@ -17,6 +19,13 @@ from .types import (
     DomainEventType,
     MyRegistrationType,
     PublicEventsResponse,
+    # Dashboard types
+    OrganizationDashboardStatsType,
+    WeeklyAttendanceResponse,
+    WeeklyAttendanceDataPoint,
+    EngagementTrendResponse,
+    EngagementTrendDataPoint,
+    EngagementBreakdownType,
 )
 
 
@@ -300,4 +309,209 @@ class Query:
         return PublicEventsResponse(
             events=payload_data["events"],
             totalCount=payload_data["totalCount"],
+        )
+
+    # --- ORGANIZER DASHBOARD QUERIES ---
+
+    @strawberry.field
+    def organizationDashboardStats(self, info: Info) -> OrganizationDashboardStatsType:
+        """
+        Returns dashboard statistics for the current organization.
+        Includes total attendees, active sessions, engagement rate, and total events.
+        Engagement rate is calculated from real-time service data (Q&A, polls, chat).
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(
+                status_code=403, detail="Not authorized or orgId missing from context"
+            )
+
+        db = info.context.db
+        org_id = user["orgId"]
+
+        stats = crud.dashboard.get_dashboard_stats(db, org_id=org_id)
+
+        # Calculate avg engagement from real-time service data
+        avg_engagement_rate = stats["avgEngagementRate"]  # Default to check-in rate
+        try:
+            total_attendees = stats["totalAttendees"]
+            if total_attendees > 0:
+                real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+                params = {"totalAttendees": str(total_attendees), "orgId": org_id}
+
+                with httpx.Client(timeout=5.0) as client:
+                    response = client.get(
+                        f"{real_time_url}/internal/dashboard/engagement-breakdown",
+                        params=params,
+                        headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY},
+                    )
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        # Average of Q&A, poll, and chat participation rates
+                        qa_rate = data.get("qaParticipation", 0)
+                        poll_rate = data.get("pollResponseRate", 0)
+                        chat_rate = data.get("chatActivityRate", 0)
+                        # Only average non-zero rates to avoid dilution
+                        rates = [r for r in [qa_rate, poll_rate, chat_rate] if r > 0]
+                        if rates:
+                            avg_engagement_rate = round(sum(rates) / len(rates), 1)
+        except Exception as e:
+            import logging
+            logging.warning(f"Failed to fetch engagement data for avg rate: {e}")
+
+        return OrganizationDashboardStatsType(
+            totalAttendees=stats["totalAttendees"],
+            totalAttendeesChange=stats["totalAttendeesChange"],
+            activeSessions=stats["activeSessions"],
+            activeSessionsChange=stats["activeSessionsChange"],
+            avgEngagementRate=avg_engagement_rate,
+            avgEngagementChange=stats["avgEngagementChange"],
+            totalEvents=stats["totalEvents"],
+            totalEventsChange=stats["totalEventsChange"],
+        )
+
+    @strawberry.field
+    def weeklyAttendance(
+        self, info: Info, days: typing.Optional[int] = 7
+    ) -> WeeklyAttendanceResponse:
+        """
+        Returns daily attendance data for the last N days.
+        Used for the attendance chart on the dashboard.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(
+                status_code=403, detail="Not authorized or orgId missing from context"
+            )
+
+        db = info.context.db
+        org_id = user["orgId"]
+
+        attendance_data = crud.dashboard.get_weekly_attendance(
+            db, org_id=org_id, days=days
+        )
+
+        data_points = [
+            WeeklyAttendanceDataPoint(
+                label=item["label"],
+                date=item["date"],
+                value=item["value"],
+            )
+            for item in attendance_data
+        ]
+
+        return WeeklyAttendanceResponse(data=data_points)
+
+    @strawberry.field
+    def engagementTrend(
+        self, info: Info, periods: typing.Optional[int] = 12
+    ) -> EngagementTrendResponse:
+        """
+        Returns engagement trend data for sparkline visualization.
+        Shows normalized engagement scores over the last N periods.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(
+                status_code=403, detail="Not authorized or orgId missing from context"
+            )
+
+        db = info.context.db
+        org_id = user["orgId"]
+
+        trend_data = crud.dashboard.get_registration_trend(
+            db, org_id=org_id, periods=periods
+        )
+
+        data_points = [
+            EngagementTrendDataPoint(
+                period=item["period"],
+                value=item["value"],
+            )
+            for item in trend_data
+        ]
+
+        return EngagementTrendResponse(data=data_points)
+
+    @strawberry.field
+    def engagementBreakdown(
+        self, info: Info, eventId: typing.Optional[strawberry.ID] = None
+    ) -> EngagementBreakdownType:
+        """
+        Returns detailed engagement breakdown metrics.
+        Shows Q&A, poll, and chat participation rates.
+        If eventId is provided, scopes to that event; otherwise aggregates across all org events.
+
+        Fetches data from the real-time service via internal API
+        for accurate engagement metrics (Q&A questions, poll votes, chat messages).
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(
+                status_code=403, detail="Not authorized or orgId missing from context"
+            )
+
+        db = info.context.db
+        org_id = user["orgId"]
+
+        # Get total attendees for calculating rates
+        if eventId:
+            # Verify event belongs to org
+            event = crud.event.get(db, id=str(eventId))
+            if not event or event.organization_id != org_id:
+                raise HTTPException(status_code=404, detail="Event not found")
+            total_attendees = crud.registration.get_count_by_event(
+                db, event_id=str(eventId)
+            )
+        else:
+            total_attendees = crud.dashboard.get_total_registrations(db, org_id=org_id)
+
+        # Fetch engagement data from real-time service
+        try:
+            real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+            params = {"totalAttendees": str(total_attendees)}
+            if eventId:
+                params["eventId"] = str(eventId)
+            else:
+                params["orgId"] = org_id
+
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(
+                    f"{real_time_url}/internal/dashboard/engagement-breakdown",
+                    params=params,
+                    headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY},
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    return EngagementBreakdownType(
+                        qaParticipation=data.get("qaParticipation", 0.0),
+                        qaParticipationCount=data.get("qaParticipationCount", 0),
+                        qaTotal=data.get("qaTotal", total_attendees),
+                        pollResponseRate=data.get("pollResponseRate", 0.0),
+                        pollResponseCount=data.get("pollResponseCount", 0),
+                        pollTotal=data.get("pollTotal", total_attendees),
+                        chatActivityRate=data.get("chatActivityRate", 0.0),
+                        chatMessageCount=data.get("chatMessageCount", 0),
+                        chatParticipants=data.get("chatParticipants", 0),
+                        chatTotal=data.get("chatTotal", total_attendees),
+                    )
+        except Exception as e:
+            # Log the error but return default values
+            import logging
+            logging.warning(f"Failed to fetch engagement breakdown from real-time service: {e}")
+
+        # Return default values if real-time service is unavailable
+        return EngagementBreakdownType(
+            qaParticipation=0.0,
+            qaParticipationCount=0,
+            qaTotal=total_attendees,
+            pollResponseRate=0.0,
+            pollResponseCount=0,
+            pollTotal=total_attendees,
+            chatActivityRate=0.0,
+            chatMessageCount=0,
+            chatParticipants=0,
+            chatTotal=total_attendees,
         )

@@ -93,6 +93,17 @@ export class ContentService {
     sessionId: string,
     dto: ContentControlDto,
   ): Promise<PresentationStateDto> {
+    const redisKey = this.getRedisKey(sessionId);
+    let currentState = await this.getPresentationState(sessionId);
+
+    // For START action, check if already active BEFORE consuming idempotency key
+    // This allows clicking "Present Live" multiple times without error
+    if (dto.action === 'START' && currentState?.isActive) {
+      this.logger.log(`Presentation already active for session ${sessionId}, returning current state`);
+      return currentState;
+    }
+
+    // Idempotency check for all other cases
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -100,11 +111,7 @@ export class ContentService {
       throw new ConflictException('Duplicate action request.');
     }
 
-    const redisKey = this.getRedisKey(sessionId);
-    let currentState = await this.getPresentationState(sessionId);
-
     if (dto.action === 'START') {
-      if (currentState?.isActive) return currentState;
 
       try {
         const eventServiceUrl = this.configService.getOrThrow<string>(
@@ -136,7 +143,7 @@ export class ContentService {
         );
 
         currentState = {
-          currentSlide: 0,
+          currentSlide: 1,  // 1-indexed for frontend display
           totalSlides: presentation.slide_urls.length,
           isActive: true,
           slideUrls: presentation.slide_urls,
@@ -159,28 +166,32 @@ export class ContentService {
       throw new BadRequestException('Presentation is not active.');
     }
 
-    // Handle slide navigation logic
+    // Handle slide navigation logic (1-indexed: slides go from 1 to totalSlides)
     switch (dto.action) {
       case 'NEXT_SLIDE':
         currentState.currentSlide = Math.min(
           currentState.currentSlide + 1,
-          currentState.totalSlides - 1,
+          currentState.totalSlides,  // Max is totalSlides (1-indexed)
         );
         break;
       case 'PREV_SLIDE':
-        currentState.currentSlide = Math.max(currentState.currentSlide - 1, 0);
+        currentState.currentSlide = Math.max(currentState.currentSlide - 1, 1);  // Min is 1 (1-indexed)
         break;
-      case 'GO_TO_SLIDE':
-        if (dto.slideNumber === undefined) {
+      case 'GO_TO_SLIDE': {
+        // Support both slideNumber and targetSlide for frontend compatibility
+        const targetSlide = dto.slideNumber ?? dto.targetSlide;
+        if (targetSlide === undefined) {
           throw new BadRequestException(
-            'slideNumber is required for GO_TO_SLIDE action.',
+            'slideNumber or targetSlide is required for GO_TO_SLIDE action.',
           );
         }
         currentState.currentSlide = Math.max(
-          0,
-          Math.min(dto.slideNumber, currentState.totalSlides - 1),
+          1,  // Min is 1 (1-indexed)
+          Math.min(targetSlide, currentState.totalSlides),  // Max is totalSlides
         );
         break;
+      }
+      case 'STOP':
       case 'END':
         currentState.isActive = false;
         break;

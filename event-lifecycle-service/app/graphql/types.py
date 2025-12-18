@@ -386,3 +386,71 @@ class MyRegistrationType:
         if hasattr(root, 'event') and root.event:
             return root.event
         return None
+
+
+# --- DASHBOARD STATS TYPES ---
+
+@strawberry.type
+class OrganizationDashboardStatsType:
+    """
+    Dashboard statistics for an organization.
+    Provides key metrics for the organizer dashboard.
+    """
+    totalAttendees: int
+    totalAttendeesChange: Optional[float] = None  # % change from previous period
+    activeSessions: int
+    activeSessionsChange: Optional[int] = None
+    avgEngagementRate: float
+    avgEngagementChange: Optional[float] = None
+    totalEvents: int
+    totalEventsChange: Optional[int] = None
+
+
+@strawberry.type
+class WeeklyAttendanceDataPoint:
+    """A single data point for weekly attendance chart."""
+    label: str  # "Mon", "Tue", etc.
+    date: str   # ISO date string
+    value: int  # Number of registrations/check-ins that day
+
+
+@strawberry.type
+class WeeklyAttendanceResponse:
+    """Response type for weekly attendance query."""
+    data: typing.List[WeeklyAttendanceDataPoint]
+
+
+@strawberry.type
+class EngagementTrendDataPoint:
+    """A single data point for engagement trend sparkline."""
+    period: str  # Period identifier (e.g., date or week label)
+    value: float  # Engagement score for that period (0-100)
+
+
+@strawberry.type
+class EngagementTrendResponse:
+    """Response type for engagement trend query."""
+    data: typing.List[EngagementTrendDataPoint]
+
+
+@strawberry.type
+class EngagementBreakdownType:
+    """
+    Detailed breakdown of engagement metrics.
+    Shows participation rates for Q&A, polls, and chat.
+    """
+    # Q&A participation
+    qaParticipation: float  # Percentage (0-100)
+    qaParticipationCount: int  # Absolute number of users who participated
+    qaTotal: int  # Total possible participants
+
+    # Poll responses
+    pollResponseRate: float  # Percentage (0-100)
+    pollResponseCount: int
+    pollTotal: int
+
+    # Chat activity
+    chatActivityRate: float  # Percentage (0-100)
+    chatMessageCount: int
+    chatParticipants: int
+    chatTotal: int

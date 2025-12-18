@@ -215,11 +215,28 @@ def get_session_details(
     """
     An internal endpoint to get full session details by its ID,
     so other services don't need to guess orgId or eventId.
+    Returns session with organization_id populated from the event relationship.
     """
     session = crud_session.session.get(db=db, id=session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session
+
+    # Manually construct response to include organization_id from event relationship
+    return SessionSchema(
+        id=session.id,
+        event_id=session.event_id,
+        title=session.title,
+        start_time=session.start_time,
+        end_time=session.end_time,
+        chat_enabled=session.chat_enabled,
+        qa_enabled=session.qa_enabled,
+        polls_enabled=session.polls_enabled,
+        chat_open=session.chat_open,
+        qa_open=session.qa_open,
+        polls_open=session.polls_open,
+        speakers=[],  # Speakers not needed for internal calls
+        organization_id=session.event.organization_id if session.event else None,
+    )
 
 
 @router.get("/internal/events/{event_id}/registrations/{user_id}")

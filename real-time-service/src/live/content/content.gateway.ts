@@ -43,6 +43,7 @@ interface ContentControlState {
   currentSlide: number;
   totalSlides: number;
   isActive: boolean;
+  slideUrls: string[];
 }
 
 interface ContentControlResponse {
@@ -106,6 +107,7 @@ export class ContentGateway {
       qaEnabled: boolean;
       pollsEnabled: boolean;
     };
+    presentationState?: PresentationStateDto | null;
     error?: { message: string; statusCode: number };
   }> {
     if (!data.sessionId) {
@@ -213,6 +215,21 @@ export class ContentGateway {
     // Get session settings for the response
     const settings = await this.sessionSettingsService.getSessionSettings(sessionId);
 
+    // Get current presentation state (if any) for the joining client
+    let presentationState: PresentationStateDto | null = null;
+    try {
+      presentationState = await this.contentService.getPresentationState(sessionId);
+      if (presentationState) {
+        this.logger.log(
+          `Sending presentation state to joining client: slide ${presentationState.currentSlide}/${presentationState.totalSlides}, active: ${presentationState.isActive}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to get presentation state for joining client: ${getErrorMessage(error)}`,
+      );
+    }
+
     return {
       success: true,
       session: {
@@ -223,6 +240,7 @@ export class ContentGateway {
         qaOpen: settings?.qa_open ?? false,
         pollsOpen: settings?.polls_open ?? false,
       },
+      presentationState,
     };
   }
 
@@ -286,15 +304,16 @@ export class ContentGateway {
       );
       const publicRoom = `session:${sessionId}`;
       const eventName = 'slide.update';
-      const payload = {
+      const payload: ContentControlState = {
         currentSlide: newState.currentSlide,
         totalSlides: newState.totalSlides,
         isActive: newState.isActive,
+        slideUrls: newState.slideUrls || [],
       };
 
       this.server.to(publicRoom).emit(eventName, payload);
       this.logger.log(
-        `Broadcasted 'slide.update' to room ${publicRoom} with slide: ${newState.currentSlide}`,
+        `Broadcasted 'slide.update' to room ${publicRoom} with slide: ${newState.currentSlide}, slideUrls: ${payload.slideUrls.length} slides`,
       );
       return { success: true, newState: payload };
     } catch (error) {

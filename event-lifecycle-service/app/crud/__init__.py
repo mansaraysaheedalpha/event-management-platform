@@ -2,6 +2,7 @@
 
 from .crud_ad import ad
 from .crud_blueprint import blueprint
+from .crud_dashboard import dashboard
 from .crud_domain_event import domain_event
 from .crud_event import event
 from .crud_offer import offer

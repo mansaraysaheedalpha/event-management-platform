@@ -13,6 +13,8 @@ from app.db.session import SessionLocal
 # The `tokenUrl` doesn't have to be a real endpoint in this service,
 # it's just for the OpenAPI documentation.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+# Optional version that doesn't raise an error when token is missing
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenPayload:
@@ -34,7 +36,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenPayload:
 
 
 def get_current_user_optional(
-    token: str | None = Depends(oauth2_scheme),
+    token: str | None = Depends(oauth2_scheme_optional),
 ) -> TokenPayload | None:
     if token is None:
         return None

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_DOMAIN: Optional[str] = "onboarding@resend.dev"
 
+    # Internal service URLs for inter-service communication
+    REAL_TIME_SERVICE_URL_INTERNAL: Optional[str] = "http://real-time-service:3002"
+
     # --- Dynamic Properties ---
     # These properties will intelligently return the correct URL based on the ENV
     @property

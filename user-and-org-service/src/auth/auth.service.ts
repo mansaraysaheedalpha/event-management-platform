@@ -11,7 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
-import { MailerService } from '@nestjs-modules/mailer';
+import { EmailService } from 'src/email/email.service';
 import { TwoFactorService } from 'src/two-factor/two-factor.service';
 import { AuditService } from 'src/audit/audit.service';
 import {
@@ -75,7 +75,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    private readonly mailerService: MailerService,
+    private readonly emailService: EmailService,
     private twoFactorService: TwoFactorService,
     private auditService: AuditService,
   ) {}
@@ -400,21 +400,11 @@ export class AuthService {
 
     const resetUrl = `https://yourapp.com/reset-password?token=${rawResetToken}`;
 
-    await this.mailerService.sendMail({
-      to: user.email,
-      subject: `Reset Your Password - GlobalConnect`,
-      html: `
-        <h2>Password Reset Request</h2>
-        <p>Hi ${user.first_name || 'there'},</p>
-        <p>We received a request to reset your password for your <strong>GlobalConnect</strong> account.</p>
-        <p>Click the link below to set a new password:</p>
-        <p><a href="${resetUrl}" target="_blank">Reset My Password</a></p>
-        <p>This link will expire in 15 minutes for your security.</p>
-        <p>If you didn't request a password reset, please ignore this email or contact support.</p>
-        <br />
-        <p>— The GlobalConnect Team</p>
-      `,
-    });
+    await this.emailService.sendPasswordResetEmail(
+      user.email,
+      user.first_name || 'there',
+      resetUrl,
+    );
 
     return {
       message:

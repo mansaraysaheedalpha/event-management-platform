@@ -9,7 +9,7 @@ import { RegisterUserDto } from './dto/register-user.dto';
 import { PrismaService } from 'src/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { UpdateProfileDTO } from './dto/update-profile.dto';
-import { MailerService } from '@nestjs-modules/mailer';
+import { EmailService } from 'src/email/email.service';
 import { randomBytes } from 'crypto';
 import { User } from '@prisma/client';
 
@@ -17,7 +17,7 @@ import { User } from '@prisma/client';
 export class UsersService {
   constructor(
     private prisma: PrismaService,
-    private mailerService: MailerService,
+    private emailService: EmailService,
   ) {}
   async create(registerUserDto: RegisterUserDto) {
     const existingUser = await this.prisma.user.findUnique({
@@ -202,11 +202,11 @@ export class UsersService {
 
     // D. Send a verification email to the OLD address
     const verificationUrl = `http://localhost:3001/users/email-change/verify-old/${rawToken}`;
-    await this.mailerService.sendMail({
-      to: oldEmail,
-      subject: 'Confirm Your Email Change Request',
-      html: `<p>A request was made to change your email to ${newEmail}. Please click <a href="${verificationUrl}">here</a> to approve this change. This link expires in 15 minutes.</p>`,
-    });
+    await this.emailService.sendEmailChangeVerification(
+      oldEmail,
+      newEmail,
+      verificationUrl,
+    );
 
     return {
       message: 'Verification email sent to your current email address.',
@@ -237,11 +237,7 @@ export class UsersService {
 
     // C. Send the FINAL confirmation email to the NEW address
     const finalUrl = `http://localhost:3001/users/email-change/finalize/${finalRawToken}`;
-    await this.mailerService.sendMail({
-      to: user.newEmail,
-      subject: 'Finalize Your Email Address Change',
-      html: `<p>Please click this final link to make ${user.newEmail} your new login email. This link expires in 15 minutes.</p><p><a href="${finalUrl}">Finalize Change</a></p>`,
-    });
+    await this.emailService.sendEmailChangeFinal(user.newEmail, finalUrl);
 
     return {
       message:

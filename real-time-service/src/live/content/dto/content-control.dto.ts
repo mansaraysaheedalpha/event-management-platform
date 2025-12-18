@@ -19,6 +19,7 @@ import {
  */
 const VALID_ACTIONS = [
   'START',
+  'STOP',
   'END',
   'NEXT_SLIDE',
   'PREV_SLIDE',
@@ -28,16 +29,22 @@ const VALID_ACTIONS = [
 export class ContentControlDto {
   @IsString()
   @IsIn(VALID_ACTIONS)
-  action: 'START' | 'END' | 'NEXT_SLIDE' | 'PREV_SLIDE' | 'GO_TO_SLIDE';
+  action: 'START' | 'STOP' | 'END' | 'NEXT_SLIDE' | 'PREV_SLIDE' | 'GO_TO_SLIDE';
 
   @IsString()
   sessionId: string;
 
   @IsInt()
-  @Min(0)
+  @Min(1)
   @IsOptional()
   // This is only required if the action is 'GO_TO_SLIDE'
   slideNumber?: number;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  // Alternative name for slideNumber (frontend compatibility)
+  targetSlide?: number;
 
   @IsUUID('4')
   idempotencyKey: string;

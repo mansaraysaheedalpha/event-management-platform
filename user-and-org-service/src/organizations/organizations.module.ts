@@ -6,6 +6,7 @@ import { InvitationsModule } from 'src/invitations/invitations.module';
 import { OrganizationsService } from './organizations.service';
 import { AuditModule } from 'src/audit/audit.module';
 import { OrganizationResolver, RoleResolver } from './organizations.resolver';
+import { EmailModule } from 'src/email/email.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { OrganizationResolver, RoleResolver } from './organizations.resolver';
     PrismaModule,
     InvitationsModule,
     AuditModule,
+    EmailModule,
   ],
   controllers: [OrganizationsController],
   providers: [OrganizationsService, OrganizationResolver, RoleResolver],

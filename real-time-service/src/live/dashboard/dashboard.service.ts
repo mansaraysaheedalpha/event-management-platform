@@ -7,10 +7,25 @@ export interface DashboardData {
   totalReactions: number;
   liveCheckInFeed: CheckInFeedItem[];
 }
+
+export interface EngagementBreakdownData {
+  qaParticipation: number;
+  qaParticipationCount: number;
+  qaTotal: number;
+  pollResponseRate: number;
+  pollResponseCount: number;
+  pollTotal: number;
+  chatActivityRate: number;
+  chatMessageCount: number;
+  chatParticipants: number;
+  chatTotal: number;
+}
+
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
+import { PrismaService } from 'src/prisma.service';
 
 // Supporting types and type guard (unchanged)
 type AnalyticsEventType =
@@ -60,7 +75,10 @@ function isAnalyticsEventPayload(
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Listens to analytics events from Redis Pub/Sub and updates dashboard metrics.
@@ -200,5 +218,128 @@ export class DashboardService {
    */
   async getActiveEventIdsForOrg(orgId: string): Promise<string[]> {
     return this.redis.smembers(`org:active_events:${orgId}`);
+  }
+
+  /**
+   * Gets engagement breakdown data for an event or organization.
+   * Queries the database for Q&A, poll, and chat participation metrics.
+   *
+   * @param eventId - Optional event ID to scope the metrics
+   * @param orgId - Organization ID (required if no eventId)
+   * @param totalAttendees - Total number of attendees for rate calculations
+   * @returns Promise<EngagementBreakdownData> containing participation rates and counts
+   */
+  async getEngagementBreakdown(
+    eventId?: string,
+    orgId?: string,
+    totalAttendees: number = 0,
+  ): Promise<EngagementBreakdownData> {
+    try {
+      // Build the session filter based on eventId or orgId
+      const sessionFilter = eventId
+        ? { eventId }
+        : orgId
+          ? { organizationId: orgId }
+          : {};
+
+      // Get all relevant session IDs
+      const sessions = await this.prisma.chatSession.findMany({
+        where: sessionFilter,
+        select: { id: true },
+      });
+      const sessionIds = sessions.map((s) => s.id);
+
+      if (sessionIds.length === 0) {
+        return this.getEmptyEngagementBreakdown(totalAttendees);
+      }
+
+      // Query chat metrics
+      const [chatMessageCount, chatParticipantsResult] = await Promise.all([
+        this.prisma.message.count({
+          where: { sessionId: { in: sessionIds } },
+        }),
+        this.prisma.message.groupBy({
+          by: ['authorId'],
+          where: { sessionId: { in: sessionIds } },
+        }),
+      ]);
+      const chatParticipants = chatParticipantsResult.length;
+
+      // Query Q&A metrics
+      const [qaQuestionCount, qaParticipantsResult] = await Promise.all([
+        this.prisma.question.count({
+          where: { sessionId: { in: sessionIds } },
+        }),
+        this.prisma.question.groupBy({
+          by: ['authorId'],
+          where: { sessionId: { in: sessionIds } },
+        }),
+      ]);
+      const qaParticipationCount = qaParticipantsResult.length;
+
+      // Query Poll metrics
+      const [pollVoteCount, pollVotersResult] = await Promise.all([
+        this.prisma.pollVote.count({
+          where: {
+            poll: { sessionId: { in: sessionIds } },
+          },
+        }),
+        this.prisma.pollVote.groupBy({
+          by: ['userId'],
+          where: {
+            poll: { sessionId: { in: sessionIds } },
+          },
+        }),
+      ]);
+      const pollResponseCount = pollVotersResult.length;
+
+      // Calculate rates (avoid division by zero)
+      const total = totalAttendees > 0 ? totalAttendees : 1;
+
+      return {
+        qaParticipation:
+          totalAttendees > 0
+            ? Math.round((qaParticipationCount / total) * 100 * 10) / 10
+            : 0,
+        qaParticipationCount,
+        qaTotal: totalAttendees,
+        pollResponseRate:
+          totalAttendees > 0
+            ? Math.round((pollResponseCount / total) * 100 * 10) / 10
+            : 0,
+        pollResponseCount,
+        pollTotal: totalAttendees,
+        chatActivityRate:
+          totalAttendees > 0
+            ? Math.round((chatParticipants / total) * 100 * 10) / 10
+            : 0,
+        chatMessageCount,
+        chatParticipants,
+        chatTotal: totalAttendees,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get engagement breakdown', error);
+      return this.getEmptyEngagementBreakdown(totalAttendees);
+    }
+  }
+
+  /**
+   * Returns an empty engagement breakdown with the given total.
+   */
+  private getEmptyEngagementBreakdown(
+    totalAttendees: number,
+  ): EngagementBreakdownData {
+    return {
+      qaParticipation: 0,
+      qaParticipationCount: 0,
+      qaTotal: totalAttendees,
+      pollResponseRate: 0,
+      pollResponseCount: 0,
+      pollTotal: totalAttendees,
+      chatActivityRate: 0,
+      chatMessageCount: 0,
+      chatParticipants: 0,
+      chatTotal: totalAttendees,
+    };
   }
 }

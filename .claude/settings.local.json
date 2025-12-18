@@ -39,7 +39,12 @@
       "Bash(docker inspect:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(findstr:*)",
+      "Bash(docker volume:*)",
+      "Bash(docker system prune:*)"
     ],
     "deny": [],
     "ask": []
