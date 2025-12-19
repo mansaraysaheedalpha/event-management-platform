@@ -12,6 +12,19 @@ from ..schemas.venue import VenueCreate, VenueUpdate
 from .types import EventType, SessionType, RegistrationType, SpeakerType, VenueType
 from ..schemas.blueprint import BlueprintCreate  # <-- Import BlueprintCreate
 from .types import EventType, BlueprintType
+from .payment_types import (
+    CheckoutSessionType,
+    OrderType,
+    RefundType,
+    TicketTypeType,
+    PromoCodeType,
+    CreateOrderInput,
+    InitiateRefundInput,
+    TicketTypeCreateInput,
+    TicketTypeUpdateInput,
+    PromoCodeCreateInput,
+)
+from . import payment_mutations
 
 
 # --- All Input types defined at the top ---
@@ -734,3 +747,93 @@ class Mutation:
         )
 
         return session
+
+    # --- PAYMENT MUTATIONS ---
+
+    @strawberry.mutation
+    async def createCheckoutSession(
+        self, input: CreateOrderInput, info: Info
+    ) -> CheckoutSessionType:
+        """
+        Create a checkout session with order and payment intent.
+        Returns checkout session with client secret for Stripe Elements.
+        """
+        return await payment_mutations.create_checkout_session(input, info)
+
+    @strawberry.mutation
+    async def cancelOrder(self, orderId: str, info: Info) -> OrderType:
+        """
+        Cancel a pending order (before payment).
+        """
+        return await payment_mutations.cancel_order(orderId, info)
+
+    @strawberry.mutation
+    async def applyPromoCode(
+        self, orderId: str, promoCode: str, info: Info
+    ) -> OrderType:
+        """
+        Apply promo code to a pending order.
+        """
+        return await payment_mutations.apply_promo_code(orderId, promoCode, info)
+
+    @strawberry.mutation
+    async def removePromoCode(self, orderId: str, info: Info) -> OrderType:
+        """
+        Remove promo code from a pending order.
+        """
+        return await payment_mutations.remove_promo_code(orderId, info)
+
+    @strawberry.mutation
+    async def initiateRefund(self, input: InitiateRefundInput, info: Info) -> RefundType:
+        """
+        Initiate a refund for a completed order (organizer only).
+        """
+        return await payment_mutations.initiate_refund(input, info)
+
+    @strawberry.mutation
+    async def cancelRefund(self, refundId: str, info: Info) -> RefundType:
+        """
+        Cancel a pending refund (organizer only).
+        """
+        return await payment_mutations.cancel_refund(refundId, info)
+
+    @strawberry.mutation
+    def createTicketType(
+        self, input: TicketTypeCreateInput, info: Info
+    ) -> TicketTypeType:
+        """
+        Create a new ticket type for an event (organizer only).
+        """
+        return payment_mutations.create_ticket_type(input, info)
+
+    @strawberry.mutation
+    def updateTicketType(
+        self, ticketTypeId: str, input: TicketTypeUpdateInput, info: Info
+    ) -> TicketTypeType:
+        """
+        Update a ticket type (organizer only).
+        """
+        return payment_mutations.update_ticket_type(ticketTypeId, input, info)
+
+    @strawberry.mutation
+    def archiveTicketType(self, ticketTypeId: str, info: Info) -> TicketTypeType:
+        """
+        Archive a ticket type (organizer only).
+        """
+        return payment_mutations.archive_ticket_type(ticketTypeId, info)
+
+    @strawberry.mutation
+    def createPromoCode(
+        self, input: PromoCodeCreateInput, info: Info
+    ) -> PromoCodeType:
+        """
+        Create a new promo code (organizer only).
+        """
+        return payment_mutations.create_promo_code(input, info)
+
+    @strawberry.mutation
+    def archivePromoCode(self, promoCodeId: str, info: Info) -> PromoCodeType:
+        """
+        Deactivate a promo code (organizer only).
+        """
+        return payment_mutations.archive_promo_code(promoCodeId, info)

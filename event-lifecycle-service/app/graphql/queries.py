@@ -27,6 +27,15 @@ from .types import (
     EngagementTrendDataPoint,
     EngagementBreakdownType,
 )
+from .payment_types import (
+    TicketTypeType,
+    OrderType,
+    OrderConnection,
+    PaymentType,
+    RefundType,
+    OrderStatusEnum,
+)
+from . import payment_queries
 
 
 @strawberry.type
@@ -515,3 +524,84 @@ class Query:
             chatParticipants=0,
             chatTotal=total_attendees,
         )
+
+    # --- PAYMENT QUERIES ---
+
+    @strawberry.field
+    def eventTicketTypes(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[TicketTypeType]:
+        """
+        Get available ticket types for an event (public).
+        Returns only active, on-sale ticket types.
+        """
+        return payment_queries.get_event_ticket_types(str(eventId), info)
+
+    @strawberry.field
+    def order(self, orderId: strawberry.ID, info: Info) -> Optional[OrderType]:
+        """
+        Get order by ID (authenticated - owner or organizer only).
+        """
+        return payment_queries.get_order(str(orderId), info)
+
+    @strawberry.field
+    def orderByNumber(
+        self, orderNumber: str, info: Info
+    ) -> Optional[OrderType]:
+        """
+        Get order by order number (for confirmation pages).
+        """
+        return payment_queries.get_order_by_number(orderNumber, info)
+
+    @strawberry.field
+    def myOrders(
+        self,
+        info: Info,
+        status: Optional[OrderStatusEnum] = None,
+        first: int = 20,
+        after: Optional[str] = None,
+    ) -> OrderConnection:
+        """
+        List orders for current authenticated user.
+        """
+        return payment_queries.get_my_orders(info, status, first, after)
+
+    @strawberry.field
+    def eventOrders(
+        self,
+        eventId: strawberry.ID,
+        info: Info,
+        status: Optional[OrderStatusEnum] = None,
+        search: Optional[str] = None,
+        first: int = 50,
+        after: Optional[str] = None,
+    ) -> OrderConnection:
+        """
+        List orders for an event (organizer only).
+        """
+        return payment_queries.get_event_orders(
+            str(eventId), info, status, search, first, after
+        )
+
+    @strawberry.field
+    def payment(self, paymentId: strawberry.ID, info: Info) -> Optional[PaymentType]:
+        """
+        Get payment details (authenticated - owner or organizer only).
+        """
+        return payment_queries.get_payment(str(paymentId), info)
+
+    @strawberry.field
+    def orderRefunds(self, orderId: strawberry.ID, info: Info) -> List[RefundType]:
+        """
+        Get refunds for an order (organizer only).
+        """
+        return payment_queries.get_order_refunds(str(orderId), info)
+
+    @strawberry.field
+    def ticketTypesByEvent(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[TicketTypeType]:
+        """
+        Get all ticket types for an event including inactive (organizer only).
+        """
+        return payment_queries.get_ticket_types_by_event(str(eventId), info)

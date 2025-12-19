@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_DOMAIN: Optional[str] = "onboarding@resend.dev"
 
+    # Stripe Payment Configuration
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+
     # Internal service URLs for inter-service communication
     REAL_TIME_SERVICE_URL_INTERNAL: Optional[str] = "http://real-time-service:3002"
 
