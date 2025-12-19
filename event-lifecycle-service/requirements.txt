@@ -31,6 +31,9 @@ resend
 celery
 pdf2image
 
+# Payment processing
+stripe
+
 # GraphQL and Federation
 strawberry-graphql[fastapi]
 

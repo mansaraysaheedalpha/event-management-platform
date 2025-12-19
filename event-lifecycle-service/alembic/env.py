@@ -23,6 +23,17 @@ from app.models import (
     speaker,
     venue,
     waitlist,
+    # Payment models
+    payment_provider,
+    organization_payment_settings,
+    ticket_type,
+    promo_code,
+    order,
+    order_item,
+    payment,
+    refund,
+    payment_webhook_event,
+    payment_audit_log,
 )
 
 from alembic import context
