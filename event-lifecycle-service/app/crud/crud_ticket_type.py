@@ -55,11 +55,12 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
         return query.order_by(self.model.sort_order, self.model.created_at).all()
 
     def create_for_event(
-        self, db: Session, *, obj_in: TicketTypeCreate
+        self, db: Session, *, obj_in: TicketTypeCreate, organization_id: str
     ) -> TicketType:
         """Create a new ticket type for an event."""
         db_obj = TicketType(
             event_id=obj_in.event_id,
+            organization_id=organization_id,
             name=obj_in.name,
             description=obj_in.description,
             price=obj_in.price,
@@ -70,6 +71,7 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
             sales_start_at=obj_in.sales_start_at,
             sales_end_at=obj_in.sales_end_at,
             is_active=obj_in.is_active,
+            is_hidden=obj_in.is_hidden,
             sort_order=obj_in.sort_order,
         )
         db.add(db_obj)

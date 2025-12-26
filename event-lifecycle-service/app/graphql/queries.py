@@ -35,7 +35,20 @@ from .payment_types import (
     RefundType,
     OrderStatusEnum,
 )
+from .ticket_types import (
+    TicketTypeFullType,
+    TicketType as TicketGQLType,
+    PromoCodeFullType,
+    PromoCodeValidationType,
+    TicketConnection,
+    EventTicketSummaryType,
+    TicketTypeStatsType,
+    CheckInStatsType,
+    CartItemInput,
+    TicketStatusEnum,
+)
 from . import payment_queries
+from . import ticket_queries
 
 
 @strawberry.type
@@ -605,3 +618,115 @@ class Query:
         Get all ticket types for an event including inactive (organizer only).
         """
         return payment_queries.get_ticket_types_by_event(str(eventId), info)
+
+    # --- TICKET MANAGEMENT QUERIES ---
+
+    @strawberry.field
+    async def eventTicketTypesAdmin(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[TicketTypeFullType]:
+        """
+        Get all ticket types including inactive (organizer view).
+        """
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.eventTicketTypesAdmin(info, str(eventId))
+
+    @strawberry.field
+    async def ticketType(
+        self, id: strawberry.ID, info: Info
+    ) -> Optional[TicketTypeFullType]:
+        """Get a single ticket type by ID."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.ticketType(info, str(id))
+
+    @strawberry.field
+    async def eventTicketSummary(
+        self, eventId: strawberry.ID, info: Info
+    ) -> EventTicketSummaryType:
+        """Get comprehensive ticket summary for an event."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.eventTicketSummary(info, str(eventId))
+
+    @strawberry.field
+    async def eventPromoCodes(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[PromoCodeFullType]:
+        """Get all promo codes for an event."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.eventPromoCodes(info, str(eventId))
+
+    @strawberry.field
+    async def organizationPromoCodes(
+        self, organizationId: str, info: Info
+    ) -> List[PromoCodeFullType]:
+        """Get organization-wide promo codes."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.organizationPromoCodes(info, organizationId)
+
+    @strawberry.field
+    async def promoCode(
+        self, id: strawberry.ID, info: Info
+    ) -> Optional[PromoCodeFullType]:
+        """Get a single promo code by ID."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.promoCode(info, str(id))
+
+    @strawberry.field
+    async def validatePromoCode(
+        self,
+        eventId: strawberry.ID,
+        code: str,
+        organizationId: str,
+        cartItems: List[CartItemInput],
+        info: Info,
+    ) -> PromoCodeValidationType:
+        """Validate a promo code for a cart (public)."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.validatePromoCode(info, str(eventId), code, organizationId, cartItems)
+
+    @strawberry.field
+    async def eventTicketsAdmin(
+        self,
+        eventId: strawberry.ID,
+        info: Info,
+        status: Optional[TicketStatusEnum] = None,
+        search: Optional[str] = None,
+        first: int = 50,
+        after: Optional[str] = None,
+    ) -> TicketConnection:
+        """Get all tickets for an event (paginated)."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.eventTickets(info, str(eventId), status, search, first, after)
+
+    @strawberry.field
+    async def ticketByCode(
+        self, eventId: strawberry.ID, ticketCode: str, info: Info
+    ) -> Optional[TicketGQLType]:
+        """Get a ticket by its code (for check-in)."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.ticketByCode(info, str(eventId), ticketCode)
+
+    @strawberry.field
+    async def ticket(
+        self, id: strawberry.ID, info: Info
+    ) -> Optional[TicketGQLType]:
+        """Get a single ticket by ID."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.ticket(info, str(id))
+
+    @strawberry.field
+    async def myTickets(
+        self, info: Info, eventId: Optional[strawberry.ID] = None
+    ) -> List[TicketGQLType]:
+        """Get current user's tickets."""
+        tq = ticket_queries.TicketManagementQueries()
+        event_id_str = str(eventId) if eventId else None
+        return await tq.myTickets(info, event_id_str)
+
+    @strawberry.field
+    async def checkInStats(
+        self, eventId: strawberry.ID, info: Info
+    ) -> CheckInStatsType:
+        """Get check-in statistics for an event."""
+        tq = ticket_queries.TicketManagementQueries()
+        return await tq.checkInStats(info, str(eventId))

@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     ads,
     offers,
     webhooks,
+    organizations,
 )
 
 # This is the main router for the v1 API.
@@ -32,4 +33,5 @@ api_router.include_router(internals.router)
 api_router.include_router(ads.router)
 api_router.include_router(offers.router)
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+api_router.include_router(organizations.router)
 

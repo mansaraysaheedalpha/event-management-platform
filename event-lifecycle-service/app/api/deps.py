@@ -1,4 +1,5 @@
 # app/api/deps.py
+from typing import Generator
 from fastapi import Depends, HTTPException, status, Security
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from jose import JWTError, jwt
@@ -7,6 +8,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.schemas.token import TokenPayload
 from app.db.session import SessionLocal
+
+
+def get_db() -> Generator:
+    """Dependency to get database session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 # This tells FastAPI where to look for the token.

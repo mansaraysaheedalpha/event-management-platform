@@ -30,4 +30,5 @@ class OrderItem(Base):
 
     # Relationships
     order = relationship("Order", back_populates="items")
-    ticket_type = relationship("TicketType", foreign_keys=[ticket_type_id])
+    ticket_type = relationship("TicketType", back_populates="order_items")
+    tickets = relationship("Ticket", back_populates="order_item")

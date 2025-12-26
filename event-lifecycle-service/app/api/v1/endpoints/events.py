@@ -215,6 +215,46 @@ def publish_event(
     )
 
 
+@router.post(
+    "/organizations/{orgId}/events/{eventId}/unpublish", response_model=EventSchema
+)
+def unpublish_event(
+    orgId: str,
+    eventId: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Unpublish a previously published event, reverting it to draft.
+    """
+    if current_user.org_id != orgId:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
+        )
+
+    event_to_unpublish = crud_event.event.get(db, id=eventId)
+    if not event_to_unpublish or event_to_unpublish.organization_id != orgId:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
+
+    if event_to_unpublish.status == "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Event is already in draft status",
+        )
+
+    if event_to_unpublish.is_archived:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot unpublish an archived event",
+        )
+
+    return crud_event.event.unpublish(
+        db, db_obj=event_to_unpublish, user_id=current_user.sub
+    )
+
+
 # --- ADD THE NEW `get_event_history` ENDPOINT ---
 @router.get(
     "/organizations/{orgId}/events/{eventId}/history",

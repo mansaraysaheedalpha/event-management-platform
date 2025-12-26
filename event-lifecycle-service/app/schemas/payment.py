@@ -46,8 +46,8 @@ class RefundReason(str, Enum):
 
 
 class DiscountType(str, Enum):
-    percentage = "percentage"
-    fixed = "fixed"
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
 
 
 class WebhookEventStatus(str, Enum):
@@ -155,6 +155,7 @@ class TicketTypeBase(BaseModel):
     sales_start_at: Optional[datetime] = None
     sales_end_at: Optional[datetime] = None
     is_active: bool = True
+    is_hidden: bool = False
     sort_order: int = 0
 
 
@@ -173,6 +174,7 @@ class TicketTypeUpdate(BaseModel):
     sales_start_at: Optional[datetime] = None
     sales_end_at: Optional[datetime] = None
     is_active: Optional[bool] = None
+    is_hidden: Optional[bool] = None
     sort_order: Optional[int] = None
 
 
@@ -205,11 +207,16 @@ class TicketType(TicketTypeBase):
 
 class PromoCodeBase(BaseModel):
     code: str = Field(..., max_length=50)
+    description: Optional[str] = None
     discount_type: DiscountType
     discount_value: int = Field(..., ge=0)
     currency: Optional[str] = "USD"
+    applicable_ticket_type_ids: Optional[List[str]] = None
     max_uses: Optional[int] = None
-    min_order_amount: Optional[int] = None
+    max_uses_per_user: int = 1
+    minimum_order_amount: Optional[int] = None  # In cents
+    minimum_tickets: Optional[int] = None
+    min_order_amount: Optional[int] = None  # Legacy
     max_discount_amount: Optional[int] = None
     valid_from: Optional[datetime] = None
     valid_until: Optional[datetime] = None
@@ -223,17 +230,22 @@ class PromoCodeCreate(PromoCodeBase):
     @classmethod
     def validate_discount_value(cls, v, info):
         discount_type = info.data.get("discount_type")
-        if discount_type == DiscountType.percentage and v > 100:
+        if discount_type == DiscountType.PERCENTAGE and v > 100:
             raise ValueError("Percentage discount cannot exceed 100")
         return v
 
 
 class PromoCodeUpdate(BaseModel):
     code: Optional[str] = None
+    description: Optional[str] = None
     discount_type: Optional[DiscountType] = None
     discount_value: Optional[int] = None
+    applicable_ticket_type_ids: Optional[List[str]] = None
     max_uses: Optional[int] = None
-    min_order_amount: Optional[int] = None
+    max_uses_per_user: Optional[int] = None
+    minimum_order_amount: Optional[int] = None
+    minimum_tickets: Optional[int] = None
+    min_order_amount: Optional[int] = None  # Legacy
     max_discount_amount: Optional[int] = None
     valid_from: Optional[datetime] = None
     valid_until: Optional[datetime] = None
@@ -342,7 +354,7 @@ class Order(OrderBase):
     expires_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    order_metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 

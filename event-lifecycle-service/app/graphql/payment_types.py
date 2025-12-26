@@ -84,7 +84,10 @@ class TicketTypeType:
     id: str
     name: str
     description: Optional[str]
-    sortOrder: int
+
+    @strawberry.field
+    def sortOrder(self, root: TicketTypeModel) -> int:
+        return root.sort_order
 
     @strawberry.field
     def price(self, root: TicketTypeModel) -> MoneyType:
@@ -125,6 +128,10 @@ class TicketTypeType:
         return root.is_active
 
     @strawberry.field
+    def isHidden(self, root: TicketTypeModel) -> bool:
+        return root.is_hidden
+
+    @strawberry.field
     def isOnSale(self, root: TicketTypeModel) -> bool:
         """Check if ticket type is currently on sale."""
         from datetime import timezone
@@ -159,6 +166,10 @@ class PromoCodeType:
     code: str
 
     @strawberry.field
+    def description(self, root: PromoCodeModel) -> Optional[str]:
+        return root.description
+
+    @strawberry.field
     def discountType(self, root: PromoCodeModel) -> str:
         return root.discount_type
 
@@ -167,12 +178,58 @@ class PromoCodeType:
         return root.discount_value
 
     @strawberry.field
+    def discountFormatted(self, root: PromoCodeModel) -> str:
+        return root.discount_formatted
+
+    @strawberry.field
+    def currency(self, root: PromoCodeModel) -> Optional[str]:
+        return root.currency
+
+    @strawberry.field
     def maxUses(self, root: PromoCodeModel) -> Optional[int]:
         return root.max_uses
 
     @strawberry.field
+    def maxUsesPerUser(self, root: PromoCodeModel) -> int:
+        return root.max_uses_per_user
+
+    @strawberry.field
+    def currentUses(self, root: PromoCodeModel) -> int:
+        return root.current_uses
+
+    @strawberry.field
+    def remainingUses(self, root: PromoCodeModel) -> Optional[int]:
+        return root.remaining_uses
+
+    @strawberry.field
     def timesUsed(self, root: PromoCodeModel) -> int:
         return root.times_used
+
+    @strawberry.field
+    def applicableTicketTypeIds(self, root: PromoCodeModel) -> Optional[List[str]]:
+        return root.applicable_ticket_type_ids
+
+    @strawberry.field
+    def applicableTicketTypes(self, root: PromoCodeModel, info) -> List["TicketTypeType"]:
+        """Get the actual ticket type objects this promo code applies to."""
+        if not root.applicable_ticket_type_ids:
+            return []
+        db = info.context.db
+        from app.crud.ticket_type_v2 import ticket_type_crud
+        ticket_types = []
+        for tt_id in root.applicable_ticket_type_ids:
+            tt = ticket_type_crud.get(db, tt_id)
+            if tt:
+                ticket_types.append(tt)
+        return ticket_types
+
+    @strawberry.field
+    def minimumOrderAmount(self, root: PromoCodeModel) -> Optional[int]:
+        return root.minimum_order_amount
+
+    @strawberry.field
+    def minimumTickets(self, root: PromoCodeModel) -> Optional[int]:
+        return root.minimum_tickets
 
     @strawberry.field
     def validFrom(self, root: PromoCodeModel) -> Optional[datetime]:
@@ -187,8 +244,16 @@ class PromoCodeType:
         return root.is_active
 
     @strawberry.field
+    def isCurrentlyValid(self, root: PromoCodeModel) -> bool:
+        return root.is_currently_valid
+
+    @strawberry.field
     def isValid(self, root: PromoCodeModel) -> bool:
         return root.is_valid
+
+    @strawberry.field
+    def createdAt(self, root: PromoCodeModel) -> datetime:
+        return root.created_at
 
 
 # ============================================
@@ -463,6 +528,7 @@ class TicketTypeCreateInput:
     salesStartAt: Optional[datetime] = None
     salesEndAt: Optional[datetime] = None
     isActive: bool = True
+    isHidden: bool = False
     sortOrder: int = 0
 
 
@@ -478,6 +544,7 @@ class TicketTypeUpdateInput:
     salesStartAt: Optional[datetime] = None
     salesEndAt: Optional[datetime] = None
     isActive: Optional[bool] = None
+    isHidden: Optional[bool] = None
     sortOrder: Optional[int] = None
 
 
@@ -488,9 +555,36 @@ class PromoCodeCreateInput:
     discountType: str  # "percentage" or "fixed"
     discountValue: int
     eventId: Optional[str] = None
+    description: Optional[str] = None
+    currency: str = "USD"
+    applicableTicketTypeIds: Optional[List[str]] = None
     maxUses: Optional[int] = None
-    minOrderAmount: Optional[int] = None
+    maxUsesPerUser: int = 1
+    minimumOrderAmount: Optional[int] = None  # In cents
+    minimumTickets: Optional[int] = None
+    minOrderAmount: Optional[int] = None  # Legacy - kept for compatibility
     maxDiscountAmount: Optional[int] = None
     validFrom: Optional[datetime] = None
     validUntil: Optional[datetime] = None
     isActive: bool = True
+
+
+# Alias for frontend compatibility
+CreatePromoCodeInput = PromoCodeCreateInput
+
+
+@strawberry.input
+class PromoCodeUpdateInput:
+    """Input for updating a promo code."""
+    code: Optional[str] = None
+    description: Optional[str] = None
+    discountType: Optional[str] = None
+    discountValue: Optional[int] = None
+    applicableTicketTypeIds: Optional[List[str]] = None
+    maxUses: Optional[int] = None
+    maxUsesPerUser: Optional[int] = None
+    minimumOrderAmount: Optional[int] = None
+    minimumTickets: Optional[int] = None
+    validFrom: Optional[datetime] = None
+    validUntil: Optional[datetime] = None
+    isActive: Optional[bool] = None
