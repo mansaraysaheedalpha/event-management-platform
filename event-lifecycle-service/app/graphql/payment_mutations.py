@@ -55,16 +55,30 @@ async def create_checkout_session(
     user = info.context.user
     request = info.context.request
 
-    # Get user info
+    # Get user info from JWT token
     user_id = user.get("sub") if user else None
+    user_email = user.get("email") if user else None
+    user_first_name = user.get("firstName") or user.get("first_name") if user else None
+    user_last_name = user.get("lastName") or user.get("last_name") if user else None
 
-    # Validate guest checkout fields if not authenticated
-    if not user_id:
-        if not input.guestEmail:
-            raise HTTPException(
-                status_code=400,
-                detail="Email is required for guest checkout"
-            )
+    # Determine checkout email/name - use authenticated user info or guest info
+    if user_id and user_email:
+        # Authenticated user - use their info from token
+        checkout_email = user_email
+        checkout_first_name = user_first_name or input.guestFirstName
+        checkout_last_name = user_last_name or input.guestLastName
+        checkout_phone = input.guestPhone  # Phone might not be in token
+    elif input.guestEmail:
+        # Guest checkout - use provided info
+        checkout_email = input.guestEmail
+        checkout_first_name = input.guestFirstName
+        checkout_last_name = input.guestLastName
+        checkout_phone = input.guestPhone
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Email is required for guest checkout"
+        )
 
     # Get the event to find organization
     event = crud.event.get(db, id=input.eventId)
@@ -84,10 +98,10 @@ async def create_checkout_session(
         event_id=input.eventId,
         items=items,
         promo_code=input.promoCode,
-        guest_email=input.guestEmail,
-        guest_first_name=input.guestFirstName,
-        guest_last_name=input.guestLastName,
-        guest_phone=input.guestPhone,
+        guest_email=checkout_email,
+        guest_first_name=checkout_first_name,
+        guest_last_name=checkout_last_name,
+        guest_phone=checkout_phone,
     )
 
     # Get request metadata
@@ -383,10 +397,13 @@ def create_ticket_type(input: TicketTypeCreateInput, info: Info) -> TicketTypeTy
         sales_start_at=input.salesStartAt,
         sales_end_at=input.salesEndAt,
         is_active=input.isActive,
+        is_hidden=input.isHidden,
         sort_order=input.sortOrder,
     )
 
-    ticket_type = crud.ticket_type.create_for_event(db, obj_in=ticket_type_create)
+    ticket_type = crud.ticket_type.create_for_event(
+        db, obj_in=ticket_type_create, organization_id=user_org_id
+    )
     return ticket_type
 
 
@@ -413,21 +430,32 @@ def update_ticket_type(
     if not user_org_id or event.organization_id != user_org_id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # Build update data
-    update_data = TicketTypeUpdate(
-        name=input.name,
-        description=input.description,
-        price=input.price,
-        quantity_total=input.quantityTotal,
-        min_per_order=input.minPerOrder,
-        max_per_order=input.maxPerOrder,
-        sales_start_at=input.salesStartAt,
-        sales_end_at=input.salesEndAt,
-        is_active=input.isActive,
-        sort_order=input.sortOrder,
-    )
+    # Build update data - only include non-None values
+    update_dict = {}
+    if input.name is not None:
+        update_dict["name"] = input.name
+    if input.description is not None:
+        update_dict["description"] = input.description
+    if input.price is not None:
+        update_dict["price"] = input.price
+    if input.quantityTotal is not None:
+        update_dict["quantity_total"] = input.quantityTotal
+    if input.minPerOrder is not None:
+        update_dict["min_per_order"] = input.minPerOrder
+    if input.maxPerOrder is not None:
+        update_dict["max_per_order"] = input.maxPerOrder
+    if input.salesStartAt is not None:
+        update_dict["sales_start_at"] = input.salesStartAt
+    if input.salesEndAt is not None:
+        update_dict["sales_end_at"] = input.salesEndAt
+    if input.isActive is not None:
+        update_dict["is_active"] = input.isActive
+    if input.isHidden is not None:
+        update_dict["is_hidden"] = input.isHidden
+    if input.sortOrder is not None:
+        update_dict["sort_order"] = input.sortOrder
 
-    updated = crud.ticket_type.update(db, db_obj=ticket_type, obj_in=update_data)
+    updated = crud.ticket_type.update(db, db_obj=ticket_type, obj_in=update_dict)
     return updated
 
 
@@ -480,9 +508,16 @@ def create_promo_code(input: PromoCodeCreateInput, info: Info) -> PromoCodeType:
         if not event or event.organization_id != user_org_id:
             raise HTTPException(status_code=404, detail="Event not found")
 
-    # Validate discount type
-    discount_type = DiscountType(input.discountType)
-    if discount_type == DiscountType.percentage and input.discountValue > 100:
+    # Validate discount type (accepts uppercase enum names from frontend)
+    try:
+        normalized_discount_type = (input.discountType or "").lower()
+        discount_type = DiscountType(normalized_discount_type)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid discountType. Use 'percentage' or 'fixed'.",
+        )
+    if discount_type == DiscountType.PERCENTAGE and input.discountValue > 100:
         raise HTTPException(
             status_code=400,
             detail="Percentage discount cannot exceed 100"
@@ -491,11 +526,17 @@ def create_promo_code(input: PromoCodeCreateInput, info: Info) -> PromoCodeType:
     # Create promo code
     promo_create = PromoCodeCreate(
         code=input.code,
+        description=input.description,
         discount_type=discount_type,
         discount_value=input.discountValue,
+        currency=input.currency,
+        applicable_ticket_type_ids=input.applicableTicketTypeIds,
         event_id=input.eventId,
         max_uses=input.maxUses,
-        min_order_amount=input.minOrderAmount,
+        max_uses_per_user=input.maxUsesPerUser,
+        minimum_order_amount=input.minimumOrderAmount,
+        minimum_tickets=input.minimumTickets,
+        min_order_amount=input.minOrderAmount,  # Legacy
         max_discount_amount=input.maxDiscountAmount,
         valid_from=input.validFrom,
         valid_until=input.validUntil,

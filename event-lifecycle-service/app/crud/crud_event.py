@@ -196,6 +196,25 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         )
         return db_obj
 
+    def unpublish(self, db: Session, *, db_obj: Event, user_id: str | None) -> Event:
+        """
+        Revert an event to draft and remove it from public discovery.
+        """
+        db_obj.status = "draft"
+        db_obj.is_public = False
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+
+        crud_domain_event.domain_event.create_log(
+            db,
+            event_id=db_obj.id,
+            event_type="EventUnpublished",
+            user_id=user_id,
+            data={"status": "draft", "is_public": False},
+        )
+        return db_obj
+
     def archive(self, db: Session, *, id: str, user_id: str | None) -> Event:
         # Call the original archive method from the base class
         archived_event = super().archive(db, id=id)

@@ -24,7 +24,21 @@ from .payment_types import (
     TicketTypeUpdateInput,
     PromoCodeCreateInput,
 )
+from .ticket_types import (
+    TicketTypeFullType,
+    TicketType as TicketGQLType,
+    PromoCodeFullType,
+    CreateTicketTypeInput as TktCreateTicketTypeInput,
+    UpdateTicketTypeInput as TktUpdateTicketTypeInput,
+    ReorderTicketTypesInput,
+    CreatePromoCodeInput as TktCreatePromoCodeInput,
+    UpdatePromoCodeInput as TktUpdatePromoCodeInput,
+    CheckInTicketInput,
+    TransferTicketInput,
+    CancelTicketInput,
+)
 from . import payment_mutations
+from . import ticket_mutations
 
 
 # --- All Input types defined at the top ---
@@ -53,6 +67,7 @@ class EventUpdateInput:
 class SessionCreateInput:
     eventId: str
     title: str
+    sessionDate: Optional[str] = None  # YYYY-MM-DD (optional convenience)
     startTime: str  # ISO datetime string (e.g., "2024-03-15T09:00:00")
     endTime: str    # ISO datetime string (e.g., "2024-03-15T10:00:00")
     speakerIds: Optional[List[str]] = None
@@ -86,6 +101,7 @@ class SpeakerUpdateInput:
 @strawberry.input
 class SessionUpdateInput:
     title: Optional[str] = None
+    sessionDate: Optional[str] = None  # YYYY-MM-DD (optional convenience)
     startTime: Optional[str] = None
     endTime: Optional[str] = None
     speakerIds: Optional[List[str]] = None
@@ -238,20 +254,75 @@ class Mutation:
         return crud.event.publish(db, db_obj=event_to_publish, user_id=user_id)
 
     @strawberry.mutation
+    def unpublishEvent(self, id: str, info: Info) -> EventType:
+        """
+        Revert a published event back to draft (removes from public discovery).
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        db = info.context.db
+        user_id = user["sub"]
+        user_role = user.get("role")
+
+        event_to_unpublish = crud.event.get(db, id=id)
+        if not event_to_unpublish:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        if event_to_unpublish.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to unpublish this event"
+            )
+
+        if event_to_unpublish.is_archived:
+            raise HTTPException(
+                status_code=409, detail="Cannot unpublish an archived event"
+            )
+
+        if event_to_unpublish.status == "draft":
+            raise HTTPException(
+                status_code=409, detail="Event is already in draft status"
+            )
+
+        return crud.event.unpublish(db, db_obj=event_to_unpublish, user_id=user_id)
+
+    @strawberry.mutation
     def createSession(self, sessionIn: SessionCreateInput, info: Info) -> SessionType:
         if not info.context.user or not info.context.user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
         db = info.context.db
         producer = info.context.producer
-        try:
-            # Parse ISO datetime strings directly
-            full_start_datetime = datetime.fromisoformat(sessionIn.startTime.replace("Z", "+00:00"))
-            full_end_datetime = datetime.fromisoformat(sessionIn.endTime.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid datetime format. Use ISO format (e.g., 2024-03-15T09:00:00).",
-            )
+        # Helper to accept either full ISO timestamps or split date + time values
+        def parse_datetime(date_str: Optional[str], time_str: str, field_name: str) -> datetime:
+            # If the client already sent a full ISO string, try parsing directly.
+            candidate = time_str.replace("Z", "+00:00")
+            try:
+                if "T" in candidate:
+                    return datetime.fromisoformat(candidate)
+            except ValueError:
+                pass
+
+            # Fall back to combining a supplied sessionDate with a time like "10:40" or "10:40:00"
+            if not date_str:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid {field_name}. Provide ISO datetime or include sessionDate + time.",
+                )
+            normalized_time = time_str
+            if len(normalized_time.split(":")) == 2:
+                normalized_time = f"{normalized_time}:00"
+            combined = f"{date_str}T{normalized_time}"
+            try:
+                return datetime.fromisoformat(combined)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid {field_name}. Use ISO datetime or sessionDate (YYYY-MM-DD) with HH:MM.",
+                )
+
+        full_start_datetime = parse_datetime(sessionIn.sessionDate, sessionIn.startTime, "startTime")
+        full_end_datetime = parse_datetime(sessionIn.sessionDate, sessionIn.endTime, "endTime")
         session_schema = SessionCreate(
             title=sessionIn.title,
             start_time=full_start_datetime,
@@ -291,11 +362,35 @@ class Mutation:
 
         update_data = {k: v for k, v in sessionIn.__dict__.items() if v is not None}
         if "startTime" in update_data:
-            update_data["start_time"] = datetime.fromisoformat(
-                update_data.pop("startTime")
-            )
+            session_date = update_data.get("sessionDate")
+            start_time_raw = update_data.pop("startTime")
+            try:
+                update_data["start_time"] = datetime.fromisoformat(
+                    start_time_raw.replace("Z", "+00:00")
+                ) if "T" in start_time_raw else datetime.fromisoformat(
+                    f"{session_date}T{start_time_raw if len(start_time_raw.split(':')) != 2 else start_time_raw + ':00'}"
+                )
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid startTime. Use ISO datetime or sessionDate (YYYY-MM-DD) with HH:MM.",
+                )
         if "endTime" in update_data:
-            update_data["end_time"] = datetime.fromisoformat(update_data.pop("endTime"))
+            session_date = update_data.get("sessionDate")
+            end_time_raw = update_data.pop("endTime")
+            try:
+                update_data["end_time"] = datetime.fromisoformat(
+                    end_time_raw.replace("Z", "+00:00")
+                ) if "T" in end_time_raw else datetime.fromisoformat(
+                    f"{session_date}T{end_time_raw if len(end_time_raw.split(':')) != 2 else end_time_raw + ':00'}"
+                )
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid endTime. Use ISO datetime or sessionDate (YYYY-MM-DD) with HH:MM.",
+                )
+        # Remove helper-only field to avoid schema validation issues
+        update_data.pop("sessionDate", None)
         if "speakerIds" in update_data:
             update_data["speaker_ids"] = update_data.pop("speakerIds")
         if "chatEnabled" in update_data:
@@ -808,19 +903,27 @@ class Mutation:
 
     @strawberry.mutation
     def updateTicketType(
-        self, ticketTypeId: str, input: TicketTypeUpdateInput, info: Info
+        self, id: strawberry.ID, input: TicketTypeUpdateInput, info: Info
     ) -> TicketTypeType:
         """
         Update a ticket type (organizer only).
         """
-        return payment_mutations.update_ticket_type(ticketTypeId, input, info)
+        return payment_mutations.update_ticket_type(str(id), input, info)
 
     @strawberry.mutation
-    def archiveTicketType(self, ticketTypeId: str, info: Info) -> TicketTypeType:
+    def archiveTicketType(self, id: strawberry.ID, info: Info) -> TicketTypeType:
         """
         Archive a ticket type (organizer only).
         """
-        return payment_mutations.archive_ticket_type(ticketTypeId, info)
+        return payment_mutations.archive_ticket_type(str(id), info)
+
+    @strawberry.mutation
+    async def deleteTicketType(self, id: strawberry.ID, info: Info) -> bool:
+        """
+        Delete a ticket type (organizer only, only if no sales).
+        """
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.deleteTicketType(info, str(id))
 
     @strawberry.mutation
     def createPromoCode(
@@ -837,3 +940,109 @@ class Mutation:
         Deactivate a promo code (organizer only).
         """
         return payment_mutations.archive_promo_code(promoCodeId, info)
+
+    # --- TICKET MANAGEMENT MUTATIONS ---
+
+    @strawberry.mutation
+    async def createTicketTypeAdmin(
+        self, input: TktCreateTicketTypeInput, organizationId: str, info: Info
+    ) -> TicketTypeFullType:
+        """Create a new ticket type with full features."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.createTicketType(info, input, organizationId)
+
+    @strawberry.mutation
+    async def updateTicketTypeAdmin(
+        self, id: strawberry.ID, input: TktUpdateTicketTypeInput, info: Info
+    ) -> Optional[TicketTypeFullType]:
+        """Update a ticket type with full features."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.updateTicketType(info, str(id), input)
+
+    @strawberry.mutation
+    async def deleteTicketTypeAdmin(self, id: strawberry.ID, info: Info) -> bool:
+        """Delete a ticket type (only if no sales)."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.deleteTicketType(info, str(id))
+
+    @strawberry.mutation
+    async def reorderTicketTypes(
+        self, input: ReorderTicketTypesInput, info: Info
+    ) -> List[TicketTypeFullType]:
+        """Reorder ticket types for an event."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.reorderTicketTypes(info, input)
+
+    @strawberry.mutation
+    async def duplicateTicketType(
+        self, id: strawberry.ID, info: Info
+    ) -> Optional[TicketTypeFullType]:
+        """Duplicate a ticket type."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.duplicateTicketType(info, str(id))
+
+    @strawberry.mutation
+    async def createPromoCodeAdmin(
+        self, input: TktCreatePromoCodeInput, organizationId: str, info: Info
+    ) -> PromoCodeFullType:
+        """Create a new promo code with full features."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.createPromoCode(info, input, organizationId)
+
+    @strawberry.mutation
+    async def updatePromoCodeAdmin(
+        self, id: str, input: TktUpdatePromoCodeInput, info: Info
+    ) -> Optional[PromoCodeFullType]:
+        """Update a promo code."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.updatePromoCode(info, id, input)
+
+    @strawberry.mutation
+    async def deletePromoCodeAdmin(self, id: str, info: Info) -> bool:
+        """Delete a promo code."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.deletePromoCode(info, id)
+
+    @strawberry.mutation
+    async def deactivatePromoCodeAdmin(
+        self, id: str, info: Info
+    ) -> Optional[PromoCodeFullType]:
+        """Deactivate a promo code (soft disable)."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.deactivatePromoCode(info, id)
+
+    @strawberry.mutation
+    async def checkInTicket(
+        self, input: CheckInTicketInput, info: Info
+    ) -> TicketGQLType:
+        """Check in a ticket by code."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.checkInTicket(info, input)
+
+    @strawberry.mutation
+    async def reverseCheckIn(self, ticketId: str, info: Info) -> TicketGQLType:
+        """Reverse a check-in (undo)."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.reverseCheckIn(info, ticketId)
+
+    @strawberry.mutation
+    async def cancelTicket(
+        self, input: CancelTicketInput, info: Info
+    ) -> TicketGQLType:
+        """Cancel a ticket."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.cancelTicket(info, input)
+
+    @strawberry.mutation
+    async def resendTicketEmail(self, ticketId: str, info: Info) -> bool:
+        """Resend ticket confirmation email."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.resendTicketEmail(info, ticketId)
+
+    @strawberry.mutation
+    async def transferTicket(
+        self, input: TransferTicketInput, info: Info
+    ) -> TicketGQLType:
+        """Transfer a ticket to a new attendee."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.transferTicket(info, input)

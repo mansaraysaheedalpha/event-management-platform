@@ -50,6 +50,7 @@ class EventCreate(BaseModel):
     venue_id: Optional[str] = Field(
         None, json_schema_extra={"example": "ven_f9e8d7c6b5"}
     )
+    imageUrl: Optional[str] = None
 
 
 # NEW: Helper schema for pagination details
@@ -73,6 +74,7 @@ class EventUpdate(BaseModel):
     end_date: Optional[datetime] = None
     venue_id: Optional[str] = None
     is_public: Optional[bool] = None
+    imageUrl: Optional[str] = None
 
 
 # ✅ --- NEW SCHEMAS FOR IMAGE UPLOAD ---
