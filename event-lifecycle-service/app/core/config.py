@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
 
+    # Frontend URL for redirects
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # Internal service URLs for inter-service communication
     REAL_TIME_SERVICE_URL_INTERNAL: Optional[str] = "http://real-time-service:3002"
 

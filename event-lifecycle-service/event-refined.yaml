@@ -683,6 +683,29 @@ paths:
         "409":
           description: "Conflict. The event is already published or archived."
           
+  # --- NEW ENDPOINT FOR UNPUBLISHING ---
+  /organizations/{orgId}/events/{eventId}/unpublish:
+    post:
+      tags: [Events]
+      summary: Unpublish an event
+      operationId: unpublishEvent
+      description: >
+        Reverts a published event back to "draft" status and removes it from public discovery.
+      parameters:
+        - $ref: "#/components/parameters/OrgIdPath"
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: "Event unpublished successfully."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: "Conflict. The event is already in draft status or is archived."
+
   # --- NEW ENDPOINT FOR OFFLINE SYNC ---
   /organizations/{orgId}/events/{eventId}/sync-bundle:
     get:
@@ -902,6 +925,10 @@ components:
         title: { type: string, example: "The Future of LLMs" }
         speaker_ids: { type: array, items: { type: string } }
         start_time: { type: string, format: "date-time", description: "The session start timestamp in UTC format (ISO 8601)." }
+        end_time: { type: string, format: "date-time", description: "The session end timestamp in UTC format (ISO 8601)." }
+        chat_enabled: { type: boolean, default: true }
+        qa_enabled: { type: boolean, default: true }
+        polls_enabled: { type: boolean, default: true }
     Registration:
       type: object
       properties:
@@ -959,11 +986,17 @@ components:
         venue_id: { type: string, nullable: true }
     SessionRequest:
       type: object
-      required: [title, start_time]
+      required: [title, start_time, end_time]
       properties:
         title: { type: string, example: "The Future of LLMs" }
         speaker_ids: { type: array, items: { type: string } }
-        start_time: { type: string, format: "date-time",  description: "The session start timestamp in UTC format (ISO 8601)." }
+        # If providing time-only strings (e.g., '10:00'), also include session_date (YYYY-MM-DD) to build the full datetime.
+        session_date: { type: string, format: "date", nullable: true, description: "Optional helper date used when start_time/end_time are provided as HH:MM strings." }
+        start_time: { type: string, description: "Session start. Either full ISO datetime (preferred) or HH:MM with session_date." }
+        end_time: { type: string, description: "Session end. Either full ISO datetime (preferred) or HH:MM with session_date." }
+        chat_enabled: { type: boolean, default: true }
+        qa_enabled: { type: boolean, default: true }
+        polls_enabled: { type: boolean, default: true }
     RegistrationRequest:
       type: object
       properties:

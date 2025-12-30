@@ -856,27 +856,27 @@ class Mutation:
         return await payment_mutations.create_checkout_session(input, info)
 
     @strawberry.mutation
-    async def cancelOrder(self, orderId: str, info: Info) -> OrderType:
+    async def cancelOrder(self, orderId: strawberry.ID, info: Info) -> OrderType:
         """
         Cancel a pending order (before payment).
         """
-        return await payment_mutations.cancel_order(orderId, info)
+        return await payment_mutations.cancel_order(str(orderId), info)
 
     @strawberry.mutation
     async def applyPromoCode(
-        self, orderId: str, promoCode: str, info: Info
+        self, orderId: strawberry.ID, promoCode: str, info: Info
     ) -> OrderType:
         """
         Apply promo code to a pending order.
         """
-        return await payment_mutations.apply_promo_code(orderId, promoCode, info)
+        return await payment_mutations.apply_promo_code(str(orderId), promoCode, info)
 
     @strawberry.mutation
-    async def removePromoCode(self, orderId: str, info: Info) -> OrderType:
+    async def removePromoCode(self, orderId: strawberry.ID, info: Info) -> OrderType:
         """
         Remove promo code from a pending order.
         """
-        return await payment_mutations.remove_promo_code(orderId, info)
+        return await payment_mutations.remove_promo_code(str(orderId), info)
 
     @strawberry.mutation
     async def initiateRefund(self, input: InitiateRefundInput, info: Info) -> RefundType:
@@ -990,12 +990,28 @@ class Mutation:
         return await tm.createPromoCode(info, input, organizationId)
 
     @strawberry.mutation
+    def updatePromoCode(
+        self, id: str, input: TktUpdatePromoCodeInput, info: Info
+    ) -> Optional[PromoCodeFullType]:
+        """
+        Update a promo code (organizer).
+        """
+        tm = ticket_mutations.TicketManagementMutations()
+        return tm.updatePromoCode(info, id, input)
+
+    @strawberry.mutation
     async def updatePromoCodeAdmin(
         self, id: str, input: TktUpdatePromoCodeInput, info: Info
     ) -> Optional[PromoCodeFullType]:
         """Update a promo code."""
         tm = ticket_mutations.TicketManagementMutations()
         return await tm.updatePromoCode(info, id, input)
+
+    @strawberry.mutation
+    async def deletePromoCode(self, id: str, info: Info) -> bool:
+        """Delete a promo code."""
+        tm = ticket_mutations.TicketManagementMutations()
+        return await tm.deletePromoCode(info, id)
 
     @strawberry.mutation
     async def deletePromoCodeAdmin(self, id: str, info: Info) -> bool:

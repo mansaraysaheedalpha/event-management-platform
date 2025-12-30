@@ -185,7 +185,7 @@ class TicketManagementMutations:
         return promo_code
 
     @strawberry.mutation
-    async def updatePromoCode(
+    def updatePromoCode(
         self,
         info: Info,
         id: str,
@@ -194,25 +194,46 @@ class TicketManagementMutations:
         """Update a promo code."""
         db = info.context.db
 
-        # Convert GraphQL enum to Pydantic enum if provided
-        discount_type = None
+        # Build update dict with only provided (non-None) values
+        # This ensures exclude_unset=True works correctly in CRUD
+        update_dict = {}
+        
+        if input.description is not None:
+            update_dict["description"] = input.description
+            
         if input.discountType:
-            discount_type = DiscountType(input.discountType.value)
+            update_dict["discount_type"] = DiscountType(input.discountType.value)
+            
+        if input.discountValue is not None:
+            update_dict["discount_value"] = input.discountValue
+            
+        if input.applicableTicketTypeIds is not None:
+            update_dict["applicable_ticket_type_ids"] = input.applicableTicketTypeIds
+            
+        if input.maxUses is not None:
+            update_dict["max_uses"] = input.maxUses
+            
+        if input.maxUsesPerUser is not None:
+            update_dict["max_uses_per_user"] = input.maxUsesPerUser
+            
+        if input.validFrom is not None:
+            update_dict["valid_from"] = input.validFrom
+            
+        if input.validUntil is not None:
+            update_dict["valid_until"] = input.validUntil
+            
+        if input.minimumOrderAmount is not None:
+            update_dict["minimum_order_amount"] = input.minimumOrderAmount
+            
+        if input.minimumTickets is not None:
+            update_dict["minimum_tickets"] = input.minimumTickets
+            
+        if input.isActive is not None:
+            update_dict["is_active"] = input.isActive
 
-        # Convert GraphQL input to Pydantic schema
-        update_data = PromoCodeUpdate(
-            description=input.description,
-            discount_type=discount_type,
-            discount_value=input.discountValue,
-            applicable_ticket_type_ids=input.applicableTicketTypeIds,
-            max_uses=input.maxUses,
-            max_uses_per_user=input.maxUsesPerUser,
-            valid_from=input.validFrom,
-            valid_until=input.validUntil,
-            minimum_order_amount=input.minimumOrderAmount,
-            minimum_tickets=input.minimumTickets,
-            is_active=input.isActive,
-        )
+        # Convert to Pydantic schema using unpacked dict
+        # Fields missing from update_dict will use default values and count as unset
+        update_data = PromoCodeUpdate(**update_dict)
 
         promo_code = ticket_management_service.update_promo_code(
             db, id, update_data

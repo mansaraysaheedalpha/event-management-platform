@@ -26,6 +26,9 @@ from .types import (
     EngagementTrendResponse,
     EngagementTrendDataPoint,
     EngagementBreakdownType,
+    # Monetization types
+    AdType,
+    OfferType,
 )
 from .payment_types import (
     TicketTypeType,
@@ -730,3 +733,23 @@ class Query:
         """Get check-in statistics for an event."""
         tq = ticket_queries.TicketManagementQueries()
         return await tq.checkInStats(info, str(eventId))
+
+    # --- MONETIZATION QUERIES ---
+
+    @strawberry.field
+    def eventAds(self, eventId: strawberry.ID, info: Info) -> typing.List[AdType]:
+        """Get all ads for a specific event."""
+        db = info.context.db
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        return crud.ad.get_multi_by_event(db, event_id=str(eventId))
+
+    @strawberry.field
+    def eventOffers(self, eventId: strawberry.ID, info: Info) -> typing.List[OfferType]:
+        """Get all upsell offers for a specific event."""
+        db = info.context.db
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        return crud.offer.get_multi_by_event(db, event_id=str(eventId))

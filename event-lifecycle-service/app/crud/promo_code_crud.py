@@ -116,6 +116,10 @@ class CRUDPromoCode:
         if 'discount_type' in update_data and update_data['discount_type']:
             update_data['discount_type'] = update_data['discount_type'].value
 
+        # Handle currency update if present
+        if 'currency' in update_data:
+            db_obj.currency = update_data['currency']
+
         update_data['updated_at'] = datetime.now(timezone.utc)
 
         for field, value in update_data.items():

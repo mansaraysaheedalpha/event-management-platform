@@ -45,7 +45,8 @@
       "Bash(findstr:*)",
       "Bash(docker volume:*)",
       "Bash(docker system prune:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(ENV=local python:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,4 +1,4 @@
-//src/app.module.ts
+
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -26,6 +26,7 @@ import { SystemModule } from './system/system.module';
 import { PrismaModule } from './prisma.module';
 import { GlobalModule } from './global/global.module';
 import { ConnectionModule } from './system/connection/connection.module';
+import { TicketsModule } from './tickets/tickets.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { ConnectionModule } from './system/connection/connection.module';
     GamificationModule,
     NetworkingModule,
     ConnectionModule,
+    TicketsModule,
     ThrottlerModule.forRoot([
       {
         name: 'default', // Name for the default tier
