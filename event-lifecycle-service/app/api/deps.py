@@ -19,6 +19,12 @@ def get_db() -> Generator:
         db.close()
 
 
+def get_redis():
+    """Dependency to get Redis client."""
+    import redis
+    return redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
 # This tells FastAPI where to look for the token.
 # The `tokenUrl` doesn't have to be a real endpoint in this service,
 # it's just for the OpenAPI documentation.

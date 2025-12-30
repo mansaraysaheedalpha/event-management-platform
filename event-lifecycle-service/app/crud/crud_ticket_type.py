@@ -34,25 +34,48 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
     def get_available_ticket_types(
         self, db: Session, *, event_id: str
     ) -> List[TicketType]:
-        """Get ticket types that are currently on sale and available."""
+        """
+        Get ticket types that should be shown to attendees.
+
+        Priority:
+        1) Active, non-archived, non-hidden tickets in their sales window (on sale now)
+        2) If none are currently on sale, fall back to the next eligible active tickets
+           (ignoring sales window) so pricing is still exposed instead of defaulting to "free".
+        """
         now = datetime.now(timezone.utc)
-        query = db.query(self.model).filter(
-            and_(
-                self.model.event_id == event_id,
-                self.model.is_active == True,
-                self.model.is_archived == False,
+
+        base_filters = [
+            self.model.event_id == event_id,
+            self.model.is_active == True,  # noqa: E712
+            self.model.is_archived == False,  # noqa: E712
+            self.model.is_hidden == False,  # don't expose hidden ticket types
+        ]
+
+        # Pass 1: tickets currently on sale
+        query_on_sale = (
+            db.query(self.model)
+            .filter(
+                and_(
+                    *base_filters,
+                    (self.model.sales_start_at == None)
+                    | (self.model.sales_start_at <= now),
+                    (self.model.sales_end_at == None)
+                    | (self.model.sales_end_at >= now),
+                )
             )
+            .order_by(self.model.sort_order, self.model.created_at)
         )
+        tickets = query_on_sale.all()
+        if tickets:
+            return tickets
 
-        # Filter by sales window
-        query = query.filter(
-            (self.model.sales_start_at == None) | (self.model.sales_start_at <= now)
+        # Pass 2: fallback to active, non-archived, non-hidden tickets even if outside window
+        query_fallback = (
+            db.query(self.model)
+            .filter(and_(*base_filters))
+            .order_by(self.model.sort_order, self.model.created_at)
         )
-        query = query.filter(
-            (self.model.sales_end_at == None) | (self.model.sales_end_at >= now)
-        )
-
-        return query.order_by(self.model.sort_order, self.model.created_at).all()
+        return query_fallback.all()
 
     def create_for_event(
         self, db: Session, *, obj_in: TicketTypeCreate, organization_id: str

@@ -346,6 +346,13 @@ class OrderType:
         return MoneyType(amount=root.total_amount, currency=root.currency)
 
     @strawberry.field
+    def promoCode(self, root: OrderModel) -> Optional["PromoCodeType"]:
+        """
+        Promo code applied to this order, if any.
+        """
+        return root.promo_code
+
+    @strawberry.field
     def expiresAt(self, root: OrderModel) -> Optional[datetime]:
         return root.expires_at
 
@@ -576,10 +583,10 @@ CreatePromoCodeInput = PromoCodeCreateInput
 @strawberry.input
 class PromoCodeUpdateInput:
     """Input for updating a promo code."""
-    code: Optional[str] = None
     description: Optional[str] = None
     discountType: Optional[str] = None
     discountValue: Optional[int] = None
+    currency: Optional[str] = None
     applicableTicketTypeIds: Optional[List[str]] = None
     maxUses: Optional[int] = None
     maxUsesPerUser: Optional[int] = None

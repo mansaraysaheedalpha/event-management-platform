@@ -454,3 +454,33 @@ class EngagementBreakdownType:
     chatMessageCount: int
     chatParticipants: int
     chatTotal: int
+
+
+# --- MONETIZATION TYPES ---
+
+@strawberry.type
+class AdType:
+    id: str
+    organization_id: str
+    event_id: Optional[str]
+    name: str
+    content_type: str
+    media_url: str
+    click_url: str
+    is_archived: bool
+
+
+@strawberry.type
+class OfferType:
+    id: str
+    organization_id: str
+    event_id: str
+    title: str
+    description: Optional[str]
+    price: float
+    original_price: Optional[float]
+    currency: str
+    offer_type: str
+    image_url: Optional[str]
+    expires_at: Optional[datetime]
+    is_archived: bool

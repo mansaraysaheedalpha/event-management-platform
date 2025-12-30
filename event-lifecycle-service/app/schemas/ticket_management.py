@@ -189,6 +189,7 @@ class PromoCodeUpdate(BaseModel):
     description: Optional[str] = None
     discount_type: Optional[DiscountType] = None
     discount_value: Optional[int] = Field(default=None, gt=0)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
     applicable_ticket_type_ids: Optional[List[str]] = None
     max_uses: Optional[int] = Field(default=None, ge=1)
     max_uses_per_user: Optional[int] = Field(default=None, ge=1)

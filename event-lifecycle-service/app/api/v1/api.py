@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     ads,
     offers,
     webhooks,
+    offer_webhooks,
     organizations,
 )
 
@@ -31,7 +32,8 @@ api_router.include_router(presentations.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(internals.router)
 api_router.include_router(ads.router)
-api_router.include_router(offers.router)
+api_router.include_router(offers.router, prefix="/offers", tags=["offers"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+api_router.include_router(offer_webhooks.router, prefix="/offer-webhooks", tags=["offer-webhooks"])
 api_router.include_router(organizations.router)
 
