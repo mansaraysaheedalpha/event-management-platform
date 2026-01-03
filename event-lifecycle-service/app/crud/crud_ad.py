@@ -27,6 +27,26 @@ class CRUDAd(CRUDBase[Ad, AdCreate, AdUpdate]):
 
         return query.order_by(self.model.created_at.desc()).all()
 
+    def get_multi_by_organization(
+        self,
+        db: Session,
+        *,
+        org_id: str,
+        active_only: bool = False,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Ad]:
+        """Get all ads for an organization with pagination."""
+        query = db.query(self.model).filter(
+            self.model.organization_id == org_id,
+            self.model.is_archived == False
+        )
+
+        if active_only:
+            query = query.filter(self.model.is_active == True)
+
+        return query.order_by(self.model.created_at.desc()).offset(skip).limit(limit).all()
+
     def get_active_ads(
         self,
         db: Session,

@@ -14,11 +14,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from kafka import KafkaConsumer
 from app.core.config import settings
-from app.core.email import send_registration_confirmation, send_giveaway_winner_email
+from app.core.email import send_registration_confirmation, send_giveaway_winner_email, send_waitlist_offer_email
 
 # Kafka topics
 TOPIC_REGISTRATION_EVENTS = "registration.events.v1"
 TOPIC_GIVEAWAY_EVENTS = "giveaway.events.v1"
+TOPIC_WAITLIST_EVENTS = "waitlist.events.v1"
 
 
 def process_registration_event(event_data: dict) -> None:
@@ -189,16 +190,100 @@ def run_giveaway_consumer():
             print(f"[EMAIL CONSUMER ERROR] Failed to process giveaway message: {e}")
 
 
+def process_waitlist_event(event_data: dict) -> None:
+    """
+    Process a waitlist event and send offer notification email.
+    """
+    event_type = event_data.get("type")
+
+    if event_type != "WAITLIST_OFFER":
+        print(f"[EMAIL CONSUMER] Ignoring waitlist event type: {event_type}")
+        return
+
+    user_email = event_data.get("userEmail")
+    user_name = event_data.get("userName", "User")
+    session_title = event_data.get("sessionTitle", "Session")
+    event_name = event_data.get("eventName", "Event")
+    offer_expires_at = event_data.get("offerExpiresAt", "soon")
+    offer_token = event_data.get("offerToken")
+    session_id = event_data.get("sessionId")
+    position = event_data.get("position")
+
+    if not user_email:
+        print(f"[EMAIL CONSUMER] No user email for waitlist offer: {event_data.get('userId')}")
+        return
+
+    if not offer_token or not session_id:
+        print(f"[EMAIL CONSUMER] Missing required fields for waitlist offer email")
+        return
+
+    if not settings.RESEND_API_KEY:
+        print("[EMAIL CONSUMER] RESEND_API_KEY not configured. Skipping email.")
+        return
+
+    # Format the expiration time nicely
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(offer_expires_at.replace('Z', '+00:00'))
+        formatted_expires = dt.strftime("%B %d at %I:%M %p UTC")
+    except Exception:
+        formatted_expires = offer_expires_at
+
+    # Build accept URL
+    accept_url = f"{settings.FRONTEND_URL}/sessions/{session_id}/waitlist/accept?token={offer_token}"
+
+    print(f"[EMAIL CONSUMER] Sending waitlist offer to {user_email} for session: {session_title}")
+
+    result = send_waitlist_offer_email(
+        to_email=user_email,
+        user_name=user_name,
+        session_title=session_title,
+        event_name=event_name,
+        offer_expires_at=formatted_expires,
+        accept_url=accept_url,
+        position=position,
+    )
+
+    if result.get("success"):
+        print(f"[EMAIL CONSUMER] Waitlist offer email sent successfully: {result.get('id')}")
+    else:
+        print(f"[EMAIL CONSUMER] Waitlist offer email failed: {result.get('error')}")
+
+
+def run_waitlist_consumer():
+    """
+    Consumer loop for waitlist events.
+    """
+    consumer = KafkaConsumer(
+        TOPIC_WAITLIST_EVENTS,
+        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+        group_id="email-consumer-waitlist-group",
+        auto_offset_reset="earliest",
+    )
+
+    print(f"[EMAIL CONSUMER] Listening for messages on topic: {TOPIC_WAITLIST_EVENTS}")
+
+    for message in consumer:
+        try:
+            event_data = message.value
+            print(f"[EMAIL CONSUMER] Received waitlist event: {event_data.get('type', 'unknown')}")
+            process_waitlist_event(event_data)
+        except Exception as e:
+            print(f"[EMAIL CONSUMER ERROR] Failed to process waitlist message: {e}")
+
+
 def run_consumer():
     """
-    Main consumer - runs both registration and giveaway consumers in parallel threads.
+    Main consumer - runs registration, giveaway, and waitlist consumers in parallel threads.
     """
     print("=" * 60)
     print("Email Consumer Service Starting...")
     print(f"Kafka Bootstrap Servers: {settings.KAFKA_BOOTSTRAP_SERVERS}")
-    print(f"Topics: {TOPIC_REGISTRATION_EVENTS}, {TOPIC_GIVEAWAY_EVENTS}")
+    print(f"Topics: {TOPIC_REGISTRATION_EVENTS}, {TOPIC_GIVEAWAY_EVENTS}, {TOPIC_WAITLIST_EVENTS}")
     print(f"Resend API Key: {'configured' if settings.RESEND_API_KEY else 'NOT CONFIGURED'}")
     print(f"From Domain: {settings.RESEND_FROM_DOMAIN}")
+    print(f"Frontend URL: {settings.FRONTEND_URL}")
     print("=" * 60)
 
     # Start registration consumer thread
@@ -209,10 +294,15 @@ def run_consumer():
     giveaway_thread = threading.Thread(target=run_giveaway_consumer, daemon=True)
     giveaway_thread.start()
 
+    # Start waitlist consumer thread
+    waitlist_thread = threading.Thread(target=run_waitlist_consumer, daemon=True)
+    waitlist_thread.start()
+
     # Keep main thread alive
     try:
         registration_thread.join()
         giveaway_thread.join()
+        waitlist_thread.join()
     except KeyboardInterrupt:
         print("\n[EMAIL CONSUMER] Shutting down...")
 

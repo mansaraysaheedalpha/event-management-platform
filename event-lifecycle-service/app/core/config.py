@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
 
+    # Security & Privacy
+    IP_HASH_SALT: str = "default-salt-change-in-production"  # For IP anonymization (GDPR compliance)
+
     # Frontend URL for redirects
     FRONTEND_URL: str = "http://localhost:3000"
 

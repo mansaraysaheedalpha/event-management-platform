@@ -7,6 +7,9 @@ from app.db.base_class import Base
 from app.db.session import engine
 from app.graphql.router import graphql_router
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 
 # ✅ THE FINAL FIX: The Lifespan Event Handler
@@ -16,8 +19,20 @@ async def lifespan(app: FastAPI):
     print("Application starting up...")
     Base.metadata.create_all(bind=engine)
     print("Database tables checked and created if necessary.")
+
+    # Initialize background scheduler for waitlist tasks
+    from app.scheduler import init_scheduler
+    init_scheduler()
+    print("Background scheduler initialized and started.")
+
     yield
+
     print("Application shutting down...")
+
+    # Shutdown background scheduler
+    from app.scheduler import shutdown_scheduler
+    shutdown_scheduler()
+    print("Background scheduler shut down.")
 
 
 app = FastAPI(
@@ -25,11 +40,11 @@ app = FastAPI(
     version="1.0.0",
     description="""
         🚀 **GlobalConnect Event Management Service**
-        
+
         The core orchestrator for intelligent event management.
-        
+
         ## Features
-        
+
         * **Event Management**: Create, update, and manage events
         * **Session Scheduling**: Organize sessions within events
         * **Speaker Management**: Maintain speaker profiles and assignments
@@ -38,17 +53,22 @@ app = FastAPI(
         * **Presentation Upload**: Handle presentation files and processing
         * **Multi-tenant**: Organization-scoped data isolation
         * **Real-time Integration**: Internal notifications for live updates
-        
+
         ## Authentication
-        
+
         Most endpoints require JWT authentication via the `Authorization: Bearer <token>` header.
-        
+
         ## Public Endpoints
-        
+
         Some endpoints under `/public/` are accessible without authentication for event discovery.
         """,
     lifespan=lifespan,
 )
+
+# Rate limiter configuration
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 origins = [
     "http://localhost:3000",

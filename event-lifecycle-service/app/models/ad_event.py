@@ -10,7 +10,7 @@ class AdEvent(Base):
 
     id = Column(String, primary_key=True, default=lambda: f"adev_{uuid.uuid4().hex[:12]}")
     ad_id = Column(String, ForeignKey("ads.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(String, nullable=True)  # No FK - users table is in different database (postgres-user-org)
     session_token = Column(String(255), nullable=True)
 
     # Event classification
