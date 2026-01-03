@@ -46,7 +46,9 @@
       "Bash(docker volume:*)",
       "Bash(docker system prune:*)",
       "Bash(python:*)",
-      "Bash(ENV=local python:*)"
+      "Bash(ENV=local python:*)",
+      "Bash(pip install:*)",
+      "Bash(alembic current:*)"
     ],
     "deny": [],
     "ask": []

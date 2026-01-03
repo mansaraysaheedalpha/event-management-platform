@@ -16,6 +16,11 @@ from app.api.v1.endpoints import (
     webhooks,
     offer_webhooks,
     organizations,
+    waitlist,
+    admin_waitlist,
+    analytics,
+    reports,
+    ab_testing,
 )
 
 # This is the main router for the v1 API.
@@ -31,8 +36,13 @@ api_router.include_router(venues.router)
 api_router.include_router(presentations.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(internals.router)
-api_router.include_router(ads.router)
+api_router.include_router(ads.router, prefix="/ads", tags=["Ads"])
 api_router.include_router(offers.router, prefix="/offers", tags=["offers"])
+api_router.include_router(waitlist.router, tags=["Waitlist"])
+api_router.include_router(admin_waitlist.router, prefix="/admin", tags=["Admin - Waitlist"])
+api_router.include_router(analytics.router, tags=["Analytics"])
+api_router.include_router(reports.router, tags=["Reports"])
+api_router.include_router(ab_testing.router, tags=["A/B Testing"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 api_router.include_router(offer_webhooks.router, prefix="/offer-webhooks", tags=["offer-webhooks"])
 api_router.include_router(organizations.router)

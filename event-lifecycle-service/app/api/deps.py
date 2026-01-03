@@ -4,10 +4,21 @@ from fastapi import Depends, HTTPException, status, Security
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+import redis
+from redis import ConnectionPool
 
 from app.core.config import settings
 from app.schemas.token import TokenPayload
 from app.db.session import SessionLocal
+
+# Create Redis connection pool once at module level
+redis_pool = ConnectionPool.from_url(
+    settings.REDIS_URL,
+    decode_responses=True,
+    max_connections=50,
+    socket_connect_timeout=5,
+    socket_timeout=5
+)
 
 
 def get_db() -> Generator:
@@ -19,10 +30,14 @@ def get_db() -> Generator:
         db.close()
 
 
-def get_redis():
-    """Dependency to get Redis client."""
-    import redis
-    return redis.from_url(settings.REDIS_URL, decode_responses=True)
+def get_redis() -> Generator:
+    """Dependency to get Redis client from connection pool."""
+    client = redis.Redis(connection_pool=redis_pool)
+    try:
+        yield client
+    finally:
+        # Connection automatically returned to pool
+        client.close()
 
 
 # This tells FastAPI where to look for the token.

@@ -118,7 +118,8 @@ class CRUDAdEvent:
         """
         Get analytics for a specific ad from materialized view.
         """
-        query = text("""
+        # Build query safely without string concatenation
+        base_query = """
             SELECT
                 date,
                 impressions,
@@ -128,21 +129,25 @@ class CRUDAdEvent:
                 unique_users
             FROM ad_analytics_daily
             WHERE ad_id = :ad_id
-        """)
+        """
 
+        conditions = []
         params = {"ad_id": ad_id}
 
         if date_from:
-            query = text(str(query) + " AND date >= :date_from")
+            conditions.append("date >= :date_from")
             params["date_from"] = date_from
 
         if date_to:
-            query = text(str(query) + " AND date <= :date_to")
+            conditions.append("date <= :date_to")
             params["date_to"] = date_to
 
-        query = text(str(query) + " ORDER BY date DESC")
+        if conditions:
+            base_query += " AND " + " AND ".join(conditions)
 
-        result = db.execute(query, params).fetchall()
+        base_query += " ORDER BY date DESC"
+
+        result = db.execute(text(base_query), params).fetchall()
 
         # Aggregate totals
         total_impressions = sum(row.impressions for row in result)
@@ -182,33 +187,35 @@ class CRUDAdEvent:
         """
         Get aggregated analytics for all ads in an event.
         """
-        # Build base query
-        base_conditions = "a.event_id = :event_id"
+        # Build WHERE clause safely
+        conditions = ["a.event_id = :event_id"]
         params = {"event_id": event_id}
 
         if date_from:
-            base_conditions += " AND aad.date >= :date_from"
+            conditions.append("aad.date >= :date_from")
             params["date_from"] = date_from
 
         if date_to:
-            base_conditions += " AND aad.date <= :date_to"
+            conditions.append("aad.date <= :date_to")
             params["date_to"] = date_to
 
+        where_clause = " AND ".join(conditions)
+
         # Get overall stats
-        query = text(f"""
+        stats_query = f"""
             SELECT
                 COALESCE(SUM(aad.impressions), 0) as total_impressions,
                 COALESCE(SUM(aad.clicks), 0) as total_clicks,
                 COALESCE(AVG(aad.ctr_percentage), 0) as average_ctr
             FROM ad_analytics_daily aad
             JOIN ads a ON aad.ad_id = a.id
-            WHERE {base_conditions}
-        """)
+            WHERE {where_clause}
+        """
 
-        stats = db.execute(query, params).fetchone()
+        stats = db.execute(text(stats_query), params).fetchone()
 
         # Get top performers
-        top_query = text(f"""
+        top_query_str = f"""
             SELECT
                 a.id as ad_id,
                 a.name,
@@ -217,17 +224,16 @@ class CRUDAdEvent:
                 AVG(aad.ctr_percentage) as ctr
             FROM ad_analytics_daily aad
             JOIN ads a ON aad.ad_id = a.id
-            WHERE {base_conditions}
+            WHERE {where_clause}
             GROUP BY a.id, a.name
             ORDER BY ctr DESC
             LIMIT 5
-        """)
+        """
 
-        top_performers = db.execute(top_query, params).fetchall()
+        top_performers = db.execute(text(top_query_str), params).fetchall()
 
         # Get breakdown by placement
-        # This is more complex as placements is an array - for now, simplified version
-        placement_query = text(f"""
+        placement_query_str = f"""
             SELECT
                 unnest(a.placements) as placement,
                 SUM(aad.impressions) as impressions,
@@ -235,11 +241,11 @@ class CRUDAdEvent:
                 AVG(aad.ctr_percentage) as ctr
             FROM ad_analytics_daily aad
             JOIN ads a ON aad.ad_id = a.id
-            WHERE {base_conditions}
+            WHERE {where_clause}
             GROUP BY placement
-        """)
+        """
 
-        placements = db.execute(placement_query, params).fetchall()
+        placements = db.execute(text(placement_query_str), params).fetchall()
 
         return {
             "total_impressions": int(stats.total_impressions) if stats else 0,

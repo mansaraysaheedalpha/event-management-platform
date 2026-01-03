@@ -28,7 +28,7 @@ def upgrade() -> None:
         'ad_events',
         sa.Column('id', sa.String(), primary_key=True),
         sa.Column('ad_id', sa.String(), sa.ForeignKey('ads.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('user_id', sa.String(), sa.ForeignKey('users.id', ondelete='SET NULL'), nullable=True),
+        sa.Column('user_id', sa.String(), nullable=True),  # No FK - users table is in different database
         sa.Column('session_token', sa.String(255), nullable=True),
 
         # Event classification

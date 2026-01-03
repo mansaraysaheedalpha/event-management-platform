@@ -19,6 +19,7 @@ pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
 PyJWT
+slowapi  # Rate limiting for FastAPI
 
 # For inter-service communication
 redis
@@ -30,9 +31,15 @@ resend
 # For background tasks
 celery
 pdf2image
+apscheduler  # Scheduler for waitlist background tasks
 
 # Payment processing
 stripe
+
+# Analytics and reporting
+pandas
+openpyxl  # For Excel export
+scipy  # For A/B test statistical significance
 
 # GraphQL and Federation
 strawberry-graphql[fastapi]

@@ -203,8 +203,70 @@ export class MonetizationGateway {
     payload: WaitlistNotificationPayload,
   ): void {
     const userRoom = `user:${targetUserId}`;
-    const eventName = 'monetization.waitlist.spot_available';
+    const eventName = 'WAITLIST_OFFER';
     this.server.to(userRoom).emit(eventName, payload);
     this.logger.log(`Sent waitlist spot notification to user ${targetUserId}`);
+  }
+
+  /**
+   * Notifies users in a waitlist about their updated position.
+   * Useful for showing queue status in real-time.
+   *
+   * @param userIds - Array of user IDs to notify with their positions
+   * @param sessionId - The session ID for the waitlist
+   * @param totalInQueue - Total number of users in the queue
+   *
+   * @example
+   * sendWaitlistPositionUpdate([
+   *   { userId: 'user-1', position: 1 },
+   *   { userId: 'user-2', position: 2 }
+   * ], 's-99', 5);
+   */
+  public sendWaitlistPositionUpdate(
+    userIds: Array<{ userId: string; position: number }>,
+    sessionId: string,
+    totalInQueue: number,
+    estimatedWaitMinutes?: number,
+  ): void {
+    userIds.forEach(({ userId, position }) => {
+      const userRoom = `user:${userId}`;
+      const eventName = 'WAITLIST_POSITION_UPDATE';
+      const payload = {
+        position,
+        total: totalInQueue,
+        estimated_wait_minutes: estimatedWaitMinutes || Math.ceil(position * 2),
+        session_id: sessionId,
+      };
+      this.server.to(userRoom).emit(eventName, payload);
+    });
+    this.logger.log(
+      `Sent position updates to ${userIds.length} users in session ${sessionId}`,
+    );
+  }
+
+  /**
+   * Notifies a user when their waitlist offer has expired.
+   * Triggered when the user doesn't accept the offer within the time limit.
+   *
+   * @param targetUserId - ID of the user to notify
+   * @param sessionId - The session ID for the waitlist
+   * @param message - Custom expiration message
+   *
+   * @example
+   * sendWaitlistOfferExpired('user-202', 's-99', 'Your spot offer has expired.');
+   */
+  public sendWaitlistOfferExpired(
+    targetUserId: string,
+    sessionId: string,
+    message: string,
+  ): void {
+    const userRoom = `user:${targetUserId}`;
+    const eventName = 'WAITLIST_OFFER_EXPIRED';
+    const payload = {
+      message,
+      session_id: sessionId,
+    };
+    this.server.to(userRoom).emit(eventName, payload);
+    this.logger.log(`Sent offer expiration notification to user ${targetUserId}`);
   }
 }

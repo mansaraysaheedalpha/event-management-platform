@@ -1,9 +1,12 @@
 # app/api/v1/endpoints/ads.py
 from typing import List, Optional
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks, Header, Query
 from sqlalchemy.orm import Session
-from redis import Redis
+import redis
+import logging
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.api import deps
 from app.db.session import get_db
@@ -16,8 +19,13 @@ from app.schemas.ad import (
     AdAnalyticsResponse, EventAdAnalyticsResponse
 )
 from app.schemas.token import TokenPayload
+from app.utils.security import anonymize_ip
 
 router = APIRouter(tags=["Ads"])
+logger = logging.getLogger(__name__)
+
+# Rate limiter for public endpoints
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ==================== Ad Management Endpoints ====================
@@ -127,14 +135,16 @@ def archive_ad(
 # ==================== Ad Serving Endpoint ====================
 
 @router.get("/serve", response_model=List[AdResponse])
+@limiter.limit("100/minute")  # Rate limit: 100 requests per minute per IP
 def serve_ads(
+    request: Request,  # Required for rate limiting
     event_id: str,
     placement: str,
     session_id: Optional[str] = None,
-    limit: int = 3,
+    limit: int = Query(default=3, ge=1, le=100, description="Maximum number of ads to return (1-100)"),
     session_token: Optional[str] = Header(None, alias="X-Session-Token"),
     db: Session = Depends(get_db),
-    redis_client: Redis = Depends(deps.get_redis),
+    redis_client: redis.Redis = Depends(deps.get_redis),
     current_user: Optional[TokenPayload] = Depends(deps.get_current_user_optional),
 ):
     """
@@ -172,8 +182,9 @@ def serve_ads(
 
                 if impression_count < ad.frequency_cap:
                     filtered_ads.append(ad)
-            except Exception:
+            except Exception as e:
                 # If Redis fails, include the ad (fail open)
+                logger.warning(f"Redis error in frequency capping for ad {ad.id}: {e}")
                 filtered_ads.append(ad)
 
         ads = filtered_ads
@@ -187,13 +198,14 @@ def serve_ads(
 # ==================== Ad Tracking Endpoints ====================
 
 @router.post("/track/impressions", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("1000/minute")  # Rate limit: 1000 impressions per minute per IP (high for batch tracking)
 def track_impressions(
     batch: BatchImpressionDTO,
     request: Request,
     background_tasks: BackgroundTasks,
     session_token: str = Header(..., alias="X-Session-Token"),
     db: Session = Depends(get_db),
-    redis_client: Redis = Depends(deps.get_redis),
+    redis_client: redis.Redis = Depends(deps.get_redis),
     current_user: Optional[TokenPayload] = Depends(deps.get_current_user_optional),
 ):
     """
@@ -214,17 +226,18 @@ def track_impressions(
     """
     user_agent = request.headers.get('user-agent')
     ip_address = request.client.host
+    # Anonymize IP for GDPR compliance
+    anonymized_ip = anonymize_ip(ip_address)
 
     # Process in background
+    # Don't pass db session to background task - it will be closed!
     background_tasks.add_task(
         _process_impressions,
         batch=batch,
         user_id=current_user.user_id if current_user else None,
         session_token=session_token,
         user_agent=user_agent,
-        ip_address=ip_address,
-        db=db,
-        redis_client=redis_client
+        ip_address=anonymized_ip  # Store anonymized IP
     )
 
     return {"status": "accepted", "queued": len(batch.impressions)}
@@ -235,35 +248,53 @@ def _process_impressions(
     user_id: Optional[str],
     session_token: str,
     user_agent: str,
-    ip_address: str,
-    db: Session,
-    redis_client: Redis
+    ip_address: str
 ):
-    """Background task to process impression tracking."""
-    # Track impressions in database
-    ad_event.track_impressions_batch(
-        db,
-        impressions=batch.impressions,
-        user_id=user_id,
-        session_token=session_token,
-        user_agent=user_agent,
-        ip_address=ip_address
-    )
+    """
+    Background task to process impression tracking.
+    Creates its own DB session and Redis client to avoid using closed connections.
+    """
+    from app.db.session import SessionLocal
 
-    # Update Redis frequency counters
-    for imp in batch.impressions:
-        # Only count viewable impressions for frequency capping
-        if imp.viewport_percentage >= 50 and imp.viewable_duration_ms >= 1000:
-            key = f"ad_frequency:{session_token}:{imp.ad_id}"
-            try:
-                redis_client.incr(key)
-                redis_client.expire(key, 3600)  # 1 hour TTL
-            except Exception:
-                # Fail silently if Redis is unavailable
-                pass
+    db = SessionLocal()
+    redis_client = redis.Redis(connection_pool=deps.redis_pool)
+
+    try:
+        # Track impressions in database
+        ad_event.track_impressions_batch(
+            db,
+            impressions=batch.impressions,
+            user_id=user_id,
+            session_token=session_token,
+            user_agent=user_agent,
+            ip_address=ip_address
+        )
+
+        # Update Redis frequency counters using pipeline for atomicity
+        for imp in batch.impressions:
+            # Only count viewable impressions for frequency capping
+            if imp.viewport_percentage >= 50 and imp.viewable_duration_ms >= 1000:
+                key = f"ad_frequency:{session_token}:{imp.ad_id}"
+                try:
+                    # Use pipeline for atomic incr + expire
+                    pipe = redis_client.pipeline()
+                    pipe.incr(key)
+                    pipe.expire(key, 3600)  # 1 hour TTL
+                    pipe.execute()
+                except Exception as e:
+                    # Fail silently if Redis is unavailable
+                    logger.warning(f"Redis error updating frequency cap for ad {imp.ad_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error processing impressions batch: {e}")
+        db.rollback()
+    finally:
+        db.close()
+        redis_client.close()
 
 
 @router.post("/track/click/{ad_id}", response_model=ClickTrackingResponse)
+@limiter.limit("100/minute")  # Rate limit: 100 clicks per minute per IP
 def track_click(
     ad_id: str,
     request: Request,
@@ -294,6 +325,8 @@ def track_click(
     user_agent = request.headers.get('user-agent')
     ip_address = request.client.host
     referer = request.headers.get('referer')
+    # Anonymize IP for GDPR compliance
+    anonymized_ip = anonymize_ip(ip_address)
 
     ad_event.track_click(
         db,
@@ -302,7 +335,7 @@ def track_click(
         session_token=session_token,
         context=context,
         user_agent=user_agent,
-        ip_address=ip_address,
+        ip_address=anonymized_ip,  # Store anonymized IP
         referer=referer
     )
 

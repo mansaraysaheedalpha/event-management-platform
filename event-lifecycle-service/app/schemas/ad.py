@@ -94,7 +94,7 @@ class ImpressionTrackingDTO(BaseModel):
 
 
 class BatchImpressionDTO(BaseModel):
-    impressions: List[ImpressionTrackingDTO]
+    impressions: List[ImpressionTrackingDTO] = Field(..., min_length=1, max_length=100, description="Batch of impressions (max 100 per request)")
 
 
 class ClickTrackingResponse(BaseModel):

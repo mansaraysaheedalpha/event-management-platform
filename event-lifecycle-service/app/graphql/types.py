@@ -471,6 +471,15 @@ class AdType:
 
 
 @strawberry.type
+class InventoryStatusType:
+    """Inventory status for an offer."""
+    total: Optional[int]  # null = unlimited
+    available: int
+    sold: int
+    reserved: int
+
+
+@strawberry.type
 class OfferType:
     id: str
     organization_id: str
@@ -484,3 +493,51 @@ class OfferType:
     image_url: Optional[str]
     expires_at: Optional[datetime]
     is_archived: bool
+
+    # Inventory
+    @strawberry.field
+    def inventory(self, root) -> InventoryStatusType:
+        """Returns inventory status."""
+        inv = root.get("inventory") if isinstance(root, dict) else getattr(root, "inventory", None)
+        if inv:
+            return InventoryStatusType(
+                total=inv.get("total") if isinstance(inv, dict) else getattr(inv, "total", None),
+                available=inv.get("available", 0) if isinstance(inv, dict) else getattr(inv, "available", 0),
+                sold=inv.get("sold", 0) if isinstance(inv, dict) else getattr(inv, "sold", 0),
+                reserved=inv.get("reserved", 0) if isinstance(inv, dict) else getattr(inv, "reserved", 0)
+            )
+        return InventoryStatusType(total=None, available=0, sold=0, reserved=0)
+
+    # Targeting & Placement
+    @strawberry.field
+    def placement(self, root) -> str:
+        """Placement type for the offer."""
+        return root.get("placement", "IN_EVENT") if isinstance(root, dict) else getattr(root, "placement", "IN_EVENT")
+
+    @strawberry.field
+    def targetSessions(self, root) -> typing.List[str]:
+        """Target session IDs."""
+        return root.get("target_sessions", []) if isinstance(root, dict) else getattr(root, "target_sessions", [])
+
+    @strawberry.field
+    def targetTicketTiers(self, root) -> typing.List[str]:
+        """Target ticket tier IDs."""
+        return root.get("target_ticket_tiers", []) if isinstance(root, dict) else getattr(root, "target_ticket_tiers", [])
+
+    # Stripe
+    @strawberry.field
+    def stripePriceId(self, root) -> Optional[str]:
+        """Stripe price ID for payment integration."""
+        return root.get("stripe_price_id") if isinstance(root, dict) else getattr(root, "stripe_price_id", None)
+
+    # Scheduling
+    @strawberry.field
+    def startsAt(self, root) -> Optional[datetime]:
+        """Offer start time."""
+        return root.get("starts_at") if isinstance(root, dict) else getattr(root, "starts_at", None)
+
+    # Status
+    @strawberry.field
+    def isActive(self, root) -> bool:
+        """Whether the offer is active."""
+        return root.get("is_active", False) if isinstance(root, dict) else getattr(root, "is_active", False)

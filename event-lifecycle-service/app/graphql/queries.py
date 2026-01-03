@@ -747,9 +747,69 @@ class Query:
 
     @strawberry.field
     def eventOffers(self, eventId: strawberry.ID, info: Info) -> typing.List[OfferType]:
-        """Get all upsell offers for a specific event."""
+        """Get all upsell offers for a specific event (organizer only)."""
         db = info.context.db
         user = info.context.user
         if not user or not user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
         return crud.offer.get_multi_by_event(db, event_id=str(eventId))
+
+    @strawberry.field
+    def activeOffers(
+        self,
+        eventId: strawberry.ID,
+        info: Info,
+        sessionId: typing.Optional[strawberry.ID] = None,
+        placement: typing.Optional[str] = None
+    ) -> typing.List[OfferType]:
+        """
+        Get active offers for an event (attendee/public view).
+        Returns only offers that are:
+        - Active and not archived
+        - Within their start/expiration window
+        - Have available inventory
+        - Match targeting rules (if sessionId provided)
+        """
+        db = info.context.db
+        user = info.context.user
+
+        # Require authentication for viewing offers
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Verify event exists and is accessible
+        event = crud.event.get(db, id=str(eventId))
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Check if user has access to this event (either public or registered)
+        can_access = False
+        if event.is_public and not event.is_archived:
+            can_access = True
+        else:
+            # Check if user is registered
+            from ..models.registration import Registration
+            registration = (
+                db.query(Registration)
+                .filter(
+                    Registration.event_id == str(eventId),
+                    Registration.user_id == user["sub"],
+                    Registration.is_archived == "false",
+                    Registration.status != "cancelled",
+                )
+                .first()
+            )
+            if registration:
+                can_access = True
+
+        if not can_access:
+            raise HTTPException(status_code=403, detail="Not authorized to view this event's offers")
+
+        # Get active offers
+        session_id_str = str(sessionId) if sessionId else None
+        return crud.offer.get_active_offers(
+            db,
+            event_id=str(eventId),
+            placement=placement,
+            session_id=session_id_str
+        )

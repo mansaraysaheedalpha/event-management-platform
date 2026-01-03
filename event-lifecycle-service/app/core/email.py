@@ -258,3 +258,113 @@ def send_giveaway_winner_email(
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send giveaway email to {to_email}: {e}")
         return {"success": False, "error": str(e)}
+
+
+def send_waitlist_offer_email(
+    to_email: str,
+    user_name: str,
+    session_title: str,
+    event_name: str,
+    offer_expires_at: str,
+    accept_url: str,
+    position: int = None,
+) -> dict:
+    """
+    Send a waitlist spot offer notification email.
+
+    Args:
+        to_email: User's email address
+        user_name: Name of the user
+        session_title: Title of the session
+        event_name: Name of the event
+        offer_expires_at: When the offer expires (formatted string)
+        accept_url: URL to accept the offer
+        position: Optional - user's position in queue
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    position_text = f"<p style='color: #666; margin: 10px 0;'>You were #{position} in the waitlist queue</p>" if position else ""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0; font-size: 32px; }}
+            .header .emoji {{ font-size: 48px; margin-bottom: 10px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .offer-box {{ background: white; border: 3px solid #11998e; padding: 25px; text-align: center; margin: 25px 0; border-radius: 12px; }}
+            .timer {{ font-size: 18px; color: #e74c3c; font-weight: bold; margin: 15px 0; }}
+            .session-details {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #11998e; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 18px; margin: 20px 0; }}
+            .cta-button:hover {{ opacity: 0.9; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+            .urgent {{ background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="emoji">🎉</div>
+                <h1>A Spot Opened Up!</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">You have a limited-time offer</p>
+            </div>
+            <div class="content">
+                <p>Hi {user_name},</p>
+                <p>Great news! A spot has become available for the session you were waiting for.</p>
+
+                <div class="session-details">
+                    <h3 style="margin: 0 0 10px 0; color: #11998e;">📅 Session Details</h3>
+                    <p style="margin: 5px 0;"><strong>Session:</strong> {session_title}</p>
+                    <p style="margin: 5px 0;"><strong>Event:</strong> {event_name}</p>
+                    {position_text}
+                </div>
+
+                <div class="urgent">
+                    <p style="margin: 0; font-weight: bold;">⏰ Act Fast!</p>
+                    <div class="timer">Offer expires: {offer_expires_at}</div>
+                    <p style="margin: 5px 0 0 0; font-size: 14px;">You have limited time to accept this offer before it goes to the next person in line.</p>
+                </div>
+
+                <div class="offer-box">
+                    <p style="margin: 0 0 20px 0; font-size: 18px;">Ready to claim your spot?</p>
+                    <a href="{accept_url}" class="cta-button">Accept Offer Now</a>
+                    <p style="margin: 20px 0 0 0; font-size: 12px; color: #888;">Or copy this link: <br><a href="{accept_url}" style="color: #11998e; word-break: break-all;">{accept_url}</a></p>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">If you don't want this spot, you can ignore this email and it will be offered to the next person in line.</p>
+
+                <p>Best regards,<br>The Event Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by GlobalConnect Event Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    subject = f"🎉 Your Waitlist Spot is Ready: {session_title}"
+
+    params = {
+        "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Waitlist offer sent to {to_email} for session: {session_title}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send waitlist offer email to {to_email}: {e}")
+        return {"success": False, "error": str(e)}
