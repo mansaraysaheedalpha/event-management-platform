@@ -12,6 +12,8 @@ from app.core.redis_client import RedisClient
 from app.collectors.session_tracker import SessionTracker, session_tracker
 from app.utils.engagement_score import EngagementScoreCalculator, EngagementSignals, engagement_calculator
 from app.agents.anomaly_detector import AnomalyDetector, anomaly_detector
+from app.agents.intervention_selector import intervention_selector
+from app.agents.intervention_executor import InterventionExecutor
 from app.db.timescale import AsyncSessionLocal
 from app.db.models import EngagementMetric
 from app.models.anomaly import Anomaly
@@ -52,6 +54,7 @@ class EngagementSignalCollector:
         self.tracker = tracker or session_tracker
         self.calculator = calculator or engagement_calculator
         self.calculation_interval = calculation_interval
+        self.intervention_executor = InterventionExecutor(redis_client)
         self.running = False
         self.tasks = []
 
@@ -402,6 +405,9 @@ class EngagementSignalCollector:
             # Publish anomaly to Redis for frontend
             await self._publish_anomaly_event(anomaly_event)
 
+            # Trigger intervention based on anomaly
+            await self._trigger_intervention(anomaly_event, signals)
+
         except Exception as e:
             logger.error(f"Failed to detect/store anomaly: {e}", exc_info=True)
 
@@ -438,6 +444,71 @@ class EngagementSignalCollector:
 
         except Exception as e:
             logger.error(f"Failed to publish anomaly event: {e}")
+
+    async def _trigger_intervention(self, anomaly_event, signals):
+        """
+        Trigger intervention based on detected anomaly.
+
+        Args:
+            anomaly_event: Detected anomaly
+            signals: Current engagement signals
+        """
+        try:
+            # Get session context
+            session_state = self.tracker.get_session_state(anomaly_event.session_id)
+            session_context = {
+                'session_id': anomaly_event.session_id,
+                'event_id': anomaly_event.event_id,
+                'duration': (datetime.utcnow() - session_state.last_activity).total_seconds() if session_state else 0,
+                'connected_users': len(session_state.connected_users) if session_state else 0,
+                'signals': signals
+            }
+
+            # Get intervention recommendation
+            recommendation = intervention_selector.select_intervention(
+                anomaly=anomaly_event,
+                session_context=session_context
+            )
+
+            if not recommendation:
+                logger.info(
+                    f"No intervention recommended for {anomaly_event.session_id[:8]}... "
+                    f"({anomaly_event.anomaly_type})"
+                )
+                return
+
+            logger.info(
+                f"🎯 Intervention recommended: {recommendation.intervention_type} "
+                f"(confidence: {recommendation.confidence:.2f}, priority: {recommendation.priority})"
+            )
+
+            # Execute intervention
+            async with AsyncSessionLocal() as db:
+                result = await self.intervention_executor.execute(
+                    recommendation=recommendation,
+                    db_session=db,
+                    session_context=session_context
+                )
+
+                if result['success']:
+                    # Record intervention was used
+                    intervention_selector.record_intervention(
+                        session_id=anomaly_event.session_id,
+                        intervention_type=recommendation.intervention_type,
+                        recommendation=recommendation
+                    )
+
+                    logger.info(
+                        f"✅ Intervention executed successfully: {recommendation.intervention_type} "
+                        f"(ID: {result.get('intervention_id', 'unknown')[:8]}...)"
+                    )
+                else:
+                    logger.error(
+                        f"❌ Intervention execution failed: {result.get('error', 'unknown error')}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to trigger intervention: {e}", exc_info=True)
 
     async def _cleanup_loop(self):
         """Background loop that cleans up inactive sessions"""

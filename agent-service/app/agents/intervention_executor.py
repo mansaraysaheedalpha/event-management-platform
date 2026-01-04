@@ -1,0 +1,497 @@
+"""
+Intervention Executor
+Executes interventions and tracks their outcomes
+"""
+import logging
+import json
+from typing import Dict, Any, Optional
+from datetime import datetime
+from sqlalchemy.ext.asyncio import AsyncSession
+import uuid
+
+from app.agents.intervention_selector import InterventionRecommendation
+from app.agents.poll_intervention_strategy import poll_strategy, PollQuestion
+from app.db.models import Intervention
+from app.core.redis_client import RedisClient
+
+logger = logging.getLogger(__name__)
+
+
+class InterventionExecutor:
+    """
+    Executes interventions and tracks their outcomes.
+
+    Phase 3 (Manual Mode): Publishes intervention requests to Redis
+    Phase 4 (Full Integration): Direct integration with platform services
+    """
+
+    def __init__(self, redis_client: RedisClient):
+        """
+        Initialize intervention executor.
+
+        Args:
+            redis_client: Redis client for publishing interventions
+        """
+        self.redis = redis_client
+        self.logger = logging.getLogger(__name__)
+        self.pending_interventions: Dict[str, Dict] = {}  # Track pending interventions
+
+    async def execute(
+        self,
+        recommendation: InterventionRecommendation,
+        db_session: AsyncSession,
+        session_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute an intervention recommendation.
+
+        Args:
+            recommendation: The intervention to execute
+            db_session: Database session for storing intervention
+            session_context: Additional session context
+
+        Returns:
+            Execution result dictionary
+        """
+        self.logger.info(
+            f"🎬 Executing {recommendation.intervention_type} intervention "
+            f"for session {recommendation.context['session_id'][:8]}..."
+        )
+
+        # Route to appropriate executor
+        if recommendation.intervention_type == 'POLL':
+            result = await self._execute_poll(recommendation, db_session, session_context)
+        elif recommendation.intervention_type == 'CHAT_PROMPT':
+            result = await self._execute_chat_prompt(recommendation, db_session)
+        elif recommendation.intervention_type == 'NOTIFICATION':
+            result = await self._execute_notification(recommendation, db_session)
+        elif recommendation.intervention_type == 'GAMIFICATION':
+            result = await self._execute_gamification(recommendation, db_session)
+        else:
+            self.logger.error(f"Unknown intervention type: {recommendation.intervention_type}")
+            result = {
+                'success': False,
+                'error': f'Unknown intervention type: {recommendation.intervention_type}'
+            }
+
+        return result
+
+    async def _execute_poll(
+        self,
+        recommendation: InterventionRecommendation,
+        db_session: AsyncSession,
+        session_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute a poll intervention.
+
+        Args:
+            recommendation: Intervention recommendation
+            db_session: Database session
+            session_context: Additional session context
+
+        Returns:
+            Execution result
+        """
+        try:
+            session_id = recommendation.context['session_id']
+            event_id = recommendation.context['event_id']
+            poll_type = recommendation.context.get('poll_type', 'quick_pulse')
+
+            # Generate poll question
+            poll = poll_strategy.generate_poll(
+                session_id=session_id,
+                event_id=event_id,
+                poll_type=poll_type,
+                context=recommendation.context
+            )
+
+            if not poll:
+                return {
+                    'success': False,
+                    'error': 'Failed to generate poll question'
+                }
+
+            # Create intervention record
+            intervention_id = str(uuid.uuid4())
+            intervention = Intervention(
+                id=uuid.UUID(intervention_id),
+                session_id=uuid.UUID(session_id),
+                timestamp=datetime.utcnow(),
+                type='POLL',
+                confidence=recommendation.confidence,
+                reasoning=recommendation.reason,
+                metadata={
+                    'poll_question': poll.question,
+                    'poll_options': poll.options,
+                    'poll_duration': poll.duration,
+                    'poll_type': poll.poll_type,
+                    'estimated_impact': recommendation.estimated_impact,
+                    'priority': recommendation.priority,
+                    'timing': recommendation.context.get('timing', 'IMMEDIATE')
+                }
+            )
+
+            db_session.add(intervention)
+            await db_session.commit()
+
+            # Publish poll intervention to Redis
+            # Real-time service will pick this up and create the poll
+            await self._publish_poll_intervention(
+                intervention_id=intervention_id,
+                session_id=session_id,
+                event_id=event_id,
+                poll=poll,
+                recommendation=recommendation
+            )
+
+            # Track as pending
+            self.pending_interventions[intervention_id] = {
+                'type': 'POLL',
+                'session_id': session_id,
+                'timestamp': datetime.utcnow(),
+                'recommendation': recommendation
+            }
+
+            self.logger.info(
+                f"✅ Poll intervention executed: '{poll.question[:50]}...' "
+                f"(ID: {intervention_id[:8]}...)"
+            )
+
+            return {
+                'success': True,
+                'intervention_id': intervention_id,
+                'poll': {
+                    'question': poll.question,
+                    'options': poll.options,
+                    'duration': poll.duration
+                }
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to execute poll intervention: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    async def _execute_chat_prompt(
+        self,
+        recommendation: InterventionRecommendation,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        Execute a chat prompt intervention.
+
+        Args:
+            recommendation: Intervention recommendation
+            db_session: Database session
+
+        Returns:
+            Execution result
+        """
+        try:
+            session_id = recommendation.context['session_id']
+            event_id = recommendation.context['event_id']
+            prompt_type = recommendation.context.get('prompt_type', 'discussion_starter')
+
+            # Generate chat prompt based on type
+            prompts = {
+                'discussion_starter': [
+                    "💡 Quick question: What's the most interesting thing you've learned so far?",
+                    "💬 Let's discuss: What challenges are you facing with this topic?",
+                    "🤔 Share your thoughts: How would you apply this in your work?",
+                    "✨ What questions do you have about what we just covered?"
+                ],
+                'engagement_boost': [
+                    "👋 Everyone still with us? Drop a reaction if you're following along!",
+                    "🎯 Quick pulse check: Are you finding this valuable?",
+                    "💪 Let's keep the energy up! Any questions so far?"
+                ]
+            }
+
+            import random
+            prompt_text = random.choice(prompts.get(prompt_type, prompts['discussion_starter']))
+
+            # Create intervention record
+            intervention_id = str(uuid.uuid4())
+            intervention = Intervention(
+                id=uuid.UUID(intervention_id),
+                session_id=uuid.UUID(session_id),
+                timestamp=datetime.utcnow(),
+                type='CHAT_PROMPT',
+                confidence=recommendation.confidence,
+                reasoning=recommendation.reason,
+                metadata={
+                    'prompt': prompt_text,
+                    'prompt_type': prompt_type,
+                    'estimated_impact': recommendation.estimated_impact,
+                    'priority': recommendation.priority
+                }
+            )
+
+            db_session.add(intervention)
+            await db_session.commit()
+
+            # Publish chat prompt to Redis
+            await self._publish_chat_intervention(
+                intervention_id=intervention_id,
+                session_id=session_id,
+                event_id=event_id,
+                prompt=prompt_text
+            )
+
+            self.logger.info(f"✅ Chat prompt intervention executed: '{prompt_text[:50]}...'")
+
+            return {
+                'success': True,
+                'intervention_id': intervention_id,
+                'prompt': prompt_text
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to execute chat prompt: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    async def _execute_notification(
+        self,
+        recommendation: InterventionRecommendation,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        Execute a notification intervention.
+
+        Args:
+            recommendation: Intervention recommendation
+            db_session: Database session
+
+        Returns:
+            Execution result
+        """
+        try:
+            session_id = recommendation.context['session_id']
+            event_id = recommendation.context['event_id']
+            notification_type = recommendation.context.get('notification_type', 'disengagement_nudge')
+
+            # Create intervention record
+            intervention_id = str(uuid.uuid4())
+            intervention = Intervention(
+                id=uuid.UUID(intervention_id),
+                session_id=uuid.UUID(session_id),
+                timestamp=datetime.utcnow(),
+                type='NOTIFICATION',
+                confidence=recommendation.confidence,
+                reasoning=recommendation.reason,
+                metadata={
+                    'notification_type': notification_type,
+                    'target': recommendation.context.get('target', 'inactive_users'),
+                    'escalate': recommendation.context.get('escalate', False),
+                    'estimated_impact': recommendation.estimated_impact,
+                    'priority': recommendation.priority
+                }
+            )
+
+            db_session.add(intervention)
+            await db_session.commit()
+
+            # Publish notification request
+            await self._publish_notification_intervention(
+                intervention_id=intervention_id,
+                session_id=session_id,
+                event_id=event_id,
+                notification_type=notification_type,
+                target=recommendation.context.get('target'),
+                escalate=recommendation.context.get('escalate', False)
+            )
+
+            self.logger.info(
+                f"✅ Notification intervention executed: {notification_type} "
+                f"(target: {recommendation.context.get('target')})"
+            )
+
+            return {
+                'success': True,
+                'intervention_id': intervention_id,
+                'notification_type': notification_type
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to execute notification: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    async def _execute_gamification(
+        self,
+        recommendation: InterventionRecommendation,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        Execute a gamification intervention.
+
+        Args:
+            recommendation: Intervention recommendation
+            db_session: Database session
+
+        Returns:
+            Execution result
+        """
+        try:
+            session_id = recommendation.context['session_id']
+            event_id = recommendation.context['event_id']
+            gamification_type = recommendation.context.get('gamification_type', 'achievement_unlock')
+
+            # Create intervention record
+            intervention_id = str(uuid.uuid4())
+            intervention = Intervention(
+                id=uuid.UUID(intervention_id),
+                session_id=uuid.UUID(session_id),
+                timestamp=datetime.utcnow(),
+                type='GAMIFICATION',
+                confidence=recommendation.confidence,
+                reasoning=recommendation.reason,
+                metadata={
+                    'gamification_type': gamification_type,
+                    'estimated_impact': recommendation.estimated_impact,
+                    'priority': recommendation.priority
+                }
+            )
+
+            db_session.add(intervention)
+            await db_session.commit()
+
+            self.logger.info(f"✅ Gamification intervention executed: {gamification_type}")
+
+            return {
+                'success': True,
+                'intervention_id': intervention_id,
+                'gamification_type': gamification_type
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to execute gamification: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    async def _publish_poll_intervention(
+        self,
+        intervention_id: str,
+        session_id: str,
+        event_id: str,
+        poll: PollQuestion,
+        recommendation: InterventionRecommendation
+    ):
+        """Publish poll intervention to Redis for real-time service to execute"""
+        message = {
+            'type': 'agent.intervention.poll',
+            'intervention_id': intervention_id,
+            'session_id': session_id,
+            'event_id': event_id,
+            'timestamp': datetime.utcnow().isoformat(),
+            'poll': {
+                'question': poll.question,
+                'options': poll.options,
+                'type': poll.poll_type,
+                'duration': poll.duration
+            },
+            'metadata': {
+                'reason': recommendation.reason,
+                'confidence': recommendation.confidence,
+                'priority': recommendation.priority,
+                'estimated_impact': recommendation.estimated_impact
+            }
+        }
+
+        await self.redis.publish('agent.interventions', json.dumps(message))
+        self.logger.info(f"📤 Published poll intervention to Redis: {intervention_id[:8]}...")
+
+    async def _publish_chat_intervention(
+        self,
+        intervention_id: str,
+        session_id: str,
+        event_id: str,
+        prompt: str
+    ):
+        """Publish chat prompt intervention to Redis"""
+        message = {
+            'type': 'agent.intervention.chat',
+            'intervention_id': intervention_id,
+            'session_id': session_id,
+            'event_id': event_id,
+            'timestamp': datetime.utcnow().isoformat(),
+            'prompt': prompt
+        }
+
+        await self.redis.publish('agent.interventions', json.dumps(message))
+        self.logger.info(f"📤 Published chat intervention to Redis: {intervention_id[:8]}...")
+
+    async def _publish_notification_intervention(
+        self,
+        intervention_id: str,
+        session_id: str,
+        event_id: str,
+        notification_type: str,
+        target: Optional[str],
+        escalate: bool
+    ):
+        """Publish notification intervention to Redis"""
+        message = {
+            'type': 'agent.intervention.notification',
+            'intervention_id': intervention_id,
+            'session_id': session_id,
+            'event_id': event_id,
+            'timestamp': datetime.utcnow().isoformat(),
+            'notification_type': notification_type,
+            'target': target,
+            'escalate': escalate
+        }
+
+        await self.redis.publish('agent.interventions', json.dumps(message))
+        self.logger.info(f"📤 Published notification intervention to Redis: {intervention_id[:8]}...")
+
+    async def record_outcome(
+        self,
+        intervention_id: str,
+        outcome: Dict[str, Any],
+        db_session: AsyncSession
+    ):
+        """
+        Record the outcome of an intervention.
+
+        Args:
+            intervention_id: ID of the intervention
+            outcome: Outcome data (success, engagement_delta, etc.)
+            db_session: Database session
+        """
+        try:
+            # Fetch intervention from database
+            from sqlalchemy import select
+            stmt = select(Intervention).where(Intervention.id == uuid.UUID(intervention_id))
+            result = await db_session.execute(stmt)
+            intervention = result.scalar_one_or_none()
+
+            if not intervention:
+                self.logger.warning(f"Intervention not found: {intervention_id}")
+                return
+
+            # Update outcome
+            intervention.outcome = outcome
+            await db_session.commit()
+
+            # Remove from pending
+            if intervention_id in self.pending_interventions:
+                del self.pending_interventions[intervention_id]
+
+            self.logger.info(
+                f"✅ Intervention outcome recorded: {intervention_id[:8]}... - "
+                f"Success: {outcome.get('success', False)}"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Failed to record intervention outcome: {e}", exc_info=True)

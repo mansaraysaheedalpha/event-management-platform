@@ -67,6 +67,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Include routers
+from app.api.v1 import interventions
+app.include_router(interventions.router, prefix="/api/v1")
+
 
 @app.get("/")
 async def root():
