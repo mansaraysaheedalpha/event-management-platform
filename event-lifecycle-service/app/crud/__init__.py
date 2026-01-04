@@ -12,6 +12,8 @@ from .crud_session import session
 from .crud_speaker import speaker
 from .crud_venue import venue
 from .crud_waitlist import waitlist
+from .crud_session_capacity import session_capacity_crud
+from .crud_waitlist_analytics import waitlist_analytics_crud
 
 # Payment-related CRUD operations
 from .crud_ticket_type import ticket_type

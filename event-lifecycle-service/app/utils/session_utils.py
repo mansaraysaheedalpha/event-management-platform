@@ -31,15 +31,16 @@ def check_session_capacity(
         Dictionary with:
         - is_full: bool - Whether session is at capacity
         - current: int - Current number of attendees
-        - capacity: Optional[int] - Maximum capacity (None if unlimited)
+        - capacity: int - Maximum capacity (default: 100)
         - available: int - Available spots (0 if full)
 
     Implementation:
-    - Uses a default capacity of 100 per session
-    - Counts accepted waitlist offers as current attendees
-    - Can be extended to use venue capacity or session-specific capacity field
+    - Uses database-backed session_capacity table
+    - Falls back to default capacity of 100 if not configured
+    - Tracks current attendance in the capacity table
     """
     from app.models.session import Session as SessionModel
+    from app.crud.crud_session_capacity import session_capacity_crud
 
     # Get session
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
@@ -49,16 +50,11 @@ def check_session_capacity(
             detail="Session not found"
         )
 
-    # Get capacity
-    # Option 1: Default capacity (simple, works out of the box)
-    capacity = 100  # Default session capacity
+    # Get or create capacity entry (defaults to 100 if not set)
+    capacity_obj = session_capacity_crud.get_or_create(db, session_id, default_capacity=100)
 
-    # Option 2: Venue capacity (if you want to use venue limits)
-    # if session.event and session.event.venue and hasattr(session.event.venue, 'capacity'):
-    #     capacity = session.event.venue.capacity
-
-    # Count current attendees
-    current = count_session_attendees(db, session_id)
+    capacity = capacity_obj.maximum_capacity
+    current = capacity_obj.current_attendance
 
     # Calculate availability
     is_full = current >= capacity

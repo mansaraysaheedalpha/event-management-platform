@@ -48,7 +48,15 @@
       "Bash(python:*)",
       "Bash(ENV=local python:*)",
       "Bash(pip install:*)",
-      "Bash(alembic current:*)"
+      "Bash(alembic current:*)",
+      "Bash(alembic upgrade:*)",
+      "Bash(venvScriptspython.exe -m pip install --upgrade pip)",
+      "Bash(./venv/Scripts/python.exe -m pip:*)",
+      "Bash(./venv/Scripts/pip.exe install:*)",
+      "Bash(./venv/Scripts/python.exe --version)",
+      "Bash(python3.12 -m venv:*)",
+      "Bash(where:*)",
+      "Bash(py -3.12:*)"
     ],
     "deny": [],
     "ask": []
