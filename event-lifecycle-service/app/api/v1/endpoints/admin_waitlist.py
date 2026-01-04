@@ -9,7 +9,7 @@ These endpoints allow organizers/admins to:
 - View waitlist analytics
 """
 
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 import redis
@@ -61,6 +61,51 @@ class WaitlistStatsResponse(BaseModel):
     total_expired: int
     total_left: int
     by_priority: dict = Field(default_factory=dict, description="Breakdown by priority tier")
+
+
+class BulkSendOffersRequest(BaseModel):
+    """Request to bulk send offers"""
+    count: int = Field(..., ge=1, le=100, description="Number of offers to send (1-100)")
+    expires_minutes: int = Field(default=5, ge=1, le=60, description="Offer expiry in minutes")
+
+
+class BulkSendOffersResponse(BaseModel):
+    """Response for bulk send offers"""
+    success: bool
+    offers_sent: int
+    message: str
+
+
+class UpdateCapacityRequest(BaseModel):
+    """Request to update session capacity"""
+    capacity: int = Field(..., ge=0, description="New maximum capacity")
+
+
+class UpdateCapacityResponse(BaseModel):
+    """Response for capacity update"""
+    session_id: str
+    maximum_capacity: int
+    current_attendance: int
+    available_spots: int
+    is_available: bool
+    offers_automatically_sent: int = Field(default=0, description="Number of offers auto-sent if capacity increased")
+
+
+class EventAnalyticsResponse(BaseModel):
+    """Comprehensive event waitlist analytics"""
+    event_id: str
+    total_waitlist_entries: float
+    active_waitlist_count: float
+    total_offers_issued: float
+    total_offers_accepted: float
+    total_offers_declined: float
+    total_offers_expired: float
+    acceptance_rate: float
+    decline_rate: float
+    expiry_rate: float
+    conversion_rate: float
+    average_wait_time_minutes: float
+    cached_at: Optional[str] = None
 
 
 # ==================== Helper Functions ====================
@@ -545,3 +590,383 @@ def admin_list_waitlist_entries(
     )
 
     return [WaitlistEntryResponse.from_orm(entry) for entry in entries]
+
+
+@router.post(
+    "/sessions/{session_id}/waitlist/bulk-send-offers",
+    response_model=BulkSendOffersResponse
+)
+@limiter.limit("5/minute")
+def admin_bulk_send_offers(
+    session_id: str,
+    request: Request,
+    bulk_request: BulkSendOffersRequest,
+    db: Session = Depends(deps.get_db),
+    redis_client: redis.Redis = Depends(deps.get_redis),
+    current_user: TokenPayload = Depends(deps.get_current_user)
+):
+    """
+    **[ADMIN]** Bulk send waitlist offers to multiple users.
+
+    **Authorization**: Requires admin or event organizer role
+
+    **Process**:
+    1. Check available spots
+    2. Get top N waiting users (by priority)
+    3. Generate offer tokens for each
+    4. Update database statuses
+    5. Log events
+    6. Send notifications
+
+    **Validation**:
+    - Cannot send more offers than available spots
+    - Only sends to users with WAITING status
+    - Respects priority tiers (VIP → PREMIUM → STANDARD)
+
+    **Use Cases**:
+    - Capacity increase → send offers to multiple users
+    - Batch processing after cancellations
+    - Fast waitlist clearing
+
+    **Errors**:
+    - 400: Invalid session_id or count exceeds available spots
+    - 403: Not authorized
+    - 404: No waiting users found
+    """
+    # Validate ID
+    validate_session_id(session_id)
+
+    # Check authorization
+    require_admin_or_organizer(current_user, session_id, db)
+
+    # Check available capacity
+    from app.crud.crud_session_capacity import session_capacity_crud
+    capacity_obj = session_capacity_crud.get_or_create(db, session_id, default_capacity=100)
+    available_spots = capacity_obj.maximum_capacity - capacity_obj.current_attendance
+
+    if available_spots <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No available spots in session"
+        )
+
+    # Validate count
+    count = min(bulk_request.count, available_spots)
+    if count != bulk_request.count:
+        logger.warning(
+            f"Requested {bulk_request.count} offers but only {available_spots} spots available. "
+            f"Sending {count} offers."
+        )
+
+    # Get waiting users by priority
+    from app.utils.waitlist import get_next_in_queue
+    offers_sent = 0
+    user_ids_offered = []
+
+    for _ in range(count):
+        # Get next user in queue
+        next_user_id, next_priority = get_next_in_queue(session_id, redis_client)
+
+        if not next_user_id:
+            logger.info(f"No more users in waitlist after sending {offers_sent} offers")
+            break
+
+        # Get user's waitlist entry
+        entry = session_waitlist.get_active_entry(
+            db,
+            session_id=session_id,
+            user_id=next_user_id
+        )
+
+        if not entry or entry.status != 'WAITING':
+            logger.warning(f"User {next_user_id} not in WAITING status, skipping")
+            continue
+
+        # Generate offer token
+        offer_token, expires_at = generate_offer_token(
+            user_id=next_user_id,
+            session_id=session_id,
+            expires_minutes=bulk_request.expires_minutes
+        )
+
+        # Update entry with offer
+        session_waitlist.set_offer(
+            db,
+            entry=entry,
+            offer_token=offer_token,
+            expires_at=expires_at
+        )
+
+        # Log event
+        waitlist_event.log_event(
+            db,
+            waitlist_entry_id=entry.id,
+            event_type='OFFERED',
+            metadata={
+                'offered_by': current_user.user_id,
+                'bulk_offer': True,
+                'expires_minutes': bulk_request.expires_minutes
+            }
+        )
+
+        offers_sent += 1
+        user_ids_offered.append(next_user_id)
+
+        logger.info(f"Bulk offer sent to user {next_user_id} for session {session_id}")
+
+    if offers_sent == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No users in waitlist with WAITING status"
+        )
+
+    # TODO: Send email/push notifications to all offered users
+
+    logger.info(
+        f"Admin {current_user.user_id} bulk sent {offers_sent} waitlist offers "
+        f"for session {session_id}"
+    )
+
+    return BulkSendOffersResponse(
+        success=True,
+        offers_sent=offers_sent,
+        message=f"Successfully sent {offers_sent} offers"
+    )
+
+
+@router.put(
+    "/sessions/{session_id}/capacity",
+    response_model=UpdateCapacityResponse
+)
+@limiter.limit("10/minute")
+def admin_update_session_capacity(
+    session_id: str,
+    request: Request,
+    capacity_request: UpdateCapacityRequest,
+    db: Session = Depends(deps.get_db),
+    redis_client: redis.Redis = Depends(deps.get_redis),
+    current_user: TokenPayload = Depends(deps.get_current_user)
+):
+    """
+    **[ADMIN]** Update session maximum capacity.
+
+    **Authorization**: Requires admin or event organizer role
+
+    **Process**:
+    1. Validate new capacity >= current attendance
+    2. Update capacity in database
+    3. If capacity increased:
+       - Calculate new available spots
+       - Automatically send offers to waitlist (if any)
+
+    **Automatic Offer Sending**:
+    - If new_capacity > old_capacity:
+      - new_spots = new_capacity - current_attendance
+      - Send offers to top N users in waitlist
+
+    **Use Cases**:
+    - Venue upgrade (capacity increase)
+    - Venue downgrade (capacity decrease)
+    - Dynamic capacity management
+
+    **Errors**:
+    - 400: Invalid capacity (less than current attendance)
+    - 403: Not authorized
+    - 404: Session not found
+    """
+    # Validate ID
+    validate_session_id(session_id)
+
+    # Check authorization
+    require_admin_or_organizer(current_user, session_id, db)
+
+    # Get or create capacity entry
+    from app.crud.crud_session_capacity import session_capacity_crud
+    capacity_obj = session_capacity_crud.get_or_create(db, session_id, default_capacity=100)
+
+    old_capacity = capacity_obj.maximum_capacity
+    current_attendance = capacity_obj.current_attendance
+    new_capacity = capacity_request.capacity
+
+    # Validation: cannot set capacity below current attendance
+    if new_capacity < current_attendance:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot set capacity ({new_capacity}) below current attendance ({current_attendance})"
+        )
+
+    # Update capacity
+    updated_capacity = session_capacity_crud.update_maximum_capacity(
+        db,
+        session_id=session_id,
+        new_capacity=new_capacity
+    )
+
+    if not updated_capacity:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update capacity"
+        )
+
+    # Calculate available spots
+    available_spots = new_capacity - current_attendance
+
+    # Automatic offer sending if capacity increased
+    offers_auto_sent = 0
+    if new_capacity > old_capacity and available_spots > 0:
+        logger.info(
+            f"Capacity increased from {old_capacity} to {new_capacity}. "
+            f"Automatically sending {available_spots} offers."
+        )
+
+        # Get waiting users and send offers
+        from app.utils.waitlist import get_next_in_queue
+
+        for _ in range(available_spots):
+            next_user_id, next_priority = get_next_in_queue(session_id, redis_client)
+
+            if not next_user_id:
+                logger.info(f"No more users in waitlist after auto-sending {offers_auto_sent} offers")
+                break
+
+            # Get user's waitlist entry
+            entry = session_waitlist.get_active_entry(
+                db,
+                session_id=session_id,
+                user_id=next_user_id
+            )
+
+            if not entry or entry.status != 'WAITING':
+                continue
+
+            # Generate offer token
+            offer_token, expires_at = generate_offer_token(
+                user_id=next_user_id,
+                session_id=session_id,
+                expires_minutes=5
+            )
+
+            # Update entry with offer
+            session_waitlist.set_offer(
+                db,
+                entry=entry,
+                offer_token=offer_token,
+                expires_at=expires_at
+            )
+
+            # Log event
+            waitlist_event.log_event(
+                db,
+                waitlist_entry_id=entry.id,
+                event_type='OFFERED',
+                metadata={
+                    'offered_by': current_user.user_id,
+                    'auto_offer_on_capacity_increase': True,
+                    'old_capacity': old_capacity,
+                    'new_capacity': new_capacity
+                }
+            )
+
+            offers_auto_sent += 1
+
+        logger.info(
+            f"Automatically sent {offers_auto_sent} offers after capacity increase "
+            f"for session {session_id}"
+        )
+
+    logger.info(
+        f"Admin {current_user.user_id} updated capacity for session {session_id}: "
+        f"{old_capacity} → {new_capacity}. Auto-sent {offers_auto_sent} offers."
+    )
+
+    return UpdateCapacityResponse(
+        session_id=session_id,
+        maximum_capacity=updated_capacity.maximum_capacity,
+        current_attendance=updated_capacity.current_attendance,
+        available_spots=available_spots,
+        is_available=available_spots > 0,
+        offers_automatically_sent=offers_auto_sent
+    )
+
+
+@router.get(
+    "/events/{event_id}/waitlist/analytics",
+    response_model=EventAnalyticsResponse
+)
+@limiter.limit("30/minute")
+def admin_get_event_waitlist_analytics(
+    event_id: str,
+    request: Request,
+    use_cache: bool = True,
+    db: Session = Depends(deps.get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user)
+):
+    """
+    **[ADMIN]** Get comprehensive waitlist analytics for an event.
+
+    **Authorization**: Requires admin or event organizer role
+
+    **Metrics Returned**:
+    - Total waitlist entries across all sessions
+    - Active waitlist count (currently waiting)
+    - Total offers issued/accepted/declined/expired
+    - Acceptance rate (% of offers accepted)
+    - Decline rate (% of offers declined)
+    - Expiry rate (% of offers expired)
+    - Conversion rate (% of waiting users who got accepted)
+    - Average wait time (from join to offer)
+
+    **Query Parameters**:
+    - use_cache: Use cached analytics if available (default: true)
+
+    **Caching**:
+    - Analytics are cached for 10 minutes
+    - Set use_cache=false to force fresh calculation
+
+    **Use Cases**:
+    - Dashboard analytics
+    - Event performance monitoring
+    - Capacity planning
+    - Waitlist optimization
+
+    **Errors**:
+    - 403: Not authorized
+    - 404: Event not found
+    """
+    from app.utils.waitlist_analytics import get_event_analytics
+    from app.models.event import Event as EventModel
+
+    # Verify event exists
+    event = db.query(EventModel).filter(EventModel.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Check authorization
+    user_id = current_user.sub
+    user_org_id = current_user.org_id
+
+    if event.owner_id != user_id and (not user_org_id or event.organization_id != user_org_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view analytics for this event"
+        )
+
+    # Get analytics
+    metrics = get_event_analytics(db, event_id, use_cache=use_cache)
+
+    # Get cache timestamp if using cache
+    cached_at = None
+    if use_cache:
+        from app.crud.crud_waitlist_analytics import waitlist_analytics_crud
+        first_metric = waitlist_analytics_crud.get_metric(db, event_id, 'total_waitlist_entries')
+        if first_metric:
+            cached_at = first_metric.calculated_at.isoformat()
+
+    return EventAnalyticsResponse(
+        event_id=event_id,
+        cached_at=cached_at,
+        **metrics
+    )

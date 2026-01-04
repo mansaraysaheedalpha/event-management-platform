@@ -497,8 +497,18 @@ def accept_waitlist_offer(
         metadata={'token_hash': token_hash}  # Only log hash
     )
 
-    # TODO: Register user for session
-    # TODO: Offer spot to next person in line
+    # ✅ Increment session attendance count
+    from app.crud.crud_session_capacity import session_capacity_crud
+    capacity_result = session_capacity_crud.increment_attendance(db, session_id)
+    if not capacity_result:
+        logger.warning(f"Failed to increment attendance for session {session_id} - session may be full")
+
+    # ✅ Recalculate positions for remaining users
+    updated_count = recalculate_all_positions(session_id, redis_client, db)
+    if updated_count > 0:
+        logger.info(f"Recalculated positions for {updated_count} users after {user_id} accepted offer")
+
+    # TODO: Register user for session (create actual session attendance record)
 
     logger.info(f"User {user_id} accepted waitlist offer for session {session_id}")
 

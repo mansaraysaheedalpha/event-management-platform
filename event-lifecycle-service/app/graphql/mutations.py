@@ -39,6 +39,23 @@ from .ticket_types import (
 )
 from . import payment_mutations
 from . import ticket_mutations
+from .waitlist_types import (
+    WaitlistJoinResponseType,
+    WaitlistLeaveResponseType,
+    WaitlistAcceptOfferResponseType,
+    BulkSendOffersResponseType,
+    UpdateCapacityResponseType,
+    WaitlistEntryType,
+    JoinWaitlistInput,
+    LeaveWaitlistInput,
+    AcceptOfferInput,
+    DeclineOfferInput,
+    RemoveFromWaitlistInput,
+    SendOfferInput,
+    BulkSendOffersInput,
+    UpdateCapacityInput,
+)
+from .waitlist_mutations import WaitlistMutations
 
 
 # --- All Input types defined at the top ---
@@ -1062,3 +1079,69 @@ class Mutation:
         """Transfer a ticket to a new attendee."""
         tm = ticket_mutations.TicketManagementMutations()
         return await tm.transferTicket(info, input)
+
+    # --- WAITLIST MUTATIONS ---
+
+    @strawberry.mutation
+    def join_waitlist(
+        self, input: JoinWaitlistInput, info: Info
+    ) -> WaitlistJoinResponseType:
+        """Join session waitlist."""
+        wm = WaitlistMutations()
+        return wm.join_waitlist(input, info)
+
+    @strawberry.mutation
+    def leave_waitlist(
+        self, input: LeaveWaitlistInput, info: Info
+    ) -> WaitlistLeaveResponseType:
+        """Leave session waitlist."""
+        wm = WaitlistMutations()
+        return wm.leave_waitlist(input, info)
+
+    @strawberry.mutation
+    def accept_waitlist_offer(
+        self, input: AcceptOfferInput, info: Info
+    ) -> WaitlistAcceptOfferResponseType:
+        """Accept waitlist offer using JWT token."""
+        wm = WaitlistMutations()
+        return wm.accept_waitlist_offer(input, info)
+
+    @strawberry.mutation
+    def decline_waitlist_offer(
+        self, input: DeclineOfferInput, info: Info
+    ) -> WaitlistLeaveResponseType:
+        """Decline waitlist offer."""
+        wm = WaitlistMutations()
+        return wm.decline_waitlist_offer(input, info)
+
+    @strawberry.mutation
+    def remove_from_waitlist(
+        self, input: RemoveFromWaitlistInput, info: Info
+    ) -> WaitlistLeaveResponseType:
+        """[ADMIN] Remove a user from waitlist."""
+        wm = WaitlistMutations()
+        return wm.remove_from_waitlist(input, info)
+
+    @strawberry.mutation
+    def send_waitlist_offer(
+        self, input: SendOfferInput, info: Info
+    ) -> WaitlistEntryType:
+        """[ADMIN] Manually send offer to a specific user."""
+        wm = WaitlistMutations()
+        return wm.send_waitlist_offer(input, info)
+
+    @strawberry.mutation
+    def bulk_send_waitlist_offers(
+        self, input: BulkSendOffersInput, info: Info
+    ) -> BulkSendOffersResponseType:
+        """[ADMIN] Bulk send offers to multiple users."""
+        wm = WaitlistMutations()
+        return wm.bulk_send_waitlist_offers(input, info)
+
+    @strawberry.mutation
+    def update_session_capacity(
+        self, input: UpdateCapacityInput, info: Info
+    ) -> UpdateCapacityResponseType:
+        """[ADMIN] Update session maximum capacity."""
+        wm = WaitlistMutations()
+        return wm.update_session_capacity(input, info)

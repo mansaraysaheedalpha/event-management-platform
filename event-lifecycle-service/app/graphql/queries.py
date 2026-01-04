@@ -52,6 +52,14 @@ from .ticket_types import (
 )
 from . import payment_queries
 from . import ticket_queries
+from .waitlist_types import (
+    WaitlistEntryType,
+    WaitlistPositionType,
+    SessionCapacityType,
+    WaitlistStatsType,
+    EventWaitlistAnalyticsType,
+)
+from .waitlist_queries import WaitlistQuery
 
 
 @strawberry.type
@@ -813,3 +821,65 @@ class Query:
             placement=placement,
             session_id=session_id_str
         )
+
+    # --- WAITLIST QUERIES ---
+
+    @strawberry.field
+    def my_waitlist_position(
+        self, session_id: strawberry.ID, info: Info
+    ) -> Optional[WaitlistPositionType]:
+        """Get current user's position in waitlist for a session."""
+        wq = WaitlistQuery()
+        return wq.my_waitlist_position(session_id, info)
+
+    @strawberry.field
+    def my_waitlist_entry(
+        self, session_id: strawberry.ID, info: Info
+    ) -> Optional[WaitlistEntryType]:
+        """Get current user's waitlist entry for a session."""
+        wq = WaitlistQuery()
+        return wq.my_waitlist_entry(session_id, info)
+
+    @strawberry.field
+    def my_waitlist_entries(self, info: Info) -> List[WaitlistEntryType]:
+        """Get all waitlist entries for current user."""
+        wq = WaitlistQuery()
+        return wq.my_waitlist_entries(info)
+
+    @strawberry.field
+    def session_capacity(
+        self, session_id: strawberry.ID, info: Info
+    ) -> SessionCapacityType:
+        """Get capacity information for a session (public)."""
+        wq = WaitlistQuery()
+        return wq.session_capacity(session_id, info)
+
+    @strawberry.field
+    def session_waitlist(
+        self,
+        session_id: strawberry.ID,
+        status_filter: Optional[str] = None,
+        info: Info = None
+    ) -> List[WaitlistEntryType]:
+        """[ADMIN] Get all waitlist entries for a session."""
+        wq = WaitlistQuery()
+        return wq.session_waitlist(session_id, status_filter, info)
+
+    @strawberry.field
+    def session_waitlist_stats(
+        self, session_id: strawberry.ID, info: Info
+    ) -> WaitlistStatsType:
+        """[ADMIN] Get waitlist statistics for a session."""
+        wq = WaitlistQuery()
+        return wq.session_waitlist_stats(session_id, info)
+
+    @strawberry.field
+    def event_waitlist_analytics(
+        self,
+        event_id: strawberry.ID,
+        use_cache: bool = True,
+        info: Info = None
+    ) -> EventWaitlistAnalyticsType:
+        """[ADMIN] Get comprehensive waitlist analytics for an event."""
+        wq = WaitlistQuery()
+        return wq.event_waitlist_analytics(event_id, use_cache, info)

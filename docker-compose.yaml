@@ -10,6 +10,7 @@ volumes:
   postgres-user-org-data:
   postgres-real-time-data:
   postgres-oracle-ai-data:
+  postgres-agent-data:
   minio-data:
   redis-data:
 
@@ -120,6 +121,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  postgres-agent:
+    image: timescale/timescaledb:latest-pg16
+    container_name: postgres-agent
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: agent_db
+    ports:
+      - "5437:5432" # Host port 5437
+    volumes:
+      - postgres-agent-data:/var/lib/postgresql/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d agent_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: redis
