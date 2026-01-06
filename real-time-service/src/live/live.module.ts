@@ -6,6 +6,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { ReactionsModule } from './reactions/reactions.module';
 import { ValidationModule } from './validation/validation.module'; // <-- Import
 import { StreamingModule } from './streaming/streaming.module';
+import { EngagementConductorModule } from './engagement-conductor/engagement-conductor.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { StreamingModule } from './streaming/streaming.module';
     ReactionsModule,
     ValidationModule,
     StreamingModule,
+    EngagementConductorModule,
   ],
   exports: [DashboardModule],
 })

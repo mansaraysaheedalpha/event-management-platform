@@ -7,6 +7,7 @@ import json
 import logging
 from typing import Optional
 from datetime import datetime
+from pydantic import ValidationError
 
 from app.core.redis_client import RedisClient
 from app.collectors.session_tracker import SessionTracker, session_tracker
@@ -17,6 +18,8 @@ from app.agents.intervention_executor import InterventionExecutor
 from app.db.timescale import AsyncSessionLocal
 from app.db.models import EngagementMetric
 from app.models.anomaly import Anomaly
+from app.models.redis_events import ChatMessageEvent, PollVoteEvent, PollClosedEvent, SyncEvent
+from app.orchestrator import agent_manager
 from sqlalchemy import UUID
 
 logger = logging.getLogger(__name__)
@@ -155,15 +158,18 @@ class EngagementSignalCollector:
             "message": {...}
         }
         """
-        session_id = event_data.get("sessionId")
-        event_id = event_data.get("eventId")
+        try:
+            # Validate event data with Pydantic
+            event = ChatMessageEvent(**event_data)
 
-        if not session_id or not event_id:
-            logger.warning(f"Missing session/event ID in chat message: {event_data}")
+            self.tracker.record_chat_message(event.sessionId, event.eventId)
+            logger.debug(f"📨 Chat message recorded for session {event.sessionId}")
+
+        except ValidationError as e:
+            logger.warning(f"Invalid chat message event data: {e}")
             return
-
-        self.tracker.record_chat_message(session_id, event_id)
-        logger.debug(f"📨 Chat message recorded for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error handling chat message: {e}", exc_info=True)
 
     async def _handle_poll_vote(self, event_data: dict):
         """
@@ -177,21 +183,31 @@ class EngagementSignalCollector:
             "userId": "..."
         }
         """
-        session_id = event_data.get("sessionId")
-        event_id = event_data.get("eventId")
-        poll_id = event_data.get("pollId")
+        try:
+            # Validate event data with Pydantic
+            event = PollVoteEvent(**event_data)
 
-        if not session_id or not event_id or not poll_id:
-            logger.warning(f"Missing data in poll vote: {event_data}")
+            self.tracker.record_poll_vote(event.sessionId, event.eventId, event.pollId)
+            logger.debug(f"🗳️ Poll vote recorded for session {event.sessionId}")
+
+        except ValidationError as e:
+            logger.warning(f"Invalid poll vote event data: {e}")
             return
-
-        self.tracker.record_poll_vote(session_id, event_id, poll_id)
-        logger.debug(f"🗳️ Poll vote recorded for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error handling poll vote: {e}", exc_info=True)
 
     async def _handle_poll_closed(self, event_data: dict):
         """Handle poll closed event"""
-        # Could use this to reset poll tracking if needed
-        logger.debug(f"Poll closed: {event_data.get('pollId')}")
+        try:
+            # Validate event data with Pydantic
+            event = PollClosedEvent(**event_data)
+            logger.debug(f"Poll closed: {event.pollId}")
+
+        except ValidationError as e:
+            logger.warning(f"Invalid poll closed event data: {e}")
+            return
+        except Exception as e:
+            logger.error(f"Error handling poll closed: {e}", exc_info=True)
 
     async def _handle_sync_event(self, event_data: dict):
         """
@@ -199,29 +215,30 @@ class EngagementSignalCollector:
 
         Expected data format varies based on event type
         """
-        event_type = event_data.get("type")
-        session_id = event_data.get("sessionId")
-        event_id = event_data.get("eventId")
+        try:
+            # Validate event data with Pydantic
+            event = SyncEvent(**event_data)
 
-        if not session_id or not event_id:
+            # Handle different sync event types
+            if event.type == "user_join":
+                if event.userId:
+                    self.tracker.record_user_join(event.sessionId, event.eventId, event.userId)
+                    logger.debug(f"👋 User {event.userId} joined session {event.sessionId}")
+
+            elif event.type == "user_leave":
+                if event.userId:
+                    self.tracker.record_user_leave(event.sessionId, event.eventId, event.userId)
+                    logger.debug(f"👋 User {event.userId} left session {event.sessionId}")
+
+            elif event.type == "reaction":
+                self.tracker.record_reaction(event.sessionId, event.eventId)
+                logger.debug(f"❤️ Reaction recorded for session {event.sessionId}")
+
+        except ValidationError as e:
+            logger.warning(f"Invalid sync event data: {e}")
             return
-
-        # Handle different sync event types
-        if event_type == "user_join":
-            user_id = event_data.get("userId")
-            if user_id:
-                self.tracker.record_user_join(session_id, event_id, user_id)
-                logger.debug(f"👋 User {user_id} joined session {session_id}")
-
-        elif event_type == "user_leave":
-            user_id = event_data.get("userId")
-            if user_id:
-                self.tracker.record_user_leave(session_id, event_id, user_id)
-                logger.debug(f"👋 User {user_id} left session {session_id}")
-
-        elif event_type == "reaction":
-            self.tracker.record_reaction(session_id, event_id)
-            logger.debug(f"❤️ Reaction recorded for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error handling sync event: {e}", exc_info=True)
 
     async def _calculate_engagement_loop(self):
         """
@@ -447,7 +464,13 @@ class EngagementSignalCollector:
 
     async def _trigger_intervention(self, anomaly_event, signals):
         """
-        Trigger intervention based on detected anomaly.
+        Trigger Phase 5 Agent Orchestrator based on detected anomaly.
+
+        The agent will:
+        1. Perceive the anomaly
+        2. Decide on intervention using Thompson Sampling
+        3. Act (execute or wait for approval based on mode)
+        4. Learn from the outcome
 
         Args:
             anomaly_event: Detected anomaly
@@ -464,51 +487,151 @@ class EngagementSignalCollector:
                 'signals': signals
             }
 
-            # Get intervention recommendation
-            recommendation = intervention_selector.select_intervention(
-                anomaly=anomaly_event,
+            # Convert anomaly_event to Anomaly model for agent
+            anomaly = Anomaly(
+                session_id=anomaly_event.session_id,
+                event_id=anomaly_event.event_id,
+                anomaly_type=anomaly_event.anomaly_type,
+                severity=anomaly_event.severity,
+                detected_at=anomaly_event.timestamp,
+                current_value=anomaly_event.current_engagement,
+                baseline_value=anomaly_event.expected_engagement,
+                deviation=anomaly_event.deviation,
+                confidence=0.95,  # Anomaly detection confidence
+                context=signals
+            )
+
+            # Auto-register session if not already registered (PRODUCTION-READY)
+            if anomaly_event.session_id not in agent_manager.configs:
+                # Get event agent settings from database (default to SEMI_AUTO)
+                event_agent_mode = await self._get_event_agent_mode(anomaly_event.event_id)
+
+                logger.info(
+                    f"📝 Auto-registering session {anomaly_event.session_id[:8]}... "
+                    f"with mode {event_agent_mode}"
+                )
+
+                agent_manager.register_session(
+                    session_id=anomaly_event.session_id,
+                    event_id=anomaly_event.event_id,
+                    agent_mode=event_agent_mode
+                )
+
+            logger.info(
+                f"🤖 Triggering Agent Orchestrator for {anomaly_event.session_id[:8]}... "
+                f"({anomaly_event.anomaly_type} - {anomaly_event.severity})"
+            )
+
+            # Trigger the agent orchestrator (Phase 5)
+            final_state = await agent_manager.run_agent(
+                session_id=anomaly_event.session_id,
+                engagement_score=anomaly_event.current_engagement,
+                active_users=signals.get('active_users', 0),
+                signals=signals,
+                anomaly=anomaly,
                 session_context=session_context
             )
 
-            if not recommendation:
+            if final_state:
                 logger.info(
-                    f"No intervention recommended for {anomaly_event.session_id[:8]}... "
-                    f"({anomaly_event.anomaly_type})"
+                    f"✅ Agent completed: {anomaly_event.session_id[:8]}... - "
+                    f"Intervention: {final_state.get('selected_intervention')} "
+                    f"(confidence: {final_state.get('confidence', 0):.2f}, "
+                    f"status: {final_state.get('status')})"
                 )
-                return
+            else:
+                logger.warning(
+                    f"⚠️ Agent did not run for {anomaly_event.session_id[:8]}... "
+                    f"(session may not be registered or agent disabled)"
+                )
 
-            logger.info(
-                f"🎯 Intervention recommended: {recommendation.intervention_type} "
-                f"(confidence: {recommendation.confidence:.2f}, priority: {recommendation.priority})"
-            )
+        except Exception as e:
+            logger.error(f"Failed to trigger agent orchestrator: {e}", exc_info=True)
 
-            # Execute intervention
-            async with AsyncSessionLocal() as db:
-                result = await self.intervention_executor.execute(
-                    recommendation=recommendation,
-                    db_session=db,
+            # Fallback to Phase 3 intervention selector if agent fails
+            logger.info(f"Falling back to Phase 3 intervention selector")
+            try:
+                session_state = self.tracker.get_session_state(anomaly_event.session_id)
+                session_context = {
+                    'session_id': anomaly_event.session_id,
+                    'event_id': anomaly_event.event_id,
+                    'duration': (datetime.utcnow() - session_state.last_activity).total_seconds() if session_state else 0,
+                    'connected_users': len(session_state.connected_users) if session_state else 0,
+                    'signals': signals
+                }
+
+                recommendation = intervention_selector.select_intervention(
+                    anomaly=anomaly_event,
                     session_context=session_context
                 )
 
-                if result['success']:
-                    # Record intervention was used
-                    intervention_selector.record_intervention(
-                        session_id=anomaly_event.session_id,
-                        intervention_type=recommendation.intervention_type,
-                        recommendation=recommendation
-                    )
-
+                if recommendation:
                     logger.info(
-                        f"✅ Intervention executed successfully: {recommendation.intervention_type} "
-                        f"(ID: {result.get('intervention_id', 'unknown')[:8]}...)"
+                        f"🎯 Fallback intervention: {recommendation.intervention_type} "
+                        f"(confidence: {recommendation.confidence:.2f})"
                     )
-                else:
-                    logger.error(
-                        f"❌ Intervention execution failed: {result.get('error', 'unknown error')}"
-                    )
+                    async with AsyncSessionLocal() as db:
+                        result = await self.intervention_executor.execute(
+                            recommendation=recommendation,
+                            db_session=db,
+                            session_context=session_context
+                        )
+                        if result['success']:
+                            intervention_selector.record_intervention(
+                                session_id=anomaly_event.session_id,
+                                intervention_type=recommendation.intervention_type
+                            )
+                            logger.info(
+                                f"✅ Fallback intervention executed: {recommendation.intervention_type}"
+                            )
+            except Exception as fallback_error:
+                logger.error(f"Fallback intervention also failed: {fallback_error}")
+
+    async def _get_event_agent_mode(self, event_id: str):
+        """
+        Get agent mode setting for an event from database.
+
+        PRODUCTION-READY: Returns SEMI_AUTO by default for best balance:
+        - High confidence (>75%) interventions auto-execute
+        - Low confidence (<75%) wait for organizer approval (if available)
+        - Works automatically without organizer being online
+
+        Args:
+            event_id: Event identifier
+
+        Returns:
+            AgentMode enum (default: SEMI_AUTO)
+        """
+        try:
+            from app.agents.engagement_conductor import AgentMode
+
+            async with AsyncSessionLocal() as db:
+                # Try to fetch event settings from database
+                result = await db.execute(
+                    """
+                    SELECT agent_enabled, agent_mode
+                    FROM event_agent_settings
+                    WHERE event_id = :event_id
+                    """,
+                    {"event_id": event_id}
+                )
+                row = result.fetchone()
+
+                if row and row.agent_enabled:
+                    mode_str = row.agent_mode or 'SEMI_AUTO'
+                    return AgentMode(mode_str)
+
+                # Default to SEMI_AUTO for production
+                # This provides the best balance of automation and safety
+                return AgentMode.SEMI_AUTO
 
         except Exception as e:
-            logger.error(f"Failed to trigger intervention: {e}", exc_info=True)
+            logger.warning(
+                f"Could not fetch event agent settings for {event_id}: {e}. "
+                f"Defaulting to SEMI_AUTO mode."
+            )
+            from app.agents.engagement_conductor import AgentMode
+            return AgentMode.SEMI_AUTO
 
     async def _cleanup_loop(self):
         """Background loop that cleans up inactive sessions"""

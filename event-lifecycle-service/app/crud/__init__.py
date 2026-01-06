@@ -23,3 +23,4 @@ from .crud_payment import payment
 from .crud_refund import refund
 from .crud_webhook_event import webhook_event
 from .crud_audit_log import audit_log
+from .crud_offer_purchase import offer_purchase

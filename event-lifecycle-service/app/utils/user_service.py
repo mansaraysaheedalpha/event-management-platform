@@ -3,17 +3,20 @@
 User service client for fetching user information.
 
 This module provides functions to query user data from the user service.
-Currently uses a placeholder implementation that can be extended to use:
-- GraphQL Apollo Gateway
-- Direct HTTP calls to user service
-- Cached user data
+Uses direct HTTP calls to user-and-org-service internal API.
 """
 import logging
 import httpx
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+from functools import lru_cache
+import asyncio
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Cache for user info to reduce API calls
+_user_cache: Dict[str, Dict] = {}
+_cache_ttl = 300  # 5 minutes
 
 
 async def get_user_info_async(user_id: str) -> Optional[Dict]:
@@ -24,51 +27,99 @@ async def get_user_info_async(user_id: str) -> Optional[Dict]:
         user_id: The user's ID
 
     Returns:
-        Dict with user info (email, name, etc.) or None if not found
-
-    TODO: Implement actual integration with user service via:
-    - GraphQL query to Apollo Gateway
-    - Or direct HTTP call to user-and-org-service
+        Dict with user info (id, email, firstName, lastName, imageUrl) or None if not found
     """
-    # Placeholder implementation
-    # In production, this would query the actual user service
+    # Check cache first
+    if user_id in _user_cache:
+        return _user_cache[user_id]
 
-    logger.warning(
-        f"get_user_info_async called for user {user_id}. "
-        "Placeholder implementation - returning None. "
-        "Integrate with user service for production use."
+    try:
+        # Get internal API URL and key from settings
+        user_service_url = getattr(settings, 'USER_SERVICE_URL', 'http://user-and-org-service:3000')
+        internal_api_key = getattr(settings, 'INTERNAL_API_KEY', '')
+
+        if not internal_api_key:
+            logger.warning(
+                f"INTERNAL_API_KEY not configured. Cannot fetch user info for {user_id}"
+            )
+            return _get_placeholder_user(user_id)
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                f"{user_service_url}/internal/users/{user_id}",
+                headers={"x-api-key": internal_api_key}
+            )
+
+            if response.status_code == 200:
+                user_data = response.json()
+                user_info = {
+                    "id": user_data.get("id", user_id),
+                    "email": user_data.get("email", ""),
+                    "firstName": user_data.get("firstName", ""),
+                    "lastName": user_data.get("lastName", ""),
+                    "imageUrl": user_data.get("imageUrl"),
+                    "name": f"{user_data.get('firstName', '')} {user_data.get('lastName', '')}".strip() or "User",
+                }
+                # Cache the result
+                _user_cache[user_id] = user_info
+                return user_info
+            elif response.status_code == 404:
+                logger.warning(f"User {user_id} not found in user service")
+                return _get_placeholder_user(user_id)
+            else:
+                logger.error(
+                    f"Failed to fetch user {user_id}: HTTP {response.status_code}"
+                )
+                return _get_placeholder_user(user_id)
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout fetching user info for {user_id}")
+        return _get_placeholder_user(user_id)
+    except Exception as e:
+        logger.error(f"Error fetching user info for {user_id}: {e}")
+        return _get_placeholder_user(user_id)
+
+
+def _get_placeholder_user(user_id: str) -> Dict:
+    """Return a placeholder user when real data isn't available"""
+    return {
+        "id": user_id,
+        "email": "",
+        "firstName": "User",
+        "lastName": user_id[:8] if len(user_id) > 8 else user_id,
+        "imageUrl": None,
+        "name": f"User {user_id[:8]}...",
+    }
+
+
+async def get_users_info_batch(user_ids: List[str]) -> Dict[str, Dict]:
+    """
+    Fetch multiple users' info in parallel.
+
+    Args:
+        user_ids: List of user IDs to fetch
+
+    Returns:
+        Dict mapping user_id to user info
+    """
+    if not user_ids:
+        return {}
+
+    # Deduplicate
+    unique_ids = list(set(user_ids))
+
+    # Fetch in parallel with concurrency limit
+    semaphore = asyncio.Semaphore(10)
+
+    async def fetch_with_semaphore(uid: str):
+        async with semaphore:
+            return uid, await get_user_info_async(uid)
+
+    results = await asyncio.gather(
+        *[fetch_with_semaphore(uid) for uid in unique_ids]
     )
 
-    # Example of what the integration might look like:
-    # try:
-    #     async with httpx.AsyncClient() as client:
-    #         # Option 1: GraphQL to Apollo Gateway
-    #         query = """
-    #         query GetUser($userId: ID!) {
-    #             user(id: $userId) {
-    #                 id
-    #                 email
-    #                 name
-    #             }
-    #         }
-    #         """
-    #         response = await client.post(
-    #             "http://apollo-gateway:4000/graphql",
-    #             json={"query": query, "variables": {"userId": user_id}}
-    #         )
-    #         data = response.json()
-    #         user = data.get("data", {}).get("user")
-    #
-    #         if user:
-    #             return {
-    #                 "id": user["id"],
-    #                 "email": user["email"],
-    #                 "name": user.get("name", "User"),
-    #             }
-    # except Exception as e:
-    #     logger.error(f"Failed to fetch user info for {user_id}: {e}")
-
-    return None
+    return {uid: info for uid, info in results if info}
 
 
 def get_user_email_from_token(token_payload) -> Optional[str]:

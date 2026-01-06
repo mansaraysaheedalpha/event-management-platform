@@ -26,6 +26,7 @@ from ..utils.waitlist_analytics import get_event_analytics
 from ..utils.session_utils import check_session_capacity
 from .waitlist_types import (
     WaitlistEntryType,
+    WaitlistUserType,
     WaitlistPositionType,
     SessionCapacityType,
     WaitlistStatsType,
@@ -34,14 +35,26 @@ from .waitlist_types import (
     WaitlistStatus,
     PriorityTier
 )
+from ..utils.user_service import get_users_info_batch
 
 
-def _convert_waitlist_entry(entry) -> WaitlistEntryType:
+def _convert_waitlist_entry(entry, user_info: dict = None) -> WaitlistEntryType:
     """Convert database waitlist entry to GraphQL type"""
+    user = None
+    if user_info:
+        user = WaitlistUserType(
+            id=user_info.get("id", entry.user_id),
+            email=user_info.get("email", ""),
+            first_name=user_info.get("firstName", ""),
+            last_name=user_info.get("lastName", ""),
+            image_url=user_info.get("imageUrl"),
+        )
+
     return WaitlistEntryType(
         id=entry.id,
         session_id=entry.session_id,
         user_id=entry.user_id,
+        user=user,
         status=WaitlistStatus[entry.status],
         priority_tier=PriorityTier[entry.priority_tier],
         position=entry.position,
@@ -51,6 +64,24 @@ def _convert_waitlist_entry(entry) -> WaitlistEntryType:
         offer_responded_at=entry.offer_responded_at,
         left_at=entry.left_at
     )
+
+
+async def _convert_waitlist_entries_with_users(entries) -> List[WaitlistEntryType]:
+    """Convert multiple waitlist entries and fetch user info in batch"""
+    if not entries:
+        return []
+
+    # Get all user IDs
+    user_ids = [entry.user_id for entry in entries]
+
+    # Batch fetch user info
+    users_info = await get_users_info_batch(user_ids)
+
+    # Convert entries with user info
+    return [
+        _convert_waitlist_entry(entry, users_info.get(entry.user_id))
+        for entry in entries
+    ]
 
 
 @strawberry.type
@@ -195,14 +226,14 @@ class WaitlistQuery:
         )
 
     @strawberry.field
-    def session_waitlist(
+    async def session_waitlist(
         self,
         session_id: strawberry.ID,
         status_filter: Optional[str] = None,
         info: Info = None
     ) -> List[WaitlistEntryType]:
         """
-        [ADMIN] Get all waitlist entries for a session.
+        [ADMIN] Get all waitlist entries for a session with user info.
 
         Requires admin or organizer authorization.
         """
@@ -248,7 +279,8 @@ class WaitlistQuery:
             status=status_filter
         )
 
-        return [_convert_waitlist_entry(entry) for entry in entries]
+        # Return entries with user info (fetched in batch)
+        return await _convert_waitlist_entries_with_users(entries)
 
     @strawberry.field
     def session_waitlist_stats(

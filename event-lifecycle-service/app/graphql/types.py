@@ -541,3 +541,27 @@ class OfferType:
     def isActive(self, root) -> bool:
         """Whether the offer is active."""
         return root.get("is_active", False) if isinstance(root, dict) else getattr(root, "is_active", False)
+
+
+@strawberry.type
+class DigitalContentType:
+    """Digital content delivered with offer purchase."""
+    downloadUrl: Optional[str]
+    accessCode: Optional[str]
+
+
+@strawberry.type
+class OfferPurchaseType:
+    """A user's purchased offer."""
+    id: str
+    offer: Optional[OfferType]
+    quantity: int
+    unitPrice: float
+    totalPrice: float
+    currency: str
+    fulfillmentStatus: str
+    fulfillmentType: Optional[str]
+    digitalContent: Optional[DigitalContentType]
+    trackingNumber: Optional[str]
+    purchasedAt: Optional[str]
+    fulfilledAt: Optional[str]

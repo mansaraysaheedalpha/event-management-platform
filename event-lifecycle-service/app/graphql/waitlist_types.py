@@ -35,11 +35,22 @@ class PriorityTier(str, Enum):
 
 
 @strawberry.type
+class WaitlistUserType:
+    """User information for waitlist display"""
+    id: str
+    email: str
+    first_name: str
+    last_name: str
+    image_url: Optional[str]
+
+
+@strawberry.type
 class WaitlistEntryType:
     """A waitlist entry for a session"""
     id: str
     session_id: str
     user_id: str
+    user: Optional[WaitlistUserType]  # Populated from user service
     status: WaitlistStatus
     priority_tier: PriorityTier
     position: int

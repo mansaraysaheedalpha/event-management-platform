@@ -7,6 +7,7 @@ from fastapi import HTTPException
 import httpx
 from ..core.config import settings
 from .. import crud
+from ..utils.security import validate_limit, validate_enum, VALID_PLACEMENTS
 from .types import (
     EventType,
     SpeakerType,
@@ -29,6 +30,8 @@ from .types import (
     # Monetization types
     AdType,
     OfferType,
+    OfferPurchaseType,
+    DigitalContentType,
 )
 from .payment_types import (
     TicketTypeType,
@@ -821,6 +824,115 @@ class Query:
             placement=placement,
             session_id=session_id_str
         )
+
+    @strawberry.field
+    def adsForContext(
+        self,
+        eventId: strawberry.ID,
+        placement: str,
+        info: Info,
+        sessionId: typing.Optional[strawberry.ID] = None,
+        limit: typing.Optional[int] = 10
+    ) -> typing.List[AdType]:
+        """
+        Get ads for a specific context/placement (attendee view).
+        Returns ads that are:
+        - Active and not archived
+        - Within their scheduling window
+        - Targeting the specified placement
+        - Targeting the session (if provided)
+        """
+        db = info.context.db
+
+        # SECURITY: Validate placement enum
+        valid, err = validate_enum(placement, "placement", VALID_PLACEMENTS)
+        if not valid:
+            raise HTTPException(status_code=400, detail=err)
+
+        # SECURITY: Sanitize limit to prevent DoS
+        safe_limit = validate_limit(limit, default=10)
+
+        # SECURITY: Verify event exists and is accessible
+        event = crud.event.get(db, id=str(eventId))
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Only show ads for public or active events
+        if event.is_archived:
+            return []
+
+        # Get active ads for the placement
+        ads = crud.ad.get_multi_by_event(db, event_id=str(eventId))
+
+        # Filter active ads
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        filtered_ads = []
+        for ad in ads:
+            if ad.is_archived or not ad.is_active:
+                continue
+            if ad.starts_at and now < ad.starts_at:
+                continue
+            if ad.ends_at and now > ad.ends_at:
+                continue
+            if placement not in (ad.placements or []):
+                continue
+            if sessionId and ad.target_sessions and str(sessionId) not in ad.target_sessions:
+                continue
+            filtered_ads.append(ad)
+
+        # Sort by weight (higher weight = more likely to be shown)
+        filtered_ads.sort(key=lambda x: x.weight or 1, reverse=True)
+
+        # Apply sanitized limit
+        return filtered_ads[:safe_limit]
+
+    @strawberry.field
+    def myPurchasedOffers(
+        self, eventId: strawberry.ID, info: Info
+    ) -> typing.List["OfferPurchaseType"]:
+        """
+        Get current user's purchased offers for an event.
+        """
+        db = info.context.db
+        user = info.context.user
+
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        user_id = user["sub"]
+
+        # Get user's purchases for this event
+        purchases = crud.offer_purchase.get_user_purchases(
+            db,
+            user_id=user_id,
+            event_id=str(eventId)
+        )
+
+        # Convert to response type
+        result = []
+        for purchase in purchases:
+            offer = crud.offer.get(db, id=purchase.offer_id)
+            result.append(OfferPurchaseType(
+                id=purchase.id,
+                offer=offer,
+                quantity=purchase.quantity,
+                unitPrice=purchase.unit_price,
+                totalPrice=purchase.total_price,
+                currency=purchase.currency,
+                fulfillmentStatus=purchase.fulfillment_status,
+                fulfillmentType=purchase.fulfillment_type,
+                digitalContent=DigitalContentType(
+                    downloadUrl=purchase.digital_content_url,
+                    accessCode=purchase.access_code
+                ) if purchase.digital_content_url or purchase.access_code else None,
+                trackingNumber=purchase.tracking_number,
+                purchasedAt=purchase.purchased_at.isoformat() if purchase.purchased_at else None,
+                fulfilledAt=purchase.fulfilled_at.isoformat() if purchase.fulfilled_at else None
+            ))
+
+        return result
 
     # --- WAITLIST QUERIES ---
 
