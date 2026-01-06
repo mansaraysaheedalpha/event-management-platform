@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
@@ -6,6 +8,13 @@ from app.core.config import get_settings
 from app.core.redis_client import redis_client, RedisClient
 from app.db.timescale import init_db
 from app.collectors.signal_collector import EngagementSignalCollector
+from app.middleware import (
+    error_handler_middleware,
+    app_error_handler,
+    validation_error_handler,
+    rate_limit_middleware,
+    AppError
+)
 
 # Configure logging
 logging.basicConfig(
@@ -67,9 +76,32 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add CORS middleware (production-safe)
+cors_origins = settings.CORS_ORIGINS if settings.CORS_ORIGINS else [
+    "http://localhost:3000",  # Development only
+    "http://localhost:3001",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
+
+# Add custom middleware (Phase 6)
+app.middleware("http")(error_handler_middleware)
+app.middleware("http")(rate_limit_middleware)
+
+# Register exception handlers (Phase 6)
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+
 # Include routers
-from app.api.v1 import interventions
-app.include_router(interventions.router, prefix="/api/v1")
+from app.api.v1 import interventions, health, agent
+app.include_router(health.router, tags=["Health"])
+app.include_router(interventions.router, prefix="/api/v1", tags=["Interventions"])
+app.include_router(agent.router, prefix="/api/v1", tags=["Agent"])
 
 
 @app.get("/")

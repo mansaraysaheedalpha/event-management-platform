@@ -47,6 +47,7 @@ class Settings(BaseSettings):
 
     # Internal service URLs for inter-service communication
     REAL_TIME_SERVICE_URL_INTERNAL: Optional[str] = "http://real-time-service:3002"
+    USER_SERVICE_URL: Optional[str] = "http://user-and-org-service:3000"
 
     # --- Dynamic Properties ---
     # These properties will intelligently return the correct URL based on the ENV

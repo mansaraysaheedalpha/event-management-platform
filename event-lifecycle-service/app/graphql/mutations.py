@@ -9,7 +9,7 @@ from ..schemas.session import SessionCreate, SessionUpdate
 from ..schemas.registration import RegistrationCreate
 from ..schemas.speaker import SpeakerCreate, SpeakerUpdate
 from ..schemas.venue import VenueCreate, VenueUpdate
-from .types import EventType, SessionType, RegistrationType, SpeakerType, VenueType
+from .types import EventType, SessionType, RegistrationType, SpeakerType, VenueType, AdType, OfferType
 from ..schemas.blueprint import BlueprintCreate  # <-- Import BlueprintCreate
 from .types import EventType, BlueprintType
 from .payment_types import (
@@ -56,6 +56,20 @@ from .waitlist_types import (
     UpdateCapacityInput,
 )
 from .waitlist_mutations import WaitlistMutations
+from .ad_mutations import (
+    AdMutations,
+    AdCreateInput,
+    AdUpdateInput,
+    AdImpressionInput,
+    AdTrackingResult,
+    AdClickResult,
+)
+from .offer_mutations import (
+    OfferMutations,
+    OfferCreateInput,
+    OfferUpdateInput,
+    OfferPurchaseResponse,
+)
 
 
 # --- All Input types defined at the top ---
@@ -1145,3 +1159,94 @@ class Mutation:
         """[ADMIN] Update session maximum capacity."""
         wm = WaitlistMutations()
         return wm.update_session_capacity(input, info)
+
+    # --- AD MUTATIONS ---
+
+    @strawberry.mutation
+    def createAd(self, adIn: AdCreateInput, info: Info) -> AdType:
+        """
+        Create a new advertisement for an event.
+        Requires authentication and organizer access.
+        """
+        am = AdMutations()
+        return am.create_ad(adIn, info)
+
+    @strawberry.mutation
+    def updateAd(self, id: str, adIn: AdUpdateInput, info: Info) -> AdType:
+        """
+        Update an existing advertisement.
+        Requires authentication and organizer access.
+        """
+        am = AdMutations()
+        return am.update_ad(id, adIn, info)
+
+    @strawberry.mutation
+    def deleteAd(self, id: str, info: Info) -> bool:
+        """
+        Delete (archive) an advertisement.
+        Requires authentication and organizer access.
+        """
+        am = AdMutations()
+        return am.delete_ad(id, info)
+
+    @strawberry.mutation
+    def trackAdImpressions(
+        self, impressions: List[AdImpressionInput], info: Info
+    ) -> AdTrackingResult:
+        """
+        Track multiple ad impressions in bulk.
+        Public endpoint - authentication optional.
+        """
+        am = AdMutations()
+        return am.track_ad_impressions(impressions, info)
+
+    @strawberry.mutation
+    def trackAdClick(
+        self, adId: str, sessionContext: Optional[str] = None, info: Info = None
+    ) -> AdClickResult:
+        """
+        Track an ad click and return the redirect URL.
+        Public endpoint - authentication optional.
+        """
+        am = AdMutations()
+        return am.track_ad_click(adId, sessionContext, info)
+
+    # --- OFFER MUTATIONS ---
+
+    @strawberry.mutation
+    def createOffer(self, offerIn: OfferCreateInput, info: Info) -> OfferType:
+        """
+        Create a new offer for an event.
+        Requires authentication and organizer access.
+        """
+        om = OfferMutations()
+        return om.create_offer(offerIn, info)
+
+    @strawberry.mutation
+    def updateOffer(self, id: str, offerIn: OfferUpdateInput, info: Info) -> OfferType:
+        """
+        Update an existing offer.
+        Requires authentication and organizer access.
+        """
+        om = OfferMutations()
+        return om.update_offer(id, offerIn, info)
+
+    @strawberry.mutation
+    def deleteOffer(self, id: str, info: Info) -> bool:
+        """
+        Delete (archive) an offer.
+        Requires authentication and organizer access.
+        """
+        om = OfferMutations()
+        return om.delete_offer(id, info)
+
+    @strawberry.mutation
+    async def purchaseOffer(
+        self, offerId: str, quantity: int, info: Info
+    ) -> OfferPurchaseResponse:
+        """
+        Purchase an offer - creates a Stripe checkout session.
+        Requires authentication.
+        """
+        om = OfferMutations()
+        return await om.purchase_offer(offerId, quantity, info)

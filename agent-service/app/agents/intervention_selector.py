@@ -101,7 +101,9 @@ class InterventionSelector:
                 context={
                     'session_id': session_id,
                     'event_id': anomaly.event_id,
+                    'anomaly_type': 'SUDDEN_DROP',
                     'anomaly_score': anomaly.anomaly_score,
+                    'signals': anomaly.signals,
                     'timing': 'IMMEDIATE',
                     'poll_type': 'quick_pulse'
                 },
@@ -144,7 +146,9 @@ class InterventionSelector:
                 context={
                     'session_id': session_id,
                     'event_id': anomaly.event_id,
+                    'anomaly_type': 'GRADUAL_DECLINE',
                     'anomaly_score': anomaly.anomaly_score,
+                    'signals': anomaly.signals,
                     'timing': 'NEXT_TRANSITION',
                     'poll_type': 'opinion'
                 },
@@ -204,6 +208,8 @@ class InterventionSelector:
                 context={
                     'session_id': session_id,
                     'event_id': anomaly.event_id,
+                    'anomaly_type': 'LOW_ENGAGEMENT',
+                    'signals': anomaly.signals,
                     'timing': 'IMMEDIATE',
                     'poll_type': 'engaging'
                 },

@@ -96,14 +96,16 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            poll_type = recommendation.context.get('poll_type', 'quick_pulse')
+            anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
 
-            # Generate poll question
-            poll = poll_strategy.generate_poll(
+            # Generate poll question using AI (Phase 4) or templates (Phase 3)
+            poll = await poll_strategy.generate_with_ai(
                 session_id=session_id,
                 event_id=event_id,
-                poll_type=poll_type,
-                context=recommendation.context
+                anomaly_type=anomaly_type,
+                session_context=session_context or {},
+                signals=recommendation.context.get('signals', {}),
+                use_llm=True  # Enable LLM generation
             )
 
             if not poll:
