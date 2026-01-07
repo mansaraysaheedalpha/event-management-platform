@@ -5,6 +5,11 @@ FROM node:18-alpine AS base
 WORKDIR /usr/src/app
 RUN npm install -g pnpm
 
+# ---- Dependencies Stage ----
+FROM base AS deps
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
 # ---- Builder Stage ----
 FROM base AS builder
 COPY package.json pnpm-lock.yaml ./
@@ -13,9 +18,8 @@ COPY . .
 # Generate Prisma client BEFORE build (TypeScript needs the types)
 RUN ./node_modules/.bin/prisma generate
 RUN pnpm run build
-
-# Prune dev dependencies after build, keeping only production deps
-RUN pnpm prune --prod
+# Verify build output exists
+RUN ls -la dist/
 
 # ---- Production/Runner Stage ----
 FROM base AS runner
@@ -24,8 +28,12 @@ FROM base AS runner
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
-# Copy pruned node_modules from builder (includes generated Prisma client)
-COPY --from=builder /usr/src/app/node_modules ./node_modules
+# Copy production dependencies from deps stage
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+# Copy generated Prisma client from builder (pnpm structure)
+COPY --from=builder /usr/src/app/node_modules/.pnpm/@prisma+client* ./node_modules/.pnpm/
+COPY --from=builder /usr/src/app/node_modules/@prisma ./node_modules/@prisma
 
 # Copy the compiled application code and prisma schema
 COPY --from=builder /usr/src/app/dist ./dist
@@ -41,7 +49,7 @@ RUN chown -R nestjs:nodejs /usr/src/app
 # Switch to non-root user
 USER nestjs
 
-# Expose port (non-privileged port, no issues with non-root)
+# Expose port
 EXPOSE 3001
 
 # Run the application
