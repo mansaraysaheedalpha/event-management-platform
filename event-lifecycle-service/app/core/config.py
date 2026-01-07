@@ -11,17 +11,23 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     # The environment mode: 'local' or 'prod'
-    ENV: str
+    ENV: str = "prod"
 
-    # --- Production URLs (for inside Docker) ---
-    DATABASE_URL_PROD: str
-    REDIS_URL_PROD: str
-    KAFKA_BOOTSTRAP_SERVERS_PROD: str
+    # --- Production URLs ---
+    DATABASE_URL_PROD: Optional[str] = None
+    REDIS_URL_PROD: Optional[str] = None
+    KAFKA_BOOTSTRAP_SERVERS_PROD: Optional[str] = None
 
-    # --- Local Development URLs (for running locally) ---
-    DATABASE_URL_LOCAL: str
-    REDIS_URL_LOCAL: str
-    KAFKA_BOOTSTRAP_SERVERS_LOCAL: str
+    # --- Local Development URLs (only needed in local mode) ---
+    DATABASE_URL_LOCAL: Optional[str] = None
+    REDIS_URL_LOCAL: Optional[str] = None
+    KAFKA_BOOTSTRAP_SERVERS_LOCAL: Optional[str] = None
+
+    # --- Kafka Authentication (for Confluent Cloud) ---
+    KAFKA_API_KEY: Optional[str] = None
+    KAFKA_API_SECRET: Optional[str] = None
+    KAFKA_SECURITY_PROTOCOL: Optional[str] = "SASL_SSL"  # SASL_SSL for Confluent Cloud
+    KAFKA_SASL_MECHANISM: Optional[str] = "PLAIN"  # PLAIN for Confluent Cloud
 
     # Other secrets
     JWT_SECRET: str
