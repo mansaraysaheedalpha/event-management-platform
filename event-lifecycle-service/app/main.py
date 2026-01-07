@@ -70,15 +70,12 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-origins = [
-    "http://localhost:3000",
-    # You would add your production frontend URL here as well
-    # e.g., "https://www.globalconnect.com"
-]
+# Parse CORS origins from environment (comma-separated)
+origins = [origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Allow specific origins
+    allow_origins=origins,  # Allow origins from environment
     allow_credentials=True,  # Allow cookies and authorization headers
     allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allow all headers

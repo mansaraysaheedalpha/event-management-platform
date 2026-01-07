@@ -4,7 +4,9 @@ import {
   ConflictException,
   NotFoundException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { PrismaService } from 'src/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -15,9 +17,12 @@ import { User } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private configService: ConfigService,
   ) {}
   async create(registerUserDto: RegisterUserDto) {
     const existingUser = await this.prisma.user.findUnique({
@@ -25,7 +30,7 @@ export class UsersService {
     });
 
     if (existingUser) {
-      console.log('User email exists already');
+      this.logger.warn('Registration attempt with existing email');
       throw new ConflictException('User with this email already exists');
     }
 
@@ -67,7 +72,7 @@ export class UsersService {
           roleId: ownerRole.id,
         },
       });
-      console.log('Membership Link created: ');
+      this.logger.log('Membership link created');
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password, ...newUserToReturn } = newUser;
@@ -201,7 +206,7 @@ export class UsersService {
     });
 
     // D. Send a verification email to the OLD address
-    const verificationUrl = `http://localhost:3001/users/email-change/verify-old/${rawToken}`;
+    const verificationUrl = `${this.configService.get('API_BASE_URL')}/users/email-change/verify-old/${rawToken}`;
     await this.emailService.sendEmailChangeVerification(
       oldEmail,
       newEmail,
@@ -236,7 +241,7 @@ export class UsersService {
     });
 
     // C. Send the FINAL confirmation email to the NEW address
-    const finalUrl = `http://localhost:3001/users/email-change/finalize/${finalRawToken}`;
+    const finalUrl = `${this.configService.get('API_BASE_URL')}/users/email-change/finalize/${finalRawToken}`;
     await this.emailService.sendEmailChangeFinal(user.newEmail, finalUrl);
 
     return {
@@ -268,6 +273,7 @@ export class UsersService {
   }
 
   // Helper method to reliably find a user by their token
+  // Timing-safe: always iterate through ALL users without early exit
   private async findUserByEmailChangeToken(
     token: string,
   ): Promise<User | null> {
@@ -275,13 +281,17 @@ export class UsersService {
       where: { emailChangeTokenExpiresAt: { gte: new Date() } },
     });
 
+    let matchedUser: User | null = null;
     for (const user of unexpiredUsers) {
       if (user.emailChangeToken) {
         const isMatch = await bcrypt.compare(token, user.emailChangeToken);
-        if (isMatch) return user;
+        if (isMatch && !matchedUser) {
+          matchedUser = user;
+          // Continue iterating to prevent timing attacks
+        }
       }
     }
-    return null;
+    return matchedUser;
   }
 
   async findUserForInternal(userId: string) {

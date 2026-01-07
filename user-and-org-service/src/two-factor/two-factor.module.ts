@@ -4,9 +4,10 @@ import { TwoFactorController } from './two-factor.controller';
 import { TwoFactorService } from './two-factor.service';
 import { PrismaModule } from 'src/prisma.module';
 import { TwoFactorResolver } from './two-factor.resolver';
+import { AuditModule } from 'src/audit/audit.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AuditModule],
   controllers: [TwoFactorController],
   providers: [TwoFactorService, TwoFactorResolver],
   exports: [TwoFactorService],

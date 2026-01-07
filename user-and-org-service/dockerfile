@@ -16,19 +16,34 @@ RUN pnpm run build
 
 # ---- Production/Runner Stage ----
 FROM base AS runner
+
+# Create a non-root user for security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nestjs
+
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
-# ✅ THE DEFINITIVE FIX:
-# Copy the generated Prisma client from its ACTUAL location.
+# Copy the generated Prisma client and engine from builder
 COPY --from=builder /usr/src/app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
 
 # Copy the compiled application code and the prisma schema
 COPY --from=builder /usr/src/app/dist ./dist
 COPY --from=builder /usr/src/app/prisma ./prisma
 
-# ✅ ADD THIS LINE TO INSTALL CURL FOR THE HEALTHCHECK
+# Install curl for healthcheck (using wget from alpine is preferred but curl works)
 RUN apk add --no-cache curl
 
+# Set ownership of the app directory to the non-root user
+RUN chown -R nestjs:nodejs /usr/src/app
+
+# Switch to non-root user
+USER nestjs
+
+# Expose port (non-privileged port, no issues with non-root)
 EXPOSE 3001
+
+# Use dumb-init for proper signal handling (optional but recommended)
+# Or use node directly - Node.js handles signals well
 CMD ["node", "dist/main.js"]

@@ -19,6 +19,7 @@ import {
 import { Query } from '@nestjs/graphql';
 import { GqlThrottlerGuard } from './guards/gql-throttler.guard';
 import { GqlAuthGuard } from './guards/gql-auth.guard';
+import { CsrfGuard } from '../common/csrf/csrf.guard';
 import { Response } from 'express';
 import { GqlRefreshTokenGuard } from './guards/gql-refresh-token.guard';
 
@@ -164,7 +165,7 @@ export class AuthResolver {
   }
 
   @Mutation(() => Boolean)
-  @UseGuards(GqlAuthGuard)
+  @UseGuards(CsrfGuard, GqlAuthGuard)
   async logout(
     @Context() context: { req: { user: { sub: string } }; res: Response },
   ): Promise<boolean> {
@@ -199,7 +200,7 @@ export class AuthResolver {
   }
 
   @Mutation(() => AuthPayload)
-  @UseGuards(GqlAuthGuard)
+  @UseGuards(CsrfGuard, GqlAuthGuard)
   async switchOrganization(
     @Args('organizationId', { type: () => ID }) organizationId: string,
     @Context() context: { req: { user: { sub: string } } },
@@ -217,7 +218,7 @@ export class AuthResolver {
   }
 
   @Mutation(() => AuthPayload)
-  @UseGuards(GqlRefreshTokenGuard) // <-- USE THE GUARD
+  @UseGuards(CsrfGuard, GqlRefreshTokenGuard)
   async refreshToken(
     @Context() context: { req: { user: any }; res: Response },
   ): Promise<AuthPayload> {

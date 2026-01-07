@@ -88,6 +88,9 @@ export class AuthService {
     });
   }
 
+  private readonly MAX_LOGIN_ATTEMPTS = 5;
+  private readonly LOCKOUT_DURATION_MINUTES = 15;
+
   async login(loginDTO: LoginDTO): Promise<LoginResponse> {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: loginDTO.email },
@@ -103,6 +106,8 @@ export class AuthService {
         tier: true,
         sponsorId: true,
         userType: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
         memberships: {
           include: {
             role: {
@@ -119,12 +124,53 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Check if account is locked
+    if (existingUser.lockedUntil && existingUser.lockedUntil > new Date()) {
+      // Don't reveal that account is locked - use generic message
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     const isMatch = await bcrypt.compare(
       loginDTO.password,
       existingUser.password,
     );
     if (!isMatch) {
+      // Increment failed login attempts
+      const newFailedAttempts = existingUser.failedLoginAttempts + 1;
+      const updateData: { failedLoginAttempts: number; lockedUntil?: Date } = {
+        failedLoginAttempts: newFailedAttempts,
+      };
+
+      // Lock account if max attempts reached
+      if (newFailedAttempts >= this.MAX_LOGIN_ATTEMPTS) {
+        const lockUntil = new Date();
+        lockUntil.setMinutes(lockUntil.getMinutes() + this.LOCKOUT_DURATION_MINUTES);
+        updateData.lockedUntil = lockUntil;
+
+        await this.auditService.log({
+          action: 'ACCOUNT_LOCKED',
+          actingUserId: existingUser.id,
+          details: { reason: 'Too many failed login attempts', lockedUntil: lockUntil },
+        });
+      }
+
+      await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: updateData,
+      });
+
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Reset failed login attempts on successful login
+    if (existingUser.failedLoginAttempts > 0 || existingUser.lockedUntil) {
+      await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
     }
 
     // Handle 2FA first (applies to both organizers and attendees)
@@ -398,7 +444,7 @@ export class AuthService {
       },
     });
 
-    const resetUrl = `https://yourapp.com/reset-password?token=${rawResetToken}`;
+    const resetUrl = `${this.configService.get('FRONTEND_URL')}/reset-password?token=${rawResetToken}`;
 
     await this.emailService.sendPasswordResetEmail(
       user.email,
@@ -431,12 +477,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired reset token.');
     }
 
+    // Timing-safe: always iterate through ALL tokens without early exit
     let validTokenRecord: Token | null = null;
     for (const record of unexpiredResetTokens) {
       const isMatch = await bcrypt.compare(token, record.hashedResetToken);
-      if (isMatch) {
+      if (isMatch && !validTokenRecord) {
         validTokenRecord = record;
-        break;
+        // Continue iterating to prevent timing attacks
       }
     }
 

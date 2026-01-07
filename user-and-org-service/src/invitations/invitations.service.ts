@@ -4,6 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma.service';
@@ -27,6 +28,7 @@ export class InvitationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(data: CreateInvitationData) {
@@ -71,7 +73,7 @@ export class InvitationsService {
     });
 
     const inviterName = `${invitation.invitedBy.first_name} ${invitation.invitedBy.last_name}`;
-    const invitationUrl = `http://yourapp.com/accept-invitation?token=${rawToken}`;
+    const invitationUrl = `${this.configService.get('FRONTEND_URL')}/accept-invitation?token=${rawToken}`;
 
     await this.emailService.sendInvitationEmail(
       invitation.email,
@@ -129,17 +131,26 @@ export class InvitationsService {
     return { user: safeUser, membership: result.membership };
   }
 
+  // Timing-safe: always iterate through ALL invitations without early exit
   private async findAndValidateInvitation(token: string) {
     const unexpiredInvitations = await this.prisma.invitation.findMany({
       where: { expiresAt: { gte: new Date() } },
       include: { role: true },
     });
 
+    let matchedInvitation = null;
     for (const invitation of unexpiredInvitations) {
       const isMatch = await bcrypt.compare(token, invitation.token);
-      if (isMatch) return invitation;
+      if (isMatch && !matchedInvitation) {
+        matchedInvitation = invitation;
+        // Continue iterating to prevent timing attacks
+      }
     }
 
-    throw new UnauthorizedException('Invalid or expired invitation token.');
+    if (!matchedInvitation) {
+      throw new UnauthorizedException('Invalid or expired invitation token.');
+    }
+
+    return matchedInvitation;
   }
 }

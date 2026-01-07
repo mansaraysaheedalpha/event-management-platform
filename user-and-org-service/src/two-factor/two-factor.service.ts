@@ -1,12 +1,28 @@
-//src/two-factor/two-factor.service.s
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+// src/two-factor/two-factor.service.ts
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
 import { PrismaService } from 'src/prisma.service';
+import { encrypt, decrypt } from 'src/common/utils/encryption.util';
+import { AuditService } from 'src/audit/audit.service';
 
 @Injectable()
 export class TwoFactorService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(TwoFactorService.name);
+  private readonly encryptionKey: string;
+
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService,
+    private auditService: AuditService,
+  ) {
+    this.encryptionKey = this.configService.get<string>('ENCRYPTION_KEY');
+    if (!this.encryptionKey) {
+      throw new Error('ENCRYPTION_KEY is not configured');
+    }
+  }
+
   async setup2FA(userId: string) {
     const secret = speakeasy.generateSecret({
       name: 'GlobalConnect (myemaildomain.com)',
@@ -21,13 +37,18 @@ export class TwoFactorService {
 
     const qrCodeDataUrl = await qrcode.toDataURL(otpAuthUrl);
 
+    // Encrypt the secret before storing
+    const encryptedSecret = encrypt(secret.base32, this.encryptionKey);
+
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        twoFactorSecret: secret.base32,
+        twoFactorSecret: encryptedSecret,
         isTwoFactorEnabled: false,
       },
     });
+
+    this.logger.log(`2FA setup initiated for user ${userId}`);
 
     return { qrCodeDataUrl };
   }
@@ -41,8 +62,17 @@ export class TwoFactorService {
       return false;
     }
 
+    // Decrypt the secret before validating
+    let decryptedSecret: string;
+    try {
+      decryptedSecret = decrypt(user.twoFactorSecret, this.encryptionKey);
+    } catch (error) {
+      this.logger.error(`Failed to decrypt 2FA secret for user ${userId}`, error);
+      return false;
+    }
+
     return speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
+      secret: decryptedSecret,
       encoding: 'base32',
       token: code,
     });
@@ -60,6 +90,13 @@ export class TwoFactorService {
       data: { isTwoFactorEnabled: true },
     });
 
+    await this.auditService.log({
+      action: 'TWO_FACTOR_ENABLED',
+      actingUserId: userId,
+    });
+
+    this.logger.log(`2FA enabled for user ${userId}`);
+
     return {
       message: 'Two-Factor Authentication has been enabled successfully.',
     };
@@ -73,6 +110,14 @@ export class TwoFactorService {
         twoFactorSecret: null,
       },
     });
+
+    await this.auditService.log({
+      action: 'TWO_FACTOR_DISABLED',
+      actingUserId: userId,
+    });
+
+    this.logger.log(`2FA disabled for user ${userId}`);
+
     return { message: 'Two-Factor Authentication has been disabled.' };
   }
 }

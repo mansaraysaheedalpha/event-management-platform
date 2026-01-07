@@ -9,11 +9,22 @@ interface SendEmailOptions {
   html: string;
 }
 
+interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
 @Injectable()
 export class EmailService {
   private readonly resend: Resend;
   private readonly fromEmail: string;
   private readonly logger = new Logger(EmailService.name);
+  private readonly retryConfig: RetryConfig = {
+    maxRetries: 3,
+    baseDelayMs: 1000,
+    maxDelayMs: 10000,
+  };
 
   constructor(private readonly configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
@@ -24,26 +35,84 @@ export class EmailService {
     this.fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'noreply@infinite-dynamics.com';
   }
 
-  async sendEmail(options: SendEmailOptions): Promise<boolean> {
-    try {
-      const { data, error } = await this.resend.emails.send({
-        from: `GlobalConnect <${this.fromEmail}>`,
-        to: options.to,
-        subject: options.subject,
-        html: options.html,
-      });
+  private async delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
-      if (error) {
-        this.logger.error(`Failed to send email to ${options.to}: ${error.message}`);
+  private calculateBackoff(attempt: number): number {
+    // Exponential backoff with jitter: baseDelay * 2^attempt + random jitter
+    const exponentialDelay = this.retryConfig.baseDelayMs * Math.pow(2, attempt);
+    const jitter = Math.random() * 500; // Add up to 500ms jitter
+    return Math.min(exponentialDelay + jitter, this.retryConfig.maxDelayMs);
+  }
+
+  private isRetryableError(error: { message?: string; statusCode?: number }): boolean {
+    // Retry on rate limits (429), server errors (5xx), and network issues
+    if (error.statusCode) {
+      return error.statusCode === 429 || error.statusCode >= 500;
+    }
+    // Retry on common transient error messages
+    const retryableMessages = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'rate limit'];
+    return retryableMessages.some((msg) =>
+      error.message?.toLowerCase().includes(msg.toLowerCase())
+    );
+  }
+
+  async sendEmail(options: SendEmailOptions): Promise<boolean> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        const { data, error } = await this.resend.emails.send({
+          from: `GlobalConnect <${this.fromEmail}>`,
+          to: options.to,
+          subject: options.subject,
+          html: options.html,
+        });
+
+        if (error) {
+          lastError = error;
+
+          // Check if error is retryable
+          if (attempt < this.retryConfig.maxRetries && this.isRetryableError(error)) {
+            const backoffMs = this.calculateBackoff(attempt);
+            this.logger.warn(
+              `Email to ${options.to} failed (attempt ${attempt + 1}/${this.retryConfig.maxRetries + 1}): ${error.message}. Retrying in ${backoffMs}ms...`
+            );
+            await this.delay(backoffMs);
+            continue;
+          }
+
+          this.logger.error(`Failed to send email to ${options.to} after ${attempt + 1} attempt(s): ${error.message}`);
+          return false;
+        }
+
+        if (attempt > 0) {
+          this.logger.log(`Email sent successfully to ${options.to} after ${attempt + 1} attempts, id: ${data?.id}`);
+        } else {
+          this.logger.log(`Email sent successfully to ${options.to}, id: ${data?.id}`);
+        }
+        return true;
+      } catch (error) {
+        lastError = error;
+
+        // Check if error is retryable
+        if (attempt < this.retryConfig.maxRetries && this.isRetryableError(error as { message?: string })) {
+          const backoffMs = this.calculateBackoff(attempt);
+          this.logger.warn(
+            `Email to ${options.to} threw exception (attempt ${attempt + 1}/${this.retryConfig.maxRetries + 1}). Retrying in ${backoffMs}ms...`
+          );
+          await this.delay(backoffMs);
+          continue;
+        }
+
+        this.logger.error(`Failed to send email to ${options.to} after ${attempt + 1} attempt(s):`, error);
         return false;
       }
-
-      this.logger.log(`Email sent successfully to ${options.to}, id: ${data?.id}`);
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to send email to ${options.to}:`, error);
-      return false;
     }
+
+    this.logger.error(`Failed to send email to ${options.to} after all retry attempts:`, lastError);
+    return false;
   }
 
   // Password Reset Email

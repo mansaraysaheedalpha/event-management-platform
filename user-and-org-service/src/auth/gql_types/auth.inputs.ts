@@ -6,7 +6,11 @@ import {
   IsString,
   MinLength,
   Length,
+  Matches,
 } from 'class-validator';
+
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+const PASSWORD_MESSAGE = 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)';
 
 @InputType()
 export class LoginInput {
@@ -42,6 +46,7 @@ export class RegisterUserInput {
 
   @Field()
   @MinLength(8)
+  @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
   password: string;
 }
 
@@ -72,6 +77,7 @@ export class PerformResetInput {
 
   @Field()
   @MinLength(8)
+  @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
   newPassword: string;
 }
 
@@ -93,5 +99,6 @@ export class RegisterAttendeeInput {
 
   @Field()
   @MinLength(8)
+  @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
   password: string;
 }
