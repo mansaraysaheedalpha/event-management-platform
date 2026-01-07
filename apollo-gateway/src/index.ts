@@ -111,6 +111,11 @@ async function startServer() {
   }
   // ------------------------------------
 
+  // Health check endpoint (before GraphQL middleware)
+  app.get("/health", (req, res) => {
+    res.json({ status: "ok", service: "apollo-gateway", timestamp: new Date().toISOString() });
+  });
+
   app.use(
     "/graphql",
     cors<cors.CorsRequest>({
@@ -126,10 +131,11 @@ async function startServer() {
     })
   );
 
+  const port = process.env.PORT || 4000;
   await new Promise<void>((resolve) =>
-    httpServer.listen({ port: 4000 }, resolve)
+    httpServer.listen({ port: Number(port) }, resolve)
   );
-  console.log(`🚀 Gateway ready at: http://localhost:4000/graphql`);
+  console.log(`🚀 Gateway ready at: http://localhost:${port}/graphql`);
 }
 
 startServer();

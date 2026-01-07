@@ -1,0 +1,27 @@
+# .renderignore - Render uses this instead of .gitignore
+# IMPORTANT: Do NOT ignore /dist - it contains the built app!
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.sublime-*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Source files not needed at runtime
+/src
+*.ts
+!*.d.ts
+tsconfig.json
+*.md
