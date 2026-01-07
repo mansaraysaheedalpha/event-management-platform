@@ -1,10 +1,12 @@
 # app/utils/kafka_helpers.py
 """
 Kafka helper functions for publishing events to topics.
+Supports SASL_SSL authentication for Confluent Cloud.
 """
 import json
 import logging
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -13,17 +15,39 @@ logger = logging.getLogger(__name__)
 TOPIC_WAITLIST_EVENTS = "waitlist.events.v1"
 
 
-def get_kafka_producer() -> KafkaProducer:
+def get_kafka_producer() -> KafkaProducer | None:
     """
-    Get a Kafka producer instance.
+    Get a Kafka producer instance with SASL authentication support.
 
     Returns:
-        KafkaProducer configured for the platform
+        KafkaProducer configured for the platform, or None if unavailable
     """
-    return KafkaProducer(
-        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-    )
+    if not settings.KAFKA_BOOTSTRAP_SERVERS:
+        logger.warning("Kafka bootstrap servers not configured")
+        return None
+
+    try:
+        # Base configuration
+        kafka_config = {
+            "bootstrap_servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+            "value_serializer": lambda v: json.dumps(v).encode('utf-8'),
+            "request_timeout_ms": 10000,
+        }
+
+        # Add SASL authentication if credentials are provided (for Confluent Cloud)
+        if settings.KAFKA_API_KEY and settings.KAFKA_API_SECRET:
+            kafka_config.update({
+                "security_protocol": settings.KAFKA_SECURITY_PROTOCOL or "SASL_SSL",
+                "sasl_mechanism": settings.KAFKA_SASL_MECHANISM or "PLAIN",
+                "sasl_plain_username": settings.KAFKA_API_KEY,
+                "sasl_plain_password": settings.KAFKA_API_SECRET,
+            })
+
+        return KafkaProducer(**kafka_config)
+
+    except (NoBrokersAvailable, Exception) as e:
+        logger.error(f"Failed to create Kafka producer: {e}")
+        return None
 
 
 def publish_waitlist_offer_event(
@@ -61,6 +85,10 @@ def publish_waitlist_offer_event(
     producer = None
     try:
         producer = get_kafka_producer()
+
+        if producer is None:
+            logger.warning("Kafka producer unavailable, skipping event publish")
+            return False
 
         event_data = {
             "type": "WAITLIST_OFFER",
