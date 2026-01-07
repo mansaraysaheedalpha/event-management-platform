@@ -14,6 +14,9 @@ COPY . .
 RUN ./node_modules/.bin/prisma generate
 RUN pnpm run build
 
+# Prune dev dependencies after build, keeping only production deps
+RUN pnpm prune --prod
+
 # ---- Production/Runner Stage ----
 FROM base AS runner
 
@@ -21,18 +24,13 @@ FROM base AS runner
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
-# Copy package files and prisma schema first
-COPY package.json pnpm-lock.yaml ./
-COPY --from=builder /usr/src/app/prisma ./prisma
+# Copy pruned node_modules from builder (includes generated Prisma client)
+COPY --from=builder /usr/src/app/node_modules ./node_modules
 
-# Install production dependencies (includes @prisma/client as a dependency)
-RUN pnpm install --frozen-lockfile --prod
-
-# Generate Prisma client in the runner stage (works correctly with pnpm's structure)
-RUN ./node_modules/.bin/prisma generate
-
-# Copy the compiled application code
+# Copy the compiled application code and prisma schema
 COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/prisma ./prisma
+COPY --from=builder /usr/src/app/package.json ./package.json
 
 # Install curl for healthcheck
 RUN apk add --no-cache curl
