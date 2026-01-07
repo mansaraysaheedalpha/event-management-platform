@@ -1,5 +1,5 @@
 //src/app.module.ts
-import { Module, Response } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -19,12 +19,15 @@ import { TwoFactorModule } from './two-factor/two-factor.module';
 import { AuditModule } from './audit/audit.module';
 import { InternalModule } from './internal/internal.module';
 import { EmailModule } from './email/email.module';
+import { CsrfModule } from './common/csrf/csrf.module';
+import { CsrfMiddleware } from './common/csrf/csrf.middleware';
 import * as Joi from 'joi';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
+import { Response } from 'express';
 
 @Module({
   imports: [
@@ -33,11 +36,23 @@ import {
       envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
       // Add this validation schema
       validationSchema: Joi.object({
+        // Application
+        NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
+        PORT: Joi.number().default(3001),
+        // Database
         DATABASE_URL: Joi.string().required(),
         REDIS_URL: Joi.string().required(),
-        PORT: Joi.number().default(3001),
+        // Authentication
         JWT_SECRET: Joi.string().required(),
         JWT_REFRESH_SECRET: Joi.string().required(),
+        // Security configuration
+        INTERNAL_API_KEY: Joi.string().required(),
+        ENCRYPTION_KEY: Joi.string().length(64).required(), // 32 bytes hex = 64 chars
+        // URL configuration for emails and callbacks
+        FRONTEND_URL: Joi.string().uri().required(),
+        API_BASE_URL: Joi.string().uri().required(),
+        // CORS configuration
+        ALLOWED_ORIGINS: Joi.string().required(),
         // Resend email configuration
         RESEND_API_KEY: Joi.string().required(),
         RESEND_FROM_EMAIL: Joi.string().default('noreply@infinite-dynamics.com'),
@@ -53,13 +68,26 @@ import {
     PrismaModule,
     UsersModule,
     OrganizationsModule,
-    ThrottlerModule.forRoot({
-      throttlers: [
-        {
-          ttl: 60000,
-          limit: 10,
-        },
-      ],
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: 60000,
+            limit: 10,
+          },
+          {
+            name: 'strict',
+            ttl: 60000,
+            limit: 5, // Stricter limit for auth endpoints
+          },
+        ],
+        storage: new ThrottlerStorageRedisService(
+          configService.get<string>('REDIS_URL'),
+        ),
+      }),
+      inject: [ConfigService],
     }),
     InvitationsModule,
     MailerModule.forRootAsync({
@@ -91,6 +119,7 @@ import {
     AuditModule,
     InternalModule,
     EmailModule,
+    CsrfModule,
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: {
@@ -107,12 +136,8 @@ import {
   providers: [
     AppService,
     {
-      provide: ThrottlerStorageRedisService,
-      useFactory: (configService: ConfigService) => {
-        const redisUrl = configService.get<string>('REDIS_URL');
-        return new ThrottlerStorageRedisService(redisUrl);
-      },
-      inject: [ConfigService],
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
     {
       provide: APP_FILTER,
@@ -120,4 +145,9 @@ import {
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Apply CSRF middleware to GraphQL endpoint
+    consumer.apply(CsrfMiddleware).forRoutes('graphql');
+  }
+}

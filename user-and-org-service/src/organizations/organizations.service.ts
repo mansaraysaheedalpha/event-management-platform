@@ -6,7 +6,10 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma.service';
 import { CreateNewOrganizationDTO } from './dto/create-new-organization.dto';
 import { UpdateOrganizationDTO } from './dto/update-organization.dto';
@@ -17,10 +20,13 @@ import { AuthService } from 'src/auth/auth.service';
 
 @Injectable()
 export class OrganizationsService {
+  private readonly logger = new Logger(OrganizationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
   ) {}
@@ -296,7 +302,7 @@ export class OrganizationsService {
       try {
         await this.emailService.sendOrgPermanentlyDeletedEmail(userEmail, orgName);
       } catch (error) {
-        console.error('Failed to send permanent deletion email:', error);
+        this.logger.error('Failed to send permanent deletion email', error);
       }
     } else {
       if (membership.organization.status === 'PENDING_DELETION') {
@@ -308,15 +314,16 @@ export class OrganizationsService {
       const gracePeriodDays = 7;
       const deletionDate = new Date();
       deletionDate.setDate(deletionDate.getDate() + gracePeriodDays);
-      const restoreToken = randomBytes(32).toString('hex');
-      const restoreUrl = `http://localhost:3001/organizations/restore/${restoreToken}`;
+      const rawRestoreToken = randomBytes(32).toString('hex');
+      const hashedRestoreToken = await bcrypt.hash(rawRestoreToken, 10);
+      const restoreUrl = `${this.configService.get('API_BASE_URL')}/organizations/restore/${rawRestoreToken}`;
 
       await this.prisma.organization.update({
         where: { id: orgId },
         data: {
           status: 'PENDING_DELETION',
           deletionScheduledAt: deletionDate,
-          restoreToken: restoreToken,
+          restoreToken: hashedRestoreToken,
         },
       });
 
@@ -335,7 +342,7 @@ export class OrganizationsService {
           restoreUrl,
         );
       } catch (error) {
-        console.error('Failed to send scheduled deletion email:', error);
+        this.logger.error('Failed to send scheduled deletion email', error);
       }
     }
 
@@ -343,11 +350,26 @@ export class OrganizationsService {
   }
 
   async restoreOrgFromToken(token: string) {
-    const orgToRestore = await this.prisma.organization.findUnique({
-      where: { restoreToken: token },
+    // Find all orgs pending deletion and compare tokens securely
+    const pendingOrgs = await this.prisma.organization.findMany({
+      where: { 
+        status: 'PENDING_DELETION',
+        restoreToken: { not: null },
+      },
     });
 
-    if (!orgToRestore || orgToRestore.status !== 'PENDING_DELETION') {
+    let orgToRestore = null;
+    for (const org of pendingOrgs) {
+      if (org.restoreToken) {
+        const isMatch = await bcrypt.compare(token, org.restoreToken);
+        if (isMatch && !orgToRestore) {
+          orgToRestore = org;
+          // Continue iterating to prevent timing attacks
+        }
+      }
+    }
+
+    if (!orgToRestore) {
       throw new BadRequestException(
         'This restore link is invalid or has expired.',
       );

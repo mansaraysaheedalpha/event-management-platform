@@ -1,0 +1,143 @@
+# render.yaml - Infrastructure as Code for Render
+# This file defines all resources needed for the event-lifecycle-service
+# Deploy with: Connect repo to Render and it auto-detects this file
+
+databases:
+  - name: event-lifecycle-db
+    databaseName: event_lifecycle_db
+    user: event_lifecycle_user
+    plan: starter # Change to 'free' for testing
+    region: oregon # Choose: oregon, ohio, virginia, frankfurt, singapore
+
+services:
+  - type: web
+    name: event-lifecycle-service
+    plan: starter # Change to 'free' for testing
+    region: oregon
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    repo: https://github.com/YOUR_USERNAME/event-management-platform
+    branch: main
+    rootDir: event-lifecycle-service
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: prod
+      - key: DATABASE_URL_PROD
+        fromDatabase:
+          name: event-lifecycle-db
+          property: connectionString
+      - key: DATABASE_URL_LOCAL
+        value: dummy
+      - key: REDIS_URL_LOCAL
+        value: dummy
+      - key: KAFKA_BOOTSTRAP_SERVERS_LOCAL
+        value: dummy
+      # Secrets - Must be set manually in Render dashboard
+      - key: REDIS_URL_PROD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS_PROD
+        sync: false
+      - key: KAFKA_API_KEY
+        sync: false
+      - key: KAFKA_API_SECRET
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: PLAIN
+      - key: JWT_SECRET
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: IP_HASH_SALT
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_REGION
+        value: us-east-1
+      - key: AWS_S3_ENDPOINT_URL
+        value: ""
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_DOMAIN
+        sync: false
+      - key: REAL_TIME_SERVICE_URL_INTERNAL
+        sync: false
+      - key: USER_SERVICE_URL
+        sync: false
+
+  # Optional: Celery worker for background tasks
+  - type: worker
+    name: event-celery-worker
+    plan: starter
+    region: oregon
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    repo: https://github.com/YOUR_USERNAME/event-management-platform
+    branch: main
+    rootDir: event-lifecycle-service
+    dockerCommand: celery -A app.worker.celery_app worker --loglevel=info
+    envVars:
+      - key: ENV
+        value: prod
+      - key: DATABASE_URL_PROD
+        fromDatabase:
+          name: event-lifecycle-db
+          property: connectionString
+      - key: DATABASE_URL_LOCAL
+        value: dummy
+      - key: REDIS_URL_LOCAL
+        value: dummy
+      - key: KAFKA_BOOTSTRAP_SERVERS_LOCAL
+        value: dummy
+      - key: REDIS_URL_PROD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS_PROD
+        sync: false
+      - key: KAFKA_API_KEY
+        sync: false
+      - key: KAFKA_API_SECRET
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: PLAIN
+      - key: JWT_SECRET
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: IP_HASH_SALT
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_REGION
+        value: us-east-1
+      - key: AWS_S3_ENDPOINT_URL
+        value: ""
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_DOMAIN
+        sync: false

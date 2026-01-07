@@ -2,28 +2,34 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
-  // --- Add CORS Configuration ---
+  const configService = app.get(ConfigService);
+
+  // CORS Configuration from environment
+  const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS', '').split(',').filter(Boolean);
   app.enableCors({
-    origin: [
-      'http://localhost:3000', // Example for a React front-end
-      'http://localhost:4200', // Example for an Angular front-end
-      'http://localhost:5173', // Example for a Vue or Svelte front-end
-    ],
-    credentials: true, // Allows cookies to be sent
+    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
+    credentials: true,
   });
+
   app.use(helmet());
   app.use(cookieParser());
-  const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT', 3000);
 
-  app.useGlobalPipes(new ValidationPipe());
+  const port = configService.get<number>('PORT', 3001);
+
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }));
+
   await app.listen(port, '0.0.0.0');
-  console.log(`Application is running on: ${await app.getUrl()}🚀`);
+  logger.log(`Application is running on: ${await app.getUrl()}`);
 }
 bootstrap();

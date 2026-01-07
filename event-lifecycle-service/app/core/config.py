@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
 
     # Security & Privacy
-    IP_HASH_SALT: str = "default-salt-change-in-production"  # For IP anonymization (GDPR compliance)
+    IP_HASH_SALT: str  # For IP anonymization (GDPR compliance) - MUST be set in environment
+    ALLOWED_ORIGINS: str = "http://localhost:3000"  # Comma-separated list of allowed CORS origins
 
     # Frontend URL for redirects
     FRONTEND_URL: str = "http://localhost:3000"

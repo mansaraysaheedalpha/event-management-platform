@@ -66,6 +66,10 @@ model User {
   emailChangeToken          String?                @unique
   emailChangeTokenExpiresAt DateTime?
 
+  // Account lockout fields
+  failedLoginAttempts       Int                    @default(0)
+  lockedUntil               DateTime?
+
   // Relations
   memberships               Membership[]
   sentInvitations           Invitation[]           @relation("SentInvitations")
@@ -74,6 +78,8 @@ model User {
 
   tier                      String?                 @default("default") // e.g., 'default', 'vip'
   sponsorId                 String? // Nullable, as not every user is a sponsor
+
+  @@index([emailChangeTokenExpiresAt])
 }
 
 model Organization {
@@ -117,6 +123,8 @@ model Invitation {
   
   invitedBy      User         @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
   invitedById    String
+
+  @@index([expiresAt])
 }
 
 model PasswordResetToken {
@@ -126,6 +134,8 @@ model PasswordResetToken {
   
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId           String
+
+  @@index([expiresAt])
 }
 
 model AuditLog {
@@ -136,4 +146,8 @@ model AuditLog {
   targetUserId   String?
   details        Json?
   createdAt      DateTime  @default(now())
+
+  @@index([actingUserId])
+  @@index([organizationId])
+  @@index([createdAt])
 }

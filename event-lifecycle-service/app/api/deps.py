@@ -1,4 +1,5 @@
 # app/api/deps.py
+import hmac
 from typing import Generator
 from fastapi import Depends, HTTPException, status, Security
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
@@ -88,8 +89,9 @@ api_key_header = APIKeyHeader(name="X-Internal-Api-Key", auto_error=False)
 def get_internal_api_key(api_key: str = Security(api_key_header)) -> str:
     """
     Checks for and validates the internal API key from the request header.
+    Uses constant-time comparison to prevent timing attacks.
     """
-    if api_key == settings.INTERNAL_API_KEY:
+    if api_key and hmac.compare_digest(api_key, settings.INTERNAL_API_KEY):
         return api_key
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -102,7 +104,8 @@ def get_internal_api_key_optional(
 ) -> str | None:
     """
     Returns the API key if it's valid, otherwise returns None. Does not raise an error.
+    Uses constant-time comparison to prevent timing attacks.
     """
-    if api_key == settings.INTERNAL_API_KEY:
+    if api_key and hmac.compare_digest(api_key, settings.INTERNAL_API_KEY):
         return api_key
     return None

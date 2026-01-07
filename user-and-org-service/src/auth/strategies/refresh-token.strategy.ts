@@ -12,9 +12,13 @@ export class RefreshTokenStrategy extends PassportStrategy(
   'jwt-refresh',
 ) {
   constructor(configService: ConfigService) {
+    const jwtRefreshSecret = configService.get<string>('JWT_REFRESH_SECRET');
+    if (!jwtRefreshSecret) {
+      throw new Error('JWT_REFRESH_SECRET environment variable is not configured');
+    }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: configService.get<string>('JWT_REFRESH_SECRET') ?? '',
+      secretOrKey: jwtRefreshSecret,
       passReqToCallback: true,
     });
   }

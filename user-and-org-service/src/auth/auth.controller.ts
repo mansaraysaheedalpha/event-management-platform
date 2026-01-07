@@ -73,11 +73,11 @@ export class AuthController {
       login2faDto.userId,
       login2faDto.code,
     );
-    res.cookie('refresh-token', tokens.refresh_token, {
+    res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
-      secure: true,
+      secure: this.configService.get('NODE_ENV') !== 'development',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
     return { access_token: tokens.access_token };
   }
@@ -129,9 +129,9 @@ export class AuthController {
     const tokens = await this.authService.getTokensForUser(user, membership);
     res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
-      secure: true,
+      secure: this.configService.get('NODE_ENV') !== 'development',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
     return {

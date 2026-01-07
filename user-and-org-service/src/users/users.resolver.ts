@@ -27,6 +27,7 @@ export class UsersResolver {
   }
 
   @Query(() => GqlUser, { name: 'user' })
+  @UseGuards(GqlAuthGuard)
   async findUserById(@Args('id') id: string) {
     return this.usersService.findOne(id);
   }
@@ -59,7 +60,7 @@ export class UsersResolver {
     __typename: string;
     id: string;
   }): Promise<GqlUser> {
-    console.log(`User service is resolving user with ID: ${reference.id}`); // We WILL see this log
+    // Federation reference resolution - no logging needed
     return this.usersService.findOne(reference.id);
   }
 }
