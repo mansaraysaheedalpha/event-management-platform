@@ -1,56 +1,57 @@
 # user-and-org-service/Dockerfile
 
-# ---- Base Stage ----
-FROM node:18-alpine AS base
+# ---- Build Stage ----
+FROM node:18-alpine AS builder
+
 WORKDIR /usr/src/app
+
+# Install pnpm
 RUN npm install -g pnpm
 
-# ---- Dependencies Stage ----
-FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
-
-# ---- Builder Stage ----
-FROM base AS builder
+# Install dependencies
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
+
+# Copy source code
 COPY . .
-# Generate Prisma client BEFORE build (TypeScript needs the types)
-RUN ./node_modules/.bin/prisma generate
+
+# Generate Prisma client and build
+RUN pnpm prisma generate
 RUN pnpm run build
-# Verify build output exists
-RUN ls -la dist/
 
-# ---- Production/Runner Stage ----
-FROM base AS runner
+# Debug: show what was built
+RUN echo "=== Build output ===" && ls -la dist/
 
-# Create a non-root user for security
+# ---- Production Stage ----
+FROM node:18-alpine AS runner
+
+WORKDIR /usr/src/app
+
+# Install pnpm (needed for pnpm's module resolution)
+RUN npm install -g pnpm
+
+# Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
-# Copy production dependencies from deps stage
-COPY --from=deps /usr/src/app/node_modules ./node_modules
-
-# Copy generated Prisma client from builder (pnpm structure)
-COPY --from=builder /usr/src/app/node_modules/.pnpm/@prisma+client* ./node_modules/.pnpm/
-COPY --from=builder /usr/src/app/node_modules/@prisma ./node_modules/@prisma
-
-# Copy the compiled application code and prisma schema
+# Copy everything needed from builder
 COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY --from=builder /usr/src/app/prisma ./prisma
 COPY --from=builder /usr/src/app/package.json ./package.json
+
+# Debug: verify files exist
+RUN echo "=== Verifying dist ===" && ls -la dist/
 
 # Install curl for healthcheck
 RUN apk add --no-cache curl
 
-# Set ownership of the app directory to the non-root user
+# Set ownership
 RUN chown -R nestjs:nodejs /usr/src/app
 
 # Switch to non-root user
 USER nestjs
 
-# Expose port
 EXPOSE 3001
 
-# Run the application
 CMD ["node", "dist/main.js"]
