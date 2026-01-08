@@ -110,7 +110,7 @@ def process_presentation(session_id: str, s3_key: str, user_id: str):
             )
 
         # 6. Clean up local files and database session
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         db.close()
 
     return {"status": final_status}
