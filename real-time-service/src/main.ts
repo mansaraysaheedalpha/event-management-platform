@@ -4,7 +4,6 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Transport, KafkaOptions } from '@nestjs/microservices';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import { SASLOptions } from 'kafkajs';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -26,7 +25,7 @@ async function bootstrap() {
   const kafkaApiKey = process.env.KAFKA_API_KEY;
   const kafkaApiSecret = process.env.KAFKA_API_SECRET;
 
-  const kafkaClientConfig: KafkaOptions['options']['client'] = {
+  const kafkaClientConfig: NonNullable<KafkaOptions['options']>['client'] = {
     brokers: kafkaBrokers,
     retry: {
       initialRetryTime: 300,
@@ -38,10 +37,10 @@ async function bootstrap() {
   if (kafkaApiKey && kafkaApiSecret) {
     kafkaClientConfig.ssl = true;
     kafkaClientConfig.sasl = {
-      mechanism: 'plain',
+      mechanism: 'plain' as const,
       username: kafkaApiKey,
       password: kafkaApiSecret,
-    } as SASLOptions;
+    };
     console.log('Kafka microservice configured with SASL_SSL authentication');
   }
 
