@@ -7,9 +7,9 @@ from app.models.event import Event
 from app.models.venue import Venue
 from app.models.speaker import Speaker
 from app.models.session import Session
-from app.models.session_speaker import SessionSpeaker
+from app.models.session_speaker import session_speaker_association
 from app.models.session_capacity import SessionCapacity
-from app.models.session_waitlist import SessionWaitlist
+from app.models.session_waitlist import SessionWaitlist, WaitlistEvent
 from app.models.presentation import Presentation
 from app.models.registration import Registration
 from app.models.waitlist import Waitlist
@@ -47,9 +47,10 @@ __all__ = [
     "Venue",
     "Speaker",
     "Session",
-    "SessionSpeaker",
+    "session_speaker_association",
     "SessionCapacity",
     "SessionWaitlist",
+    "WaitlistEvent",
     "Presentation",
     "Registration",
     "Waitlist",
