@@ -1,6 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from functools import lru_cache
 from typing import List
+import json
 
 
 class Settings(BaseSettings):
@@ -17,6 +19,26 @@ class Settings(BaseSettings):
 
     # CORS - Allowed origins for production
     CORS_ORIGINS: List[str] = []
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from comma-separated string or JSON array"""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            # Try JSON array first
+            if v.startswith("["):
+                try:
+                    return json.loads(v)
+                except json.JSONDecodeError:
+                    pass
+            # Fall back to comma-separated
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return []
 
     # JWT Secret for validating tokens
     JWT_SECRET: str = ""
