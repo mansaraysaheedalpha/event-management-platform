@@ -8,7 +8,8 @@ from app.middleware.error_handler import (
     DatabaseError,
     ExternalServiceError,
     RateLimitError as RateLimitErrorException,
-    ValidationError as ValidationErrorException
+    ValidationError as ValidationErrorException,
+    ErrorCategory
 )
 
 from app.middleware.rate_limiter import (
@@ -35,4 +36,5 @@ __all__ = [
     "ValidationErrorException",
     "RateLimitConfig",
     "CostLimit",
+    "ErrorCategory",
 ]
