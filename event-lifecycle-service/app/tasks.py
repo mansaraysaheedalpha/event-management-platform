@@ -14,6 +14,9 @@ from app.crud import crud_presentation
 from app.core.config import settings
 from app.core.s3 import get_s3_client
 
+# Import all models to ensure SQLAlchemy can resolve relationships
+import app.models  # noqa: F401
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
