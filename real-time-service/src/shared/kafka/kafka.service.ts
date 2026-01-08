@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Kafka, Producer, logLevel } from 'kafkajs';
+import { Kafka, Producer, logLevel, SASLOptions } from 'kafkajs';
 
 // Kafka Topics
 export const KAFKA_TOPICS = {
@@ -39,8 +39,11 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
 
   constructor(private readonly configService: ConfigService) {
     const brokers = this.configService.get<string>('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092').split(',');
+    const kafkaApiKey = this.configService.get<string>('KAFKA_API_KEY');
+    const kafkaApiSecret = this.configService.get<string>('KAFKA_API_SECRET');
 
-    this.kafka = new Kafka({
+    // Build Kafka configuration with optional SASL authentication (for Confluent Cloud)
+    const kafkaConfig: ConstructorParameters<typeof Kafka>[0] = {
       clientId: 'real-time-service',
       brokers,
       logLevel: logLevel.WARN,
@@ -48,7 +51,20 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         initialRetryTime: 300,
         retries: 5,
       },
-    });
+    };
+
+    // Add SASL/SSL authentication if credentials are provided (Confluent Cloud)
+    if (kafkaApiKey && kafkaApiSecret) {
+      kafkaConfig.ssl = true;
+      kafkaConfig.sasl = {
+        mechanism: 'plain',
+        username: kafkaApiKey,
+        password: kafkaApiSecret,
+      } as SASLOptions;
+      this.logger.log('Kafka configured with SASL_SSL authentication');
+    }
+
+    this.kafka = new Kafka(kafkaConfig);
 
     this.producer = this.kafka.producer({
       allowAutoTopicCreation: true,
