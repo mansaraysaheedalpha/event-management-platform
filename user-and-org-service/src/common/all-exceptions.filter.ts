@@ -43,7 +43,15 @@ export class AllExceptionsFilter implements GqlExceptionFilter {
     // For client errors (4xx), provide more context but avoid internals
     if (status >= 400 && status < 500) {
       // Check if it's a validation error with field info
-      if (message.includes('must be') || message.includes('should be')) {
+      if (
+        message.includes('must be') ||
+        message.includes('must contain') ||
+        message.includes('should be') ||
+        message.includes('is not valid') ||
+        message.includes('too short') ||
+        message.includes('too long') ||
+        message.includes('at least')
+      ) {
         return message;
       }
       return 'Request could not be processed';
@@ -67,7 +75,19 @@ export class AllExceptionsFilter implements GqlExceptionFilter {
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
-      const rawMessage = exception.message;
+      let rawMessage = exception.message;
+
+      // Handle ValidationPipe errors - extract actual validation messages
+      const response = exception.getResponse();
+      if (typeof response === 'object' && response !== null) {
+        const responseObj = response as Record<string, unknown>;
+        if (Array.isArray(responseObj.message)) {
+          // ValidationPipe returns array of error messages
+          rawMessage = responseObj.message.join(', ');
+        } else if (typeof responseObj.message === 'string') {
+          rawMessage = responseObj.message;
+        }
+      }
 
       // Map HTTP statuses to semantic GraphQL error codes
       let code = 'INTERNAL_SERVER_ERROR';
