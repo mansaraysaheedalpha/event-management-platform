@@ -18,7 +18,7 @@ class EngagementMetric(Base):
     active_users = Column(Integer)
     reactions_per_min = Column(Float)
     user_leave_rate = Column(Float)
-    metadata = Column(JSON)
+    extra_data = Column(JSON)
 
     __table_args__ = (
         Index('idx_session_time', 'session_id', 'time'),
@@ -37,7 +37,7 @@ class Intervention(Base):
     confidence = Column(Float, nullable=False)
     reasoning = Column(String, nullable=True)
     outcome = Column(JSON, nullable=True)  # success, engagement_delta, etc.
-    metadata = Column(JSON, nullable=True)
+    extra_data = Column(JSON, nullable=True)
 
     __table_args__ = (
         Index('idx_intervention_session', 'session_id', 'timestamp'),
@@ -55,7 +55,7 @@ class AgentPerformance(Base):
     engagement_delta = Column(Float, nullable=True)
     confidence = Column(Float, nullable=True)
     session_id = Column(UUID(as_uuid=True), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    extra_data = Column(JSON, nullable=True)
 
     __table_args__ = (
         Index('idx_agent_performance', 'agent_id', 'time'),
