@@ -19,13 +19,6 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 import type { Options as HttpProxyMiddlewareOptions } from "http-proxy-middleware";
 // -----------------------------
 
-// We no longer need the JWT secret in the gateway
-// if (!process.env.JWT_SECRET) {
-//   throw new Error(
-//     "FATAL_ERROR: JWT_SECRET environment variable is not defined."
-//   );
-// }
-
 class AuthenticatedDataSource extends RemoteGraphQLDataSource {
   override willSendRequest({
     request,
@@ -40,102 +33,139 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource {
   }
 }
 
-// This function will create and start our server
-async function startServer() {
-  const app = express();
-  const httpServer = http.createServer(app);
+// Helper function to wait
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const gateway = new ApolloGateway({
-    supergraphSdl: new IntrospectAndCompose({
-      subgraphs: [
-        { name: "user-org", url: process.env.USER_ORG_SERVICE_URL },
-        {
-          name: "event-lifecycle",
-          url: process.env.EVENT_LIFECYCLE_SERVICE_URL,
-        },
-        { name: "ai-oracle", url: process.env.AI_ORACLE_SERVICE_URL },
-      ],
-    }),
-    buildService(service) {
-      return new AuthenticatedDataSource({ url: service.url });
-    },
-  });
+// Build subgraphs list - only include deployed services
+function getSubgraphs() {
+  const subgraphs: { name: string; url: string }[] = [];
 
-  const server = new ApolloServer({
-    gateway,
-    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-  });
+  if (process.env.USER_ORG_SERVICE_URL) {
+    subgraphs.push({ name: "user-org", url: process.env.USER_ORG_SERVICE_URL });
+  }
+  if (process.env.EVENT_LIFECYCLE_SERVICE_URL) {
+    subgraphs.push({ name: "event-lifecycle", url: process.env.EVENT_LIFECYCLE_SERVICE_URL });
+  }
+  // AI Oracle is disabled for now - uncomment when deployed
+  // if (process.env.AI_ORACLE_SERVICE_URL) {
+  //   subgraphs.push({ name: "ai-oracle", url: process.env.AI_ORACLE_SERVICE_URL });
+  // }
 
-  await server.start();
+  return subgraphs;
+}
 
-  // --- ADD THE NEW PROXY MIDDLEWARE ---
-  const eventServiceUrl = process.env.EVENT_LIFECYCLE_SERVICE_URL?.replace(
-    "/graphql",
-    ""
-  );
-  if (eventServiceUrl) {
-    interface ProxyRequestHandlerOptions extends HttpProxyMiddlewareOptions {
-      onProxyReq?: (
-      proxyReq: http.ClientRequest,
-      req: express.Request,
-      res: express.Response
-      ) => void;
+// This function will create and start our server with retry logic
+async function startServer(retryCount = 0): Promise<void> {
+  const MAX_RETRIES = 10;
+  const RETRY_DELAY_MS = 15000; // 15 seconds between retries
+
+  const subgraphs = getSubgraphs();
+
+  if (subgraphs.length === 0) {
+    console.error("No subgraph URLs configured. Please set environment variables.");
+    process.exit(1);
+  }
+
+  console.log(`[Attempt ${retryCount + 1}/${MAX_RETRIES}] Connecting to subgraphs:`, subgraphs.map(s => s.name).join(", "));
+
+  try {
+    const app = express();
+    const httpServer = http.createServer(app);
+
+    // Health check endpoint - available immediately
+    app.get("/health", (req, res) => {
+      res.json({ status: "ok", service: "apollo-gateway", timestamp: new Date().toISOString() });
+    });
+
+    const gateway = new ApolloGateway({
+      supergraphSdl: new IntrospectAndCompose({
+        subgraphs,
+        // Poll for schema updates every 30 seconds
+        pollIntervalInMs: 30000,
+      }),
+      buildService(service) {
+        return new AuthenticatedDataSource({ url: service.url });
+      },
+    });
+
+    const server = new ApolloServer({
+      gateway,
+      plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+    });
+
+    await server.start();
+
+    // --- REST PROXY MIDDLEWARE ---
+    const eventServiceUrl = process.env.EVENT_LIFECYCLE_SERVICE_URL?.replace(
+      "/graphql",
+      ""
+    );
+    if (eventServiceUrl) {
+      interface ProxyRequestHandlerOptions extends HttpProxyMiddlewareOptions {
+        onProxyReq?: (
+          proxyReq: http.ClientRequest,
+          req: express.Request,
+          res: express.Response
+        ) => void;
+      }
+
+      app.use(
+        "/api",
+        cors<cors.CorsRequest>({
+          origin: process.env.CLIENT_URL || "http://localhost:3000",
+          credentials: true,
+        }),
+        createProxyMiddleware({
+          target: eventServiceUrl,
+          changeOrigin: true,
+          onProxyReq: (
+            proxyReq: http.ClientRequest,
+            req: express.Request,
+            res: express.Response
+          ) => {
+            // Forward the original authorization header
+            if (req.headers.authorization) {
+              proxyReq.setHeader("Authorization", req.headers.authorization);
+            }
+          },
+        } as ProxyRequestHandlerOptions)
+      );
+      console.log(`Proxying REST requests for /api to ${eventServiceUrl}`);
     }
+    // ------------------------------------
 
     app.use(
-      "/api",
+      "/graphql",
       cors<cors.CorsRequest>({
-      origin: process.env.CLIENT_URL || "http://localhost:3000",
-      credentials: true,
+        origin: process.env.CLIENT_URL || "http://localhost:3000",
+        credentials: true,
       }),
-      createProxyMiddleware({
-      target: eventServiceUrl,
-      changeOrigin: true,
-      onProxyReq: (
-        proxyReq: http.ClientRequest,
-        req: express.Request,
-        res: express.Response
-      ) => {
-        // Forward the original authorization header
-        if (req.headers.authorization) {
-        proxyReq.setHeader("Authorization", req.headers.authorization);
-        }
-      },
-      } as ProxyRequestHandlerOptions)
+      json(),
+      expressMiddleware(server, {
+        context: async ({ req }) => {
+          return { authorization: req.headers.authorization };
+        },
+      })
     );
-    console.log(`📬 Proxying REST requests for /api to ${eventServiceUrl}`);
-  } else {
-    console.error(
-      "EVENT_LIFECYCLE_SERVICE_URL is not defined. REST proxy will not be enabled."
+
+    const port = process.env.PORT || 4000;
+    await new Promise<void>((resolve) =>
+      httpServer.listen({ port: Number(port) }, resolve)
     );
+    console.log(`Gateway ready at: http://localhost:${port}/graphql`);
+
+  } catch (error) {
+    console.error(`Failed to start gateway:`, error instanceof Error ? error.message : error);
+
+    if (retryCount < MAX_RETRIES - 1) {
+      console.log(`Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+      await sleep(RETRY_DELAY_MS);
+      return startServer(retryCount + 1);
+    } else {
+      console.error(`Max retries (${MAX_RETRIES}) reached. Gateway failed to start.`);
+      process.exit(1);
+    }
   }
-  // ------------------------------------
-
-  // Health check endpoint (before GraphQL middleware)
-  app.get("/health", (req, res) => {
-    res.json({ status: "ok", service: "apollo-gateway", timestamp: new Date().toISOString() });
-  });
-
-  app.use(
-    "/graphql",
-    cors<cors.CorsRequest>({
-      origin: process.env.CLIENT_URL || "http://localhost:3000",
-      credentials: true,
-    }),
-    json(),
-    expressMiddleware(server, {
-      context: async ({ req }) => {
-        // We just pass the authorization header through, without verifying it here.
-        return { authorization: req.headers.authorization };
-      },
-    })
-  );
-
-  const port = process.env.PORT || 4000;
-  await new Promise<void>((resolve) =>
-    httpServer.listen({ port: Number(port) }, resolve)
-  );
-  console.log(`🚀 Gateway ready at: http://localhost:${port}/graphql`);
 }
 
 startServer();
