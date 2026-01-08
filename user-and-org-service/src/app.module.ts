@@ -6,7 +6,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma.module';
 import { UsersModule } from './users/users.module';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { GqlThrottlerGuard } from './auth/guards/gql-throttler.guard';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -137,7 +138,7 @@ import { Response } from 'express';
     AppService,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: GqlThrottlerGuard,
     },
     {
       provide: APP_FILTER,
