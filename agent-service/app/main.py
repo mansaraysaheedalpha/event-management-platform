@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import get_settings
-from app.core.redis_client import redis_client, RedisClient
+from app.core.redis_client import RedisClient
 from app.db.timescale import init_db
 from app.collectors.signal_collector import EngagementSignalCollector
 from app.middleware import (
@@ -43,13 +43,13 @@ async def lifespan(app: FastAPI):
 
     try:
         # Connect to Redis
-        await redis_client.connect()
+        await redis_module.redis_client.connect()
 
         # Initialize database
         await init_db()
 
         # Start signal collector
-        signal_collector = EngagementSignalCollector(redis_client)
+        signal_collector = EngagementSignalCollector(redis_module.redis_client)
         await signal_collector.start()
 
         logger.info("✅ Agent service ready")
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     if signal_collector:
         await signal_collector.stop()
 
-    await redis_client.disconnect()
+    await redis_module.redis_client.disconnect()
 
 
 # Create FastAPI app
@@ -121,7 +121,7 @@ async def health():
 
     return {
         "status": "healthy",
-        "redis": "connected" if redis_client._client else "disconnected",
+        "redis": "connected" if redis_module.redis_client._client else "disconnected",
         "signal_collector": "running" if signal_collector and signal_collector.running else "stopped",
         "active_sessions": session_tracker.get_active_session_count()
     }

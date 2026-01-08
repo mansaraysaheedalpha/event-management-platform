@@ -1,0 +1,101 @@
+# =============================================================================
+# RENDER.YAML - Infrastructure as Code for Agent Service
+# =============================================================================
+#
+# PURPOSE:
+# This file defines your infrastructure declaratively. Instead of manually
+# clicking through the Render dashboard to create services, you can:
+#
+# 1. Push this file to your repo
+# 2. Go to Render Dashboard → Blueprints → New Blueprint
+# 3. Connect your repo - Render auto-detects render.yaml
+# 4. Render creates all defined services automatically
+#
+# BENEFITS:
+# - Reproducible deployments (same config every time)
+# - Version controlled infrastructure (track changes in git)
+# - Easy to replicate across environments (staging, production)
+# - Team members can see exactly how services are configured
+#
+# USAGE:
+# 1. Commit this file to your repository
+# 2. Go to https://dashboard.render.com/blueprints
+# 3. Click "New Blueprint Instance"
+# 4. Select your repository
+# 5. Render will detect this file and show you what will be created
+# 6. Review and click "Apply"
+#
+# NOTE: Environment variables marked "sync: false" must be set manually
+# in the Render dashboard after deployment (for security - secrets shouldn't
+# be in version control).
+# =============================================================================
+
+services:
+  - type: web
+    name: agent-service
+    runtime: python
+    region: frankfurt  # EU region - same as your other services
+    plan: starter      # $7/mo - required for longer AI request timeouts
+    rootDir: agent-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+
+    envVars:
+      # =======================================================================
+      # REQUIRED - Set these manually in Render dashboard after deployment
+      # =======================================================================
+
+      # Redis (Upstash) - shared across all services
+      - key: REDIS_URL
+        sync: false
+
+      # TimescaleDB Cloud - external database
+      - key: DATABASE_URL
+        sync: false
+
+      # Anthropic Claude API key
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # JWT Secret - must match your user-and-org-service
+      - key: JWT_SECRET
+        sync: false
+
+      # CORS - your frontend URL(s)
+      - key: CORS_ORIGINS
+        sync: false
+
+      # =======================================================================
+      # LANGSMITH CONFIGURATION - Set manually if using LangSmith
+      # =======================================================================
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_ENDPOINT
+        value: https://api.smith.langchain.com
+      - key: LANGCHAIN_TRACING_V2
+        value: "true"
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGCHAIN_PROJECT
+        value: engagement-conductor
+      - key: LANGSMITH_PROJECT
+        value: engagement-conductor
+
+      # =======================================================================
+      # AGENT CONFIGURATION - Defaults are fine, adjust if needed
+      # =======================================================================
+      - key: ENGAGEMENT_THRESHOLD
+        value: "0.6"
+      - key: ANOMALY_WARNING_THRESHOLD
+        value: "0.6"
+      - key: ANOMALY_CRITICAL_THRESHOLD
+        value: "0.8"
+      - key: MAX_REQUESTS_PER_MINUTE
+        value: "60"
+      - key: MAX_LLM_COST_PER_HOUR
+        value: "20.0"
+      - key: MAX_LLM_COST_PER_DAY
+        value: "100.0"
