@@ -114,8 +114,10 @@ export class ContentService {
     if (dto.action === 'START') {
 
       try {
+        // Use EVENT_LIFECYCLE_SERVICE_URL for both internal and external calls
+        // On Render, services can communicate via their public URLs
         const eventServiceUrl = this.configService.getOrThrow<string>(
-          'EVENT_LIFECYCLE_SERVICE_URL_INTERNAL',
+          'EVENT_LIFECYCLE_SERVICE_URL',
         );
         const internalApiKey =
           this.configService.getOrThrow<string>('INTERNAL_API_KEY');
