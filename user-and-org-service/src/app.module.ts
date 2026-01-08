@@ -75,12 +75,12 @@ import { Response } from 'express';
           {
             name: 'default',
             ttl: 60000,
-            limit: 10,
+            limit: 100, // 100 requests per minute
           },
           {
             name: 'strict',
             ttl: 60000,
-            limit: 5, // Stricter limit for auth endpoints
+            limit: 10, // Stricter limit for sensitive endpoints like auth
           },
         ],
         storage: new ThrottlerStorageRedisService(
