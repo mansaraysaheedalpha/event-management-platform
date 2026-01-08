@@ -21,6 +21,7 @@ from .. import crud
 from ..models.offer import Offer
 from ..schemas.offer import OfferCreate, OfferUpdate
 from .types import OfferType
+from .payment_types import MoneyType
 from ..utils.security import (
     validate_offer_input,
     validate_url,
@@ -80,13 +81,6 @@ class OfferUpdateInput:
 
 
 # Response Types
-@strawberry.type
-class MoneyType:
-    """Currency amount."""
-    amount: float
-    currency: str
-
-
 @strawberry.type
 class OfferOrderType:
     """Order information after purchase."""
@@ -417,7 +411,7 @@ class OfferMutations:
                     orderNumber=None,
                     status="pending",
                     totalAmount=MoneyType(
-                        amount=offer.price * quantity,
+                        amount=int(offer.price * quantity * 100),  # Convert to cents
                         currency=offer.currency,
                     ),
                 ),
