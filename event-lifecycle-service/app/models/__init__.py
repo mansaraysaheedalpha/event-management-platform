@@ -12,10 +12,10 @@ from app.models.session_capacity import SessionCapacity
 from app.models.session_waitlist import SessionWaitlist, WaitlistEvent
 from app.models.presentation import Presentation
 from app.models.registration import Registration
-from app.models.waitlist import Waitlist
+from app.models.waitlist import WaitlistEntry
 from app.models.waitlist_analytics import WaitlistAnalytics
 from app.models.domain_event import DomainEvent
-from app.models.blueprint import Blueprint
+from app.models.blueprint import EventBlueprint
 
 # Payment models
 from app.models.payment_provider import PaymentProvider
@@ -39,7 +39,7 @@ from app.models.offer_purchase import OfferPurchase
 from app.models.ad import Ad
 from app.models.ad_event import AdEvent
 from app.models.monetization_event import MonetizationEvent
-from app.models.ab_test import ABTest
+from app.models.ab_test import ABTest, ABTestEvent
 
 __all__ = [
     "Base",
@@ -53,10 +53,10 @@ __all__ = [
     "WaitlistEvent",
     "Presentation",
     "Registration",
-    "Waitlist",
+    "WaitlistEntry",
     "WaitlistAnalytics",
     "DomainEvent",
-    "Blueprint",
+    "EventBlueprint",
     "PaymentProvider",
     "OrganizationPaymentSettings",
     "Payment",
@@ -75,4 +75,5 @@ __all__ = [
     "AdEvent",
     "MonetizationEvent",
     "ABTest",
+    "ABTestEvent",
 ]
