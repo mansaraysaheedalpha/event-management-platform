@@ -77,7 +77,7 @@ app = FastAPI(
 )
 
 # Add CORS middleware (production-safe)
-cors_origins = settings.CORS_ORIGINS if settings.CORS_ORIGINS else [
+cors_origins = settings.get_cors_origins() or [
     "http://localhost:3000",  # Development only
     "http://localhost:3001",
 ]
