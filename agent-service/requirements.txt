@@ -33,6 +33,7 @@ pydantic>=2.0
 pydantic-settings
 python-dotenv
 httpx
+python-jose[cryptography]
 
 # Monitoring
 prometheus-client
