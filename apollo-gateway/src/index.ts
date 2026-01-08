@@ -54,8 +54,11 @@ function getSubgraphs() {
   return subgraphs;
 }
 
+// Global state for gateway status
+let isGatewayReady = false;
+
 // This function will create and start our server with retry logic
-async function startServer(retryCount = 0): Promise<void> {
+async function startServer(): Promise<void> {
   const MAX_RETRIES = 10;
   const RETRY_DELAY_MS = 15000; // 15 seconds between retries
 
@@ -66,104 +69,122 @@ async function startServer(retryCount = 0): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`[Attempt ${retryCount + 1}/${MAX_RETRIES}] Connecting to subgraphs:`, subgraphs.map(s => s.name).join(", "));
+  // Create Express app and HTTP server FIRST (outside retry logic)
+  const app = express();
+  const httpServer = http.createServer(app);
 
-  try {
-    const app = express();
-    const httpServer = http.createServer(app);
+  // Configure CORS - allow the client URL
+  const corsOptions: cors.CorsOptions = {
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    credentials: true,
+  };
 
-    // Health check endpoint - available immediately
-    app.get("/health", (req, res) => {
-      res.json({ status: "ok", service: "apollo-gateway", timestamp: new Date().toISOString() });
+  // Apply CORS globally to handle preflight requests
+  app.use(cors(corsOptions));
+
+  // Health check endpoint - available immediately
+  app.get("/health", (req, res) => {
+    res.json({
+      status: "ok",
+      service: "apollo-gateway",
+      gatewayReady: isGatewayReady,
+      timestamp: new Date().toISOString()
     });
+  });
 
-    const gateway = new ApolloGateway({
-      supergraphSdl: new IntrospectAndCompose({
-        subgraphs,
-        // Poll for schema updates every 30 seconds
-        pollIntervalInMs: 30000,
-      }),
-      buildService(service) {
-        return new AuthenticatedDataSource({ url: service.url });
-      },
-    });
+  // --- REST PROXY MIDDLEWARE ---
+  const eventServiceUrl = process.env.EVENT_LIFECYCLE_SERVICE_URL?.replace(
+    "/graphql",
+    ""
+  );
+  if (eventServiceUrl) {
+    interface ProxyRequestHandlerOptions extends HttpProxyMiddlewareOptions {
+      onProxyReq?: (
+        proxyReq: http.ClientRequest,
+        req: express.Request,
+        res: express.Response
+      ) => void;
+    }
 
-    const server = new ApolloServer({
-      gateway,
-      plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-    });
-
-    await server.start();
-
-    // --- REST PROXY MIDDLEWARE ---
-    const eventServiceUrl = process.env.EVENT_LIFECYCLE_SERVICE_URL?.replace(
-      "/graphql",
-      ""
-    );
-    if (eventServiceUrl) {
-      interface ProxyRequestHandlerOptions extends HttpProxyMiddlewareOptions {
-        onProxyReq?: (
+    app.use(
+      "/api",
+      createProxyMiddleware({
+        target: eventServiceUrl,
+        changeOrigin: true,
+        onProxyReq: (
           proxyReq: http.ClientRequest,
           req: express.Request,
           res: express.Response
-        ) => void;
-      }
-
-      app.use(
-        "/api",
-        cors<cors.CorsRequest>({
-          origin: process.env.CLIENT_URL || "http://localhost:3000",
-          credentials: true,
-        }),
-        createProxyMiddleware({
-          target: eventServiceUrl,
-          changeOrigin: true,
-          onProxyReq: (
-            proxyReq: http.ClientRequest,
-            req: express.Request,
-            res: express.Response
-          ) => {
-            // Forward the original authorization header
-            if (req.headers.authorization) {
-              proxyReq.setHeader("Authorization", req.headers.authorization);
-            }
-          },
-        } as ProxyRequestHandlerOptions)
-      );
-      console.log(`Proxying REST requests for /api to ${eventServiceUrl}`);
-    }
-    // ------------------------------------
-
-    app.use(
-      "/graphql",
-      cors<cors.CorsRequest>({
-        origin: process.env.CLIENT_URL || "http://localhost:3000",
-        credentials: true,
-      }),
-      json(),
-      expressMiddleware(server, {
-        context: async ({ req }) => {
-          return { authorization: req.headers.authorization };
+        ) => {
+          // Forward the original authorization header
+          if (req.headers.authorization) {
+            proxyReq.setHeader("Authorization", req.headers.authorization);
+          }
         },
-      })
+      } as ProxyRequestHandlerOptions)
     );
+    console.log(`Proxying REST requests for /api to ${eventServiceUrl}`);
+  }
+  // ------------------------------------
 
-    const port = process.env.PORT || 4000;
-    await new Promise<void>((resolve) =>
-      httpServer.listen({ port: Number(port) }, resolve)
-    );
-    console.log(`Gateway ready at: http://localhost:${port}/graphql`);
+  // Start the HTTP server immediately so it can respond to health checks and CORS
+  const port = process.env.PORT || 4000;
+  await new Promise<void>((resolve) =>
+    httpServer.listen({ port: Number(port) }, resolve)
+  );
+  console.log(`HTTP server started on port ${port}, waiting for gateway...`);
 
-  } catch (error) {
-    console.error(`Failed to start gateway:`, error instanceof Error ? error.message : error);
+  // Now try to connect to subgraphs with retry logic
+  for (let retryCount = 0; retryCount < MAX_RETRIES; retryCount++) {
+    console.log(`[Attempt ${retryCount + 1}/${MAX_RETRIES}] Connecting to subgraphs:`, subgraphs.map(s => s.name).join(", "));
 
-    if (retryCount < MAX_RETRIES - 1) {
-      console.log(`Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
-      await sleep(RETRY_DELAY_MS);
-      return startServer(retryCount + 1);
-    } else {
-      console.error(`Max retries (${MAX_RETRIES}) reached. Gateway failed to start.`);
-      process.exit(1);
+    try {
+      const gateway = new ApolloGateway({
+        supergraphSdl: new IntrospectAndCompose({
+          subgraphs,
+          // Poll for schema updates every 30 seconds
+          pollIntervalInMs: 30000,
+        }),
+        buildService(service) {
+          return new AuthenticatedDataSource({ url: service.url });
+        },
+      });
+
+      const server = new ApolloServer({
+        gateway,
+        plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+      });
+
+      await server.start();
+
+      // Add GraphQL endpoint
+      app.use(
+        "/graphql",
+        json(),
+        expressMiddleware(server, {
+          context: async ({ req }) => {
+            return { authorization: req.headers.authorization };
+          },
+        })
+      );
+
+      isGatewayReady = true;
+      console.log(`Gateway ready at: http://localhost:${port}/graphql`);
+      return; // Success, exit the function
+
+    } catch (error) {
+      console.error(`Failed to start gateway:`, error instanceof Error ? error.message : error);
+
+      if (retryCount < MAX_RETRIES - 1) {
+        console.log(`Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+        await sleep(RETRY_DELAY_MS);
+      } else {
+        console.error(`Max retries (${MAX_RETRIES}) reached. Gateway failed to start.`);
+        // Don't exit - keep server running for health checks, but gateway won't work
+        app.use("/graphql", (req, res) => {
+          res.status(503).json({ error: "Gateway unavailable - subgraphs not reachable" });
+        });
+      }
     }
   }
 }
