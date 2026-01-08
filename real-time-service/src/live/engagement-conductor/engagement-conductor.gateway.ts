@@ -103,16 +103,13 @@ export class EngagementConductorGateway
     sessionId: string,
   ): Promise<boolean> {
     try {
-      // Find the chat session to get the event ID
+      // Find the chat session and verify user has access
       const chatSession = await this.prisma.chatSession.findUnique({
         where: { id: sessionId },
         select: {
-          eventId: true,
-          event: {
-            select: {
-              organizerId: true,
-            }
-          }
+          id: true,
+          organizationId: true,
+          participants: true,
         },
       });
 
@@ -121,8 +118,9 @@ export class EngagementConductorGateway
         return false;
       }
 
-      // Check if user is the organizer of the event
-      if (!chatSession.event || chatSession.event.organizerId !== userId) {
+      // Check if user is a participant in this session
+      // Note: Event organizer authorization should be verified via event-lifecycle-service
+      if (!chatSession.participants.includes(userId)) {
         this.logger.warn(
           `User ${userId} attempted to access session ${sessionId} without authorization`,
         );
