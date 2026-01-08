@@ -29,7 +29,7 @@ class Anomaly(Base):
 
     # Context
     signals = Column(JSON, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    extra_data = Column(JSON, nullable=True)
 
     __table_args__ = (
         Index('idx_anomaly_session', 'session_id', 'timestamp'),
