@@ -144,16 +144,39 @@ def process_giveaway_event(event_data: dict) -> None:
         print(f"[EMAIL CONSUMER] Giveaway email failed: {result.get('error')}")
 
 
+def get_kafka_consumer_config():
+    """
+    Build Kafka consumer configuration with SASL_SSL support for Confluent Cloud.
+    """
+    config = {
+        "bootstrap_servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+        "value_deserializer": lambda v: json.loads(v.decode("utf-8")),
+        "auto_offset_reset": "earliest",
+    }
+
+    # Add SASL authentication if credentials are provided (for Confluent Cloud)
+    if settings.KAFKA_API_KEY and settings.KAFKA_API_SECRET:
+        config.update({
+            "security_protocol": settings.KAFKA_SECURITY_PROTOCOL or "SASL_SSL",
+            "sasl_mechanism": settings.KAFKA_SASL_MECHANISM or "PLAIN",
+            "sasl_plain_username": settings.KAFKA_API_KEY,
+            "sasl_plain_password": settings.KAFKA_API_SECRET,
+        })
+        print("[EMAIL CONSUMER] Kafka configured with SASL_SSL authentication")
+
+    return config
+
+
 def run_registration_consumer():
     """
     Consumer loop for registration events.
     """
+    config = get_kafka_consumer_config()
+    config["group_id"] = "email-consumer-registration-group"
+
     consumer = KafkaConsumer(
         TOPIC_REGISTRATION_EVENTS,
-        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        group_id="email-consumer-registration-group",
-        auto_offset_reset="earliest",
+        **config,
     )
 
     print(f"[EMAIL CONSUMER] Listening for messages on topic: {TOPIC_REGISTRATION_EVENTS}")
@@ -171,12 +194,12 @@ def run_giveaway_consumer():
     """
     Consumer loop for giveaway events.
     """
+    config = get_kafka_consumer_config()
+    config["group_id"] = "email-consumer-giveaway-group"
+
     consumer = KafkaConsumer(
         TOPIC_GIVEAWAY_EVENTS,
-        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        group_id="email-consumer-giveaway-group",
-        auto_offset_reset="earliest",
+        **config,
     )
 
     print(f"[EMAIL CONSUMER] Listening for messages on topic: {TOPIC_GIVEAWAY_EVENTS}")
@@ -254,12 +277,12 @@ def run_waitlist_consumer():
     """
     Consumer loop for waitlist events.
     """
+    config = get_kafka_consumer_config()
+    config["group_id"] = "email-consumer-waitlist-group"
+
     consumer = KafkaConsumer(
         TOPIC_WAITLIST_EVENTS,
-        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        group_id="email-consumer-waitlist-group",
-        auto_offset_reset="earliest",
+        **config,
     )
 
     print(f"[EMAIL CONSUMER] Listening for messages on topic: {TOPIC_WAITLIST_EVENTS}")
@@ -277,9 +300,12 @@ def run_consumer():
     """
     Main consumer - runs registration, giveaway, and waitlist consumers in parallel threads.
     """
+    kafka_auth = "SASL_SSL" if (settings.KAFKA_API_KEY and settings.KAFKA_API_SECRET) else "NONE"
+
     print("=" * 60)
     print("Email Consumer Service Starting...")
     print(f"Kafka Bootstrap Servers: {settings.KAFKA_BOOTSTRAP_SERVERS}")
+    print(f"Kafka Authentication: {kafka_auth}")
     print(f"Topics: {TOPIC_REGISTRATION_EVENTS}, {TOPIC_GIVEAWAY_EVENTS}, {TOPIC_WAITLIST_EVENTS}")
     print(f"Resend API Key: {'configured' if settings.RESEND_API_KEY else 'NOT CONFIGURED'}")
     print(f"From Domain: {settings.RESEND_FROM_DOMAIN}")
