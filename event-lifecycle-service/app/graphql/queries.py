@@ -322,6 +322,38 @@ class Query:
         return registration
 
     @strawberry.field
+    def eventAttendees(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[RegistrationType]:
+        """
+        Returns all attendees for an event. Accessible to any registered attendee.
+        This is used for the DM feature to show other attendees.
+        Only returns attendees with user accounts (not guest registrations).
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        # Verify the user is registered for this event
+        user_registration = crud.registration.get_by_user_or_email(
+            db, event_id=str(eventId), user_id=user_id
+        )
+        if not user_registration:
+            raise HTTPException(
+                status_code=403,
+                detail="You must be registered for this event to see other attendees"
+            )
+
+        # Get all registrations for this event (only those with user_id, not guest registrations)
+        registrations = crud.registration.get_multi_by_event(db, event_id=str(eventId))
+
+        # Filter to only include registrations with user accounts
+        return [r for r in registrations if r.user_id]
+
+    @strawberry.field
     def publicEvents(
         self,
         info: Info,
