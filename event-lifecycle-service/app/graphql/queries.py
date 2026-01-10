@@ -1079,9 +1079,11 @@ class Query:
         from sqlalchemy import func, case
 
         # --- Revenue Analytics ---
-        # Get offer revenue
-        offer_revenue = db.query(func.coalesce(func.sum(OfferPurchase.total_price), 0)).filter(
-            OfferPurchase.event_id == event_id_str
+        # Get offer revenue (join with Offer to filter by event_id)
+        offer_revenue = db.query(func.coalesce(func.sum(OfferPurchase.total_price), 0)).join(
+            Offer, Offer.id == OfferPurchase.offer_id
+        ).filter(
+            Offer.event_id == event_id_str
         ).scalar() or 0
 
         # Ads don't typically generate direct revenue in this system (they're sponsor placements)
@@ -1101,8 +1103,10 @@ class Query:
         )
 
         # --- Offers Analytics ---
-        total_offer_purchases = db.query(func.count(OfferPurchase.id)).filter(
-            OfferPurchase.event_id == event_id_str
+        total_offer_purchases = db.query(func.count(OfferPurchase.id)).join(
+            Offer, Offer.id == OfferPurchase.offer_id
+        ).filter(
+            Offer.event_id == event_id_str
         ).scalar() or 0
 
         # Calculate conversion rate (purchases / views) - simplified since we don't track views
