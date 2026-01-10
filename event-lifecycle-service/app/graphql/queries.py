@@ -32,6 +32,8 @@ from .types import (
     OfferType,
     OfferPurchaseType,
     DigitalContentType,
+    # Platform stats
+    PlatformStatsType,
 )
 from .payment_types import (
     TicketTypeType,
@@ -1027,3 +1029,37 @@ class Query:
         """[ADMIN] Get comprehensive waitlist analytics for an event."""
         wq = WaitlistQuery()
         return wq.event_waitlist_analytics(event_id, use_cache, info)
+
+    @strawberry.field
+    def platformStats(self, info: Info) -> PlatformStatsType:
+        """
+        [PUBLIC] Get platform-wide statistics for marketing display.
+        No authentication required.
+        """
+        db = info.context.db
+
+        # Count total events (non-archived)
+        total_events = db.query(crud.event.model).filter(
+            crud.event.model.is_archived == False
+        ).count()
+
+        # Count total registrations (attendees)
+        total_attendees = db.query(crud.registration.model).count()
+
+        # Count total organizations
+        # Since we don't have org model here, we count distinct org_ids from events
+        from sqlalchemy import func
+        total_orgs = db.query(
+            func.count(func.distinct(crud.event.model.organization_id))
+        ).scalar() or 0
+
+        # Uptime is typically monitored externally, so we return a fixed high value
+        # In production, this could come from an external monitoring service
+        uptime_percentage = 99.9
+
+        return PlatformStatsType(
+            totalEvents=total_events,
+            totalAttendees=total_attendees,
+            totalOrganizations=total_orgs,
+            uptimePercentage=uptime_percentage
+        )
