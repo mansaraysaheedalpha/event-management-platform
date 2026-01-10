@@ -62,12 +62,19 @@ export class DmService {
    * Sends a direct message from the sender to the recipient.
    * Checks idempotency and creates a conversation if none exists.
    * @param senderId - ID of the user sending the message.
+   * @param senderEmail - Email of the sender.
+   * @param senderName - Name of the sender.
    * @param dto - DTO containing recipientId, text, and idempotencyKey.
    * @throws BadRequestException if sender tries to message themselves.
    * @throws ConflictException if duplicate message detected.
    * @returns The created direct message object.
    */
-  async sendMessage(senderId: string, dto: SendDmDto) {
+  async sendMessage(
+    senderId: string,
+    senderEmail: string,
+    senderName: string,
+    dto: SendDmDto,
+  ) {
     const { recipientId, text, idempotencyKey } = dto;
 
     if (senderId === recipientId) {
@@ -86,6 +93,8 @@ export class DmService {
 
     const conversation = await this.findOrCreateConversation(
       senderId,
+      senderEmail,
+      senderName,
       recipientId,
     );
 
@@ -364,17 +373,52 @@ export class DmService {
 
   /**
    * Finds an existing conversation between two users or creates a new one.
-   * @param userId1 - ID of the first user.
-   * @param userId2 - ID of the second user.
+   * Uses connectOrCreate to ensure UserReference records exist.
+   * @param senderId - ID of the sender.
+   * @param senderEmail - Email of the sender.
+   * @param senderName - Name of the sender (firstName).
+   * @param recipientId - ID of the recipient.
    * @returns The found or newly created conversation object.
    */
-  private async findOrCreateConversation(userId1: string, userId2: string) {
+  private async findOrCreateConversation(
+    senderId: string,
+    senderEmail: string,
+    senderName: string,
+    recipientId: string,
+  ) {
+    // First ensure sender UserReference exists
+    await this.prisma.userReference.upsert({
+      where: { id: senderId },
+      update: {},
+      create: {
+        id: senderId,
+        email: senderEmail,
+        firstName: senderName,
+      },
+    });
+
+    // Check if recipient UserReference exists, if not we need to create a placeholder
+    // The recipient info will be updated when they send their first message
+    const recipientExists = await this.prisma.userReference.findUnique({
+      where: { id: recipientId },
+    });
+
+    if (!recipientExists) {
+      // Create placeholder - will be updated when recipient sends a message
+      await this.prisma.userReference.create({
+        data: {
+          id: recipientId,
+          email: `${recipientId}@placeholder.local`, // Placeholder email
+          firstName: 'User',
+        },
+      });
+    }
+
     let conversation = await this.prisma.conversation.findFirst({
       where: {
         AND: [
-          // --- CORRECTED LOGIC ---
-          { participants: { some: { id: userId1 } } },
-          { participants: { some: { id: userId2 } } },
+          { participants: { some: { id: senderId } } },
+          { participants: { some: { id: recipientId } } },
         ],
       },
     });
@@ -383,12 +427,142 @@ export class DmService {
       conversation = await this.prisma.conversation.create({
         data: {
           participants: {
-            connect: [{ id: userId1 }, { id: userId2 }],
+            connect: [{ id: senderId }, { id: recipientId }],
           },
         },
       });
     }
 
     return conversation;
+  }
+
+  /**
+   * Gets all conversations for a user with their last message and unread count.
+   * @param userId - ID of the user.
+   * @returns Array of conversations with metadata.
+   */
+  async getConversations(userId: string) {
+    const conversations = await this.prisma.conversation.findMany({
+      where: {
+        participants: {
+          some: { id: userId },
+        },
+      },
+      include: {
+        participants: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 1,
+          include: {
+            sender: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
+        },
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    // Transform to include unread count and format for frontend
+    const result = await Promise.all(
+      conversations.map(async (conv) => {
+        const unreadCount = await this.prisma.directMessage.count({
+          where: {
+            conversationId: conv.id,
+            isRead: false,
+            NOT: { senderId: userId },
+          },
+        });
+
+        // Find the other participant (recipient)
+        const recipient = conv.participants.find((p) => p.id !== userId);
+
+        return {
+          id: conv.id,
+          recipientId: recipient?.id || '',
+          recipient: recipient
+            ? {
+                id: recipient.id,
+                firstName: recipient.firstName || 'User',
+                lastName: recipient.lastName || '',
+                email: recipient.email,
+              }
+            : null,
+          lastMessage: conv.messages[0] || null,
+          unreadCount,
+          updatedAt: conv.updatedAt.toISOString(),
+        };
+      }),
+    );
+
+    return result;
+  }
+
+  /**
+   * Gets messages for a specific conversation.
+   * @param userId - ID of the requesting user (must be a participant).
+   * @param conversationId - ID of the conversation.
+   * @param limit - Maximum number of messages to return.
+   * @param before - Cursor for pagination (message ID).
+   * @returns Array of messages.
+   */
+  async getMessages(
+    userId: string,
+    conversationId: string,
+    limit = 50,
+    before?: string,
+  ) {
+    // Verify user is a participant
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        participants: {
+          some: { id: userId },
+        },
+      },
+    });
+
+    if (!conversation) {
+      throw new ForbiddenException(
+        'You are not a participant of this conversation.',
+      );
+    }
+
+    const whereClause: any = {
+      conversationId,
+    };
+
+    if (before) {
+      const beforeMessage = await this.prisma.directMessage.findUnique({
+        where: { id: before },
+        select: { timestamp: true },
+      });
+      if (beforeMessage) {
+        whereClause.timestamp = { lt: beforeMessage.timestamp };
+      }
+    }
+
+    const messages = await this.prisma.directMessage.findMany({
+      where: whereClause,
+      orderBy: { timestamp: 'desc' },
+      take: limit,
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    // Return in chronological order
+    return messages.reverse();
   }
 }
