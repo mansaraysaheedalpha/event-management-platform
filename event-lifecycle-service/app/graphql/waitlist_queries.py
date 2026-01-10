@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from .. import crud
 from ..crud.crud_session_capacity import session_capacity_crud
 from ..crud.crud_waitlist_analytics import waitlist_analytics_crud
+from ..crud.crud_session_waitlist import session_waitlist
 from ..utils.waitlist import (
     calculate_waitlist_position,
     get_total_waiting,
@@ -33,6 +34,7 @@ from .waitlist_types import (
     WaitlistStatsType,
     WaitlistStatsByPriorityType,
     EventWaitlistAnalyticsType,
+    SessionWaitlistStatsType,
     WaitlistStatus,
     PriorityTier
 )
@@ -274,7 +276,7 @@ class WaitlistQuery:
             )
 
         # Get entries
-        entries = crud.waitlist.get_session_waitlist(
+        entries = session_waitlist.get_session_waitlist(
             db,
             session_id=session_id_str,
             status=status_filter
@@ -424,8 +426,44 @@ class WaitlistQuery:
             if first_metric:
                 cached_at = first_metric.calculated_at.isoformat()
 
+        # Get session-level waitlist stats
+        from ..models.session import Session as SessionModel
+        from ..models.session_waitlist import SessionWaitlist
+        from sqlalchemy import func
+
+        sessions = db.query(SessionModel).filter(SessionModel.event_id == event_id_str).all()
+
+        by_session_stats = []
+        for session in sessions:
+            # Get waitlist counts for this session
+            waiting_count = db.query(func.count(SessionWaitlist.id)).filter(
+                SessionWaitlist.session_id == str(session.id),
+                SessionWaitlist.status == 'WAITING'
+            ).scalar() or 0
+
+            offers_issued = db.query(func.count(SessionWaitlist.id)).filter(
+                SessionWaitlist.session_id == str(session.id),
+                SessionWaitlist.status.in_(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED'])
+            ).scalar() or 0
+
+            accepted_count = db.query(func.count(SessionWaitlist.id)).filter(
+                SessionWaitlist.session_id == str(session.id),
+                SessionWaitlist.status == 'ACCEPTED'
+            ).scalar() or 0
+
+            acceptance_rate = (accepted_count / offers_issued * 100) if offers_issued > 0 else 0.0
+
+            by_session_stats.append(SessionWaitlistStatsType(
+                session_id=str(session.id),
+                session_title=session.title or "Untitled Session",
+                waitlist_count=waiting_count,
+                offers_issued=offers_issued,
+                acceptance_rate=round(acceptance_rate, 1)
+            ))
+
         return EventWaitlistAnalyticsType(
             event_id=event_id_str,
             cached_at=cached_at,
+            by_session=by_session_stats,
             **metrics
         )

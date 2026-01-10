@@ -133,6 +133,16 @@ class WaitlistStatsType:
 
 
 @strawberry.type
+class SessionWaitlistStatsType:
+    """Waitlist statistics for a single session"""
+    session_id: str
+    session_title: str
+    waitlist_count: int
+    offers_issued: int
+    acceptance_rate: float
+
+
+@strawberry.type
 class EventWaitlistAnalyticsType:
     """Comprehensive event-level waitlist analytics"""
     event_id: str
@@ -148,6 +158,7 @@ class EventWaitlistAnalyticsType:
     conversion_rate: float
     average_wait_time_minutes: float
     cached_at: Optional[str]
+    by_session: List["SessionWaitlistStatsType"] = strawberry.field(default_factory=list)
 
 
 @strawberry.type
