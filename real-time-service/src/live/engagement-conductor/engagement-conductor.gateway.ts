@@ -27,7 +27,7 @@ import { PrismaService } from 'src/prisma.service';
  * - agent.intervention.executed: Intervention is executed
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class EngagementConductorGateway

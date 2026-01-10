@@ -12,7 +12,7 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class TicketsGateway {

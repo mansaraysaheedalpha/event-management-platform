@@ -17,7 +17,7 @@ import { IncidentDto } from './dto/incident.dto';
 import { UpdateIncidentDto } from './dto/update-incidents.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class IncidentsGateway {

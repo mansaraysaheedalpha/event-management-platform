@@ -6,7 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class ConnectionGateway {

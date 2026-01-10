@@ -29,7 +29,7 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
  * socket.on('reaction.burst', (payload) => { console.log(payload); });
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class ReactionsGateway {

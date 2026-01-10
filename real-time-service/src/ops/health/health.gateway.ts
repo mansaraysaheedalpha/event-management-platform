@@ -24,7 +24,7 @@ import { HealthStatusDto } from './dto/health-status.dto';
  * socket.on('ops.system.health', (payload) => { ... });
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class HealthGateway {

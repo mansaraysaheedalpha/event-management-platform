@@ -6,7 +6,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { TicketAvailabilityDto } from './dto/ticket-availability.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class SalesGateway {

@@ -20,7 +20,7 @@ import { getErrorMessage } from 'src/common/utils/error.utils';
 import { DeleteDmDto } from './dto/delete-dm.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class DmGateway {
