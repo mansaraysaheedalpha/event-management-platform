@@ -565,3 +565,12 @@ class OfferPurchaseType:
     trackingNumber: Optional[str]
     purchasedAt: Optional[str]
     fulfilledAt: Optional[str]
+
+
+@strawberry.type
+class PlatformStatsType:
+    """Public platform statistics for marketing display."""
+    totalEvents: int
+    totalAttendees: int
+    totalOrganizations: int
+    uptimePercentage: float
