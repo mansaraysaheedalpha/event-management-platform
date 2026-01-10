@@ -24,6 +24,7 @@ from ..utils.waitlist import (
 )
 from ..utils.waitlist_analytics import get_event_analytics
 from ..utils.session_utils import check_session_capacity
+from ..db.redis import redis_client
 from .waitlist_types import (
     WaitlistEntryType,
     WaitlistUserType,
@@ -127,8 +128,8 @@ class WaitlistQuery:
             db=db
         )
 
-        # Get total waiting
-        total = get_total_waiting(session_id_str, db)
+        # Get total waiting from Redis
+        total = get_total_waiting(session_id_str, redis_client)
 
         # Estimate wait time
         estimated_wait = estimate_wait_time(session_id_str, position, db)
@@ -213,8 +214,8 @@ class WaitlistQuery:
         # Use existing utility function
         capacity_info = check_session_capacity(db, session_id_str)
 
-        # Get waitlist count
-        waitlist_count = get_total_waiting(session_id_str, db)
+        # Get waitlist count from Redis
+        waitlist_count = get_total_waiting(session_id_str, redis_client)
 
         return SessionCapacityType(
             session_id=session_id_str,
