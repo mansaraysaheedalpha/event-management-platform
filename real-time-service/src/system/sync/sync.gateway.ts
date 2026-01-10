@@ -19,7 +19,7 @@ import { SyncService } from './sync.service';
  * socket.on('sync.update', (payload) => handleUpdate(payload));
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class SyncGateway {

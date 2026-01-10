@@ -13,7 +13,7 @@ import { RequestTranslationDto } from '../dto/request-translation.dto';
  * WebSocket Gateway for translation requests via '/events' namespace.
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class TranslationGateway {

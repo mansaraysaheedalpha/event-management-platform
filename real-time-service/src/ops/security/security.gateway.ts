@@ -28,7 +28,7 @@ import {
  * socket.on('ops.security.alert', (payload) => handleAlert(payload));
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class SecurityGateway {

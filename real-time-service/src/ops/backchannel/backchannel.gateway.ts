@@ -15,7 +15,7 @@ import { BackchannelService } from './backchannel.service';
 import { SendBackchannelMessageDto } from './dto/send-backchannel-message.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class BackchannelGateway {

@@ -9,7 +9,7 @@ import { EmergencyAlertDto } from './dto/emergency-alerts.dto';
 import { ScheduleChangeDto } from './dto/schedule-change.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class NotificationsGateway {

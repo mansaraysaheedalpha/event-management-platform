@@ -14,7 +14,7 @@ import { getErrorMessage } from 'src/common/utils/error.utils';
 import { GamificationAchievement } from '@prisma/client';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class GamificationGateway {

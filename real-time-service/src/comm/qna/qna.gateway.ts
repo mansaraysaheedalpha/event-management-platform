@@ -26,7 +26,7 @@ import { SessionSettingsService } from 'src/shared/services/session-settings.ser
  * Handles asking, upvoting, and moderating questions in real-time.
  */
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class QnaGateway {

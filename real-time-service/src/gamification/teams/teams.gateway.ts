@@ -17,7 +17,7 @@ import { LeaveTeamDto } from './dto/leave-team.dto';
 import { JoinTeamDto } from './dto/join-team.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class TeamsGateway {

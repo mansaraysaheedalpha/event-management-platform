@@ -26,11 +26,13 @@ const ADMIN_PERMISSIONS = [
   'content:manage',
   'chat:moderate',
   'qna:moderate',
+  'poll:create',
+  'poll:manage',
   'event:manage',
 ];
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class ChatGateway {

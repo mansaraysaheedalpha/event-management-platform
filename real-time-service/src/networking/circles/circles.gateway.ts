@@ -18,7 +18,7 @@ import { LeaveCircleDto } from './dto/leave-circle.dto';
 import { CloseCircleDto } from './dto/close-circle.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class CirclesGateway {

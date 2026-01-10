@@ -5,7 +5,7 @@ import { Logger } from '@nestjs/common';
 import { SubtitleChunkDto } from './dto/subtitle-chunk.dto';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: true, credentials: true },
   namespace: '/events',
 })
 export class StreamingGateway {
