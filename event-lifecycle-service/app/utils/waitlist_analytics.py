@@ -9,7 +9,7 @@ waitlist management, including acceptance rates, wait times, and conversion metr
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, extract, case
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from app.models.session_waitlist import SessionWaitlist, WaitlistEvent
@@ -301,7 +301,7 @@ def get_cached_event_analytics(db: Session, event_id: str, max_age_minutes: int 
     # Check if cache is recent (check the first metric's calculated_at timestamp)
     first_metric = waitlist_analytics_crud.get_metric(db, event_id, list(metrics.keys())[0])
     if first_metric:
-        age = datetime.utcnow() - first_metric.calculated_at
+        age = datetime.now(timezone.utc) - first_metric.calculated_at
         if age.total_seconds() / 60 > max_age_minutes:
             logger.info(f"Analytics cache for event {event_id} is stale ({age.total_seconds() / 60:.1f} min old)")
             return None
