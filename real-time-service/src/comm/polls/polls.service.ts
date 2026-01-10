@@ -50,9 +50,15 @@ export class PollsService {
    * @param creatorId - User ID who creates the poll.
    * @param sessionId - Session ID where poll belongs.
    * @param dto - Poll details including question and options.
+   * @param skipEventRegistrationCheck - If true, skip event registration check (for organizers/admins).
    * @returns The full poll with options and creator info.
    */
-  async createPoll(creatorId: string, sessionId: string, dto: CreatePollDto) {
+  async createPoll(
+    creatorId: string,
+    sessionId: string,
+    dto: CreatePollDto,
+    skipEventRegistrationCheck = false,
+  ) {
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -63,9 +69,11 @@ export class PollsService {
     }
 
     // Validate that the user is a participant in this session
+    // For organizers/admins, skip the event registration check
     await this.sessionValidationService.validateSessionMembership(
       creatorId,
       sessionId,
+      skipEventRegistrationCheck,
     );
 
     this.logger.log(`User ${creatorId} creating poll in session ${sessionId}`);

@@ -122,12 +122,17 @@ export class PollsGateway {
     const pollsActiveError = await this.validatePollsActive(sessionId, user.permissions);
     if (pollsActiveError) return pollsActiveError;
 
+    // Check if user has admin permissions to skip event registration check
+    const isAdmin = this.hasAdminPermissions(user.permissions);
+
     try {
       // We must `await` the promise from the service.
+      // Admins/organizers skip event registration check since they don't need to register for their own event
       const newPoll = await this.pollsService.createPoll(
         user.sub,
         sessionId,
         dto,
+        isAdmin, // skipEventRegistrationCheck for admins/organizers
       );
 
       // We must check for null before using the result.
