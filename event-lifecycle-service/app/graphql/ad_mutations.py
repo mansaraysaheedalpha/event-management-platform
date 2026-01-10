@@ -109,9 +109,8 @@ def _convert_ad_to_type(ad: Ad) -> AdType:
 
 
 class AdMutations:
-    """Ad mutation resolvers"""
+    """Ad mutation resolvers - helper methods called from main Mutation class"""
 
-    @strawberry.mutation
     def create_ad(self, ad_in: AdCreateInput, info: Info) -> AdType:
         """
         Create a new ad for an event.
@@ -186,7 +185,6 @@ class AdMutations:
 
         return _convert_ad_to_type(ad)
 
-    @strawberry.mutation
     def update_ad(self, id: str, ad_in: AdUpdateInput, info: Info) -> AdType:
         """
         Update an existing ad.
@@ -276,7 +274,6 @@ class AdMutations:
 
         return _convert_ad_to_type(updated_ad)
 
-    @strawberry.mutation
     def delete_ad(self, id: str, info: Info) -> bool:
         """
         Delete (archive) an ad.
@@ -306,7 +303,6 @@ class AdMutations:
 
         return True
 
-    @strawberry.mutation
     def track_ad_impressions(
         self,
         impressions: List[AdImpressionInput],
@@ -381,7 +377,6 @@ class AdMutations:
                 message=sanitize_error_message(e)
             )
 
-    @strawberry.mutation
     def track_ad_click(
         self,
         ad_id: str,
