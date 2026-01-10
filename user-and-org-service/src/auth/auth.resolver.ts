@@ -218,7 +218,7 @@ export class AuthResolver {
   }
 
   @Mutation(() => AuthPayload)
-  @UseGuards(CsrfGuard, GqlRefreshTokenGuard)
+  @UseGuards(GqlRefreshTokenGuard) // No CsrfGuard - refresh token cookie provides security
   async refreshToken(
     @Context() context: { req: { user: any }; res: Response },
   ): Promise<AuthPayload> {
