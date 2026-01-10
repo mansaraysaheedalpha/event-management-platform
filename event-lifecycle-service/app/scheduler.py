@@ -66,15 +66,15 @@ def init_scheduler():
     logger.info("Scheduled job: offer_spots_to_next_users (every 5 minutes)")
 
     # Job 3: Refresh analytics materialized views
-    # Runs every 1 hour
+    # Runs every 5 minutes for near real-time analytics
     scheduler.add_job(
         func=refresh_analytics_views,
-        trigger=IntervalTrigger(hours=1),
+        trigger=IntervalTrigger(minutes=5),
         id='refresh_analytics_views',
         name='Refresh Analytics Materialized Views',
         replace_existing=True
     )
-    logger.info("Scheduled job: refresh_analytics_views (every 1 hour)")
+    logger.info("Scheduled job: refresh_analytics_views (every 5 minutes)")
 
     # Start the scheduler
     scheduler.start()
