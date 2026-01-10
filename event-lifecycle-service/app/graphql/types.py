@@ -468,6 +468,8 @@ class AdType:
     media_url: str
     click_url: str
     is_archived: bool
+    displayDuration: Optional[int] = None  # display_duration_seconds from model
+    weight: Optional[int] = None  # ad weight for rotation priority
 
 
 @strawberry.type

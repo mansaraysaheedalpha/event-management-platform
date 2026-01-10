@@ -105,6 +105,8 @@ def _convert_ad_to_type(ad: Ad) -> AdType:
         media_url=ad.media_url,
         click_url=ad.click_url,
         is_archived=ad.is_archived,
+        displayDuration=ad.display_duration_seconds,
+        weight=ad.weight,
     )
 
 
