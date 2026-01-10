@@ -1118,7 +1118,7 @@ class Query:
         # Top performing offers
         top_offers_query = db.query(
             Offer.id,
-            Offer.name,
+            Offer.title,
             func.coalesce(func.sum(OfferPurchase.total_price), 0).label('revenue'),
             func.count(OfferPurchase.id).label('conversions')
         ).outerjoin(OfferPurchase, OfferPurchase.offer_id == Offer.id).filter(
@@ -1128,7 +1128,7 @@ class Query:
         top_offers = [
             OfferPerformerType(
                 offerId=str(o.id),
-                title=o.name or "Untitled",
+                title=o.title or "Untitled",
                 revenue=float(o.revenue or 0),
                 conversions=int(o.conversions or 0)
             )
