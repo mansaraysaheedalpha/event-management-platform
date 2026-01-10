@@ -468,8 +468,16 @@ class AdType:
     media_url: str
     click_url: str
     is_archived: bool
-    displayDuration: Optional[int] = None  # display_duration_seconds from model
-    weight: Optional[int] = None  # ad weight for rotation priority
+
+    @strawberry.field
+    def displayDuration(self, root) -> Optional[int]:
+        """Display duration in seconds from the model."""
+        return root.display_duration_seconds if hasattr(root, 'display_duration_seconds') else None
+
+    @strawberry.field
+    def weight(self, root) -> Optional[int]:
+        """Ad weight for rotation priority."""
+        return root.weight if hasattr(root, 'weight') else None
 
 
 @strawberry.type
