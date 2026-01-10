@@ -1072,11 +1072,11 @@ class Query:
 
         # Import models
         from ..models.ad import Ad
-        from ..models.ad_impression import AdImpression
+        from ..models.ad_event import AdEvent
         from ..models.offer import Offer
         from ..models.offer_purchase import OfferPurchase
         from ..models.session_waitlist import SessionWaitlist
-        from sqlalchemy import func
+        from sqlalchemy import func, case
 
         # --- Revenue Analytics ---
         # Get offer revenue
@@ -1140,15 +1140,20 @@ class Query:
         )
 
         # --- Ads Analytics ---
-        total_impressions = db.query(func.count(AdImpression.id)).join(
-            Ad, Ad.id == AdImpression.ad_id
-        ).filter(Ad.event_id == event_id_str).scalar() or 0
-
-        total_clicks = db.query(func.count(AdImpression.id)).join(
-            Ad, Ad.id == AdImpression.ad_id
+        # Count impressions (event_type = 'IMPRESSION')
+        total_impressions = db.query(func.count(AdEvent.id)).join(
+            Ad, Ad.id == AdEvent.ad_id
         ).filter(
             Ad.event_id == event_id_str,
-            AdImpression.clicked == True
+            AdEvent.event_type == 'IMPRESSION'
+        ).scalar() or 0
+
+        # Count clicks (event_type = 'CLICK')
+        total_clicks = db.query(func.count(AdEvent.id)).join(
+            Ad, Ad.id == AdEvent.ad_id
+        ).filter(
+            Ad.event_id == event_id_str,
+            AdEvent.event_type == 'CLICK'
         ).scalar() or 0
 
         avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0.0
@@ -1157,11 +1162,11 @@ class Query:
         top_ads_query = db.query(
             Ad.id,
             Ad.name,
-            func.count(AdImpression.id).label('impressions'),
-            func.sum(func.cast(AdImpression.clicked, typing.Any)).label('clicks')
-        ).outerjoin(AdImpression, AdImpression.ad_id == Ad.id).filter(
+            func.sum(case((AdEvent.event_type == 'IMPRESSION', 1), else_=0)).label('impressions'),
+            func.sum(case((AdEvent.event_type == 'CLICK', 1), else_=0)).label('clicks')
+        ).outerjoin(AdEvent, AdEvent.ad_id == Ad.id).filter(
             Ad.event_id == event_id_str
-        ).group_by(Ad.id).order_by(func.count(AdImpression.id).desc()).limit(5).all()
+        ).group_by(Ad.id).order_by(func.sum(case((AdEvent.event_type == 'IMPRESSION', 1), else_=0)).desc()).limit(5).all()
 
         top_ads = []
         for ad in top_ads_query:
