@@ -269,7 +269,7 @@ export class DmGateway {
 
       for (const participant of conversation.participants) {
         this.server
-          .to(`user:${participant.userId}`)
+          .to(`user:${participant.id}`)
           .emit('dm.message.deleted', { messageId: deletedMessageId });
       }
 

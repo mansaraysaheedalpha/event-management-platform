@@ -1,9 +1,10 @@
 //src/comm/dm/dm.module.ts
 import { Module } from '@nestjs/common';
 import { DmService } from './dm.service';
+import { DmGateway } from './dm.gateway';
 
 @Module({
-  providers: [DmService],
+  providers: [DmService, DmGateway],
   exports: [DmService],
 })
 export class DmModule {}
