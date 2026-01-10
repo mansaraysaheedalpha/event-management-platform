@@ -34,6 +34,15 @@ from .types import (
     DigitalContentType,
     # Platform stats
     PlatformStatsType,
+    # Monetization analytics types
+    MonetizationAnalyticsType,
+    RevenueAnalyticsType,
+    RevenueDayType,
+    OffersAnalyticsType,
+    OfferPerformerType,
+    AdsAnalyticsType,
+    AdPerformerType,
+    WaitlistAnalyticsSummaryType,
 )
 from .payment_types import (
     TicketTypeType,
@@ -1029,6 +1038,187 @@ class Query:
         """[ADMIN] Get comprehensive waitlist analytics for an event."""
         wq = WaitlistQuery()
         return wq.event_waitlist_analytics(event_id, use_cache, info)
+
+    @strawberry.field
+    def monetization_analytics(
+        self,
+        event_id: strawberry.ID,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        info: Info = None
+    ) -> MonetizationAnalyticsType:
+        """
+        [ADMIN] Get comprehensive monetization analytics for an event.
+        Includes revenue, offers, ads, and waitlist metrics.
+        """
+        user = info.context.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        event_id_str = str(event_id)
+
+        # Verify event exists and user has access
+        from ..models.event import Event as EventModel
+        event = db.query(EventModel).filter(EventModel.id == event_id_str).first()
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        user_id = user.get("sub")
+        user_org_id = user.get("orgId")
+
+        if event.owner_id != user_id and (not user_org_id or event.organization_id != user_org_id):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Import models
+        from ..models.ad import Ad
+        from ..models.ad_impression import AdImpression
+        from ..models.offer import Offer
+        from ..models.offer_purchase import OfferPurchase
+        from ..models.session_waitlist import SessionWaitlist
+        from sqlalchemy import func
+
+        # --- Revenue Analytics ---
+        # Get offer revenue
+        offer_revenue = db.query(func.coalesce(func.sum(OfferPurchase.total_price), 0)).filter(
+            OfferPurchase.event_id == event_id_str
+        ).scalar() or 0
+
+        # Ads don't typically generate direct revenue in this system (they're sponsor placements)
+        # Set to 0 for now
+        ads_revenue = 0
+
+        total_revenue = float(offer_revenue) + float(ads_revenue)
+
+        # Revenue by day (last 30 days) - simplified
+        revenue_by_day = []
+
+        revenue = RevenueAnalyticsType(
+            total=total_revenue,
+            fromOffers=float(offer_revenue),
+            fromAds=float(ads_revenue),
+            byDay=revenue_by_day
+        )
+
+        # --- Offers Analytics ---
+        total_offer_purchases = db.query(func.count(OfferPurchase.id)).filter(
+            OfferPurchase.event_id == event_id_str
+        ).scalar() or 0
+
+        # Calculate conversion rate (purchases / views) - simplified since we don't track views
+        offer_conversion_rate = 0.0
+        avg_order_value = 0.0
+        if total_offer_purchases > 0:
+            avg_order_value = float(offer_revenue) / total_offer_purchases
+
+        # Top performing offers
+        top_offers_query = db.query(
+            Offer.id,
+            Offer.name,
+            func.coalesce(func.sum(OfferPurchase.total_price), 0).label('revenue'),
+            func.count(OfferPurchase.id).label('conversions')
+        ).outerjoin(OfferPurchase, OfferPurchase.offer_id == Offer.id).filter(
+            Offer.event_id == event_id_str
+        ).group_by(Offer.id).order_by(func.sum(OfferPurchase.total_price).desc()).limit(5).all()
+
+        top_offers = [
+            OfferPerformerType(
+                offerId=str(o.id),
+                title=o.name or "Untitled",
+                revenue=float(o.revenue or 0),
+                conversions=int(o.conversions or 0)
+            )
+            for o in top_offers_query
+        ]
+
+        offers = OffersAnalyticsType(
+            totalViews=0,  # Not tracked
+            totalPurchases=total_offer_purchases,
+            conversionRate=offer_conversion_rate,
+            averageOrderValue=avg_order_value,
+            topPerformers=top_offers
+        )
+
+        # --- Ads Analytics ---
+        total_impressions = db.query(func.count(AdImpression.id)).join(
+            Ad, Ad.id == AdImpression.ad_id
+        ).filter(Ad.event_id == event_id_str).scalar() or 0
+
+        total_clicks = db.query(func.count(AdImpression.id)).join(
+            Ad, Ad.id == AdImpression.ad_id
+        ).filter(
+            Ad.event_id == event_id_str,
+            AdImpression.clicked == True
+        ).scalar() or 0
+
+        avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0.0
+
+        # Top performing ads
+        top_ads_query = db.query(
+            Ad.id,
+            Ad.name,
+            func.count(AdImpression.id).label('impressions'),
+            func.sum(func.cast(AdImpression.clicked, typing.Any)).label('clicks')
+        ).outerjoin(AdImpression, AdImpression.ad_id == Ad.id).filter(
+            Ad.event_id == event_id_str
+        ).group_by(Ad.id).order_by(func.count(AdImpression.id).desc()).limit(5).all()
+
+        top_ads = []
+        for ad in top_ads_query:
+            ad_impressions = int(ad.impressions or 0)
+            ad_clicks = int(ad.clicks or 0)
+            ad_ctr = (ad_clicks / ad_impressions * 100) if ad_impressions > 0 else 0.0
+            top_ads.append(AdPerformerType(
+                adId=str(ad.id),
+                name=ad.name or "Untitled",
+                impressions=ad_impressions,
+                clicks=ad_clicks,
+                ctr=round(ad_ctr, 2)
+            ))
+
+        ads = AdsAnalyticsType(
+            totalImpressions=total_impressions,
+            totalClicks=total_clicks,
+            averageCTR=round(avg_ctr, 2),
+            topPerformers=top_ads
+        )
+
+        # --- Waitlist Analytics ---
+        from ..models.session import Session as SessionModel
+
+        session_ids = [str(s.id) for s in db.query(SessionModel.id).filter(
+            SessionModel.event_id == event_id_str
+        ).all()]
+
+        total_waitlist_joins = db.query(func.count(SessionWaitlist.id)).filter(
+            SessionWaitlist.session_id.in_(session_ids)
+        ).scalar() or 0
+
+        waitlist_offers_issued = db.query(func.count(SessionWaitlist.id)).filter(
+            SessionWaitlist.session_id.in_(session_ids),
+            SessionWaitlist.status.in_(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED'])
+        ).scalar() or 0
+
+        waitlist_accepted = db.query(func.count(SessionWaitlist.id)).filter(
+            SessionWaitlist.session_id.in_(session_ids),
+            SessionWaitlist.status == 'ACCEPTED'
+        ).scalar() or 0
+
+        waitlist_acceptance_rate = (waitlist_accepted / waitlist_offers_issued * 100) if waitlist_offers_issued > 0 else 0.0
+
+        waitlist = WaitlistAnalyticsSummaryType(
+            totalJoins=total_waitlist_joins,
+            offersIssued=waitlist_offers_issued,
+            acceptanceRate=round(waitlist_acceptance_rate, 1),
+            averageWaitTimeMinutes=0.0  # Would need timestamp tracking to calculate
+        )
+
+        return MonetizationAnalyticsType(
+            revenue=revenue,
+            offers=offers,
+            ads=ads,
+            waitlist=waitlist
+        )
 
     @strawberry.field
     def platformStats(self, info: Info) -> PlatformStatsType:

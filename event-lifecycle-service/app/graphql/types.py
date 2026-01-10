@@ -584,3 +584,77 @@ class PlatformStatsType:
     totalAttendees: int
     totalOrganizations: int
     uptimePercentage: float
+
+
+# ==================== Monetization Analytics Types ====================
+
+@strawberry.type
+class RevenueDayType:
+    """Revenue for a single day."""
+    date: str
+    amount: float
+
+
+@strawberry.type
+class RevenueAnalyticsType:
+    """Revenue analytics breakdown."""
+    total: float
+    fromOffers: float
+    fromAds: float
+    byDay: typing.List[RevenueDayType]
+
+
+@strawberry.type
+class OfferPerformerType:
+    """Top performing offer."""
+    offerId: str
+    title: str
+    revenue: float
+    conversions: int
+
+
+@strawberry.type
+class OffersAnalyticsType:
+    """Offers analytics breakdown."""
+    totalViews: int
+    totalPurchases: int
+    conversionRate: float
+    averageOrderValue: float
+    topPerformers: typing.List[OfferPerformerType]
+
+
+@strawberry.type
+class AdPerformerType:
+    """Top performing ad."""
+    adId: str
+    name: str
+    impressions: int
+    clicks: int
+    ctr: float
+
+
+@strawberry.type
+class AdsAnalyticsType:
+    """Ads analytics breakdown."""
+    totalImpressions: int
+    totalClicks: int
+    averageCTR: float
+    topPerformers: typing.List[AdPerformerType]
+
+
+@strawberry.type
+class WaitlistAnalyticsSummaryType:
+    """Waitlist analytics summary."""
+    totalJoins: int
+    offersIssued: int
+    acceptanceRate: float
+    averageWaitTimeMinutes: float
+
+
+@strawberry.type
+class MonetizationAnalyticsType:
+    """Comprehensive monetization analytics."""
+    revenue: RevenueAnalyticsType
+    offers: OffersAnalyticsType
+    ads: AdsAnalyticsType
+    waitlist: WaitlistAnalyticsSummaryType
