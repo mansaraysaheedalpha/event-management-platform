@@ -128,7 +128,7 @@ class WaitlistMutations:
             )
 
         # Check if already on waitlist
-        existing = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=user_id)
+        existing = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=user_id)
         if existing:
             # Return existing entry
             position = calculate_waitlist_position(session_id, existing.priority_tier, existing.joined_at, db)
@@ -164,7 +164,7 @@ class WaitlistMutations:
         )
 
         # Create waitlist entry
-        entry = crud.session_waitlist.create_entry(
+        entry = crud.waitlist.create_entry(
             db,
             session_id=session_id,
             user_id=user_id,
@@ -216,7 +216,7 @@ class WaitlistMutations:
         validate_session_id(session_id)
 
         # Get waitlist entry
-        entry = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=user_id)
+        entry = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=user_id)
         if not entry:
             raise HTTPException(status_code=404, detail="Not on waitlist")
 
@@ -229,7 +229,7 @@ class WaitlistMutations:
         )
 
         # Update status
-        crud.session_waitlist.update_status(db, entry=entry, status='LEFT')
+        crud.waitlist.update_status(db, entry=entry, status='LEFT')
 
         # Log event
         crud.waitlist_event.log_event(db, waitlist_entry_id=entry.id, event_type='LEFT')
@@ -240,10 +240,10 @@ class WaitlistMutations:
         # Offer to next person
         next_user_id, next_priority = get_next_in_queue(session_id, redis_client)
         if next_user_id:
-            next_entry = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=next_user_id)
+            next_entry = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=next_user_id)
             if next_entry and next_entry.status == 'WAITING':
                 offer_token, expires_at = generate_offer_token(next_user_id, session_id, 5)
-                crud.session_waitlist.set_offer(db, entry=next_entry, offer_token=offer_token, expires_at=expires_at)
+                crud.waitlist.set_offer(db, entry=next_entry, offer_token=offer_token, expires_at=expires_at)
                 crud.waitlist_event.log_event(
                     db,
                     waitlist_entry_id=next_entry.id,
@@ -286,10 +286,10 @@ class WaitlistMutations:
             raise HTTPException(status_code=400, detail="Invalid or expired token")
 
         # Get waitlist entry
-        entry = db.query(crud.session_waitlist.model).filter(
-            crud.session_waitlist.model.session_id == session_id,
-            crud.session_waitlist.model.user_id == user_id,
-            crud.session_waitlist.model.status == 'OFFERED'
+        entry = db.query(crud.waitlist.model).filter(
+            crud.waitlist.model.session_id == session_id,
+            crud.waitlist.model.user_id == user_id,
+            crud.waitlist.model.status == 'OFFERED'
         ).first()
 
         if not entry:
@@ -299,7 +299,7 @@ class WaitlistMutations:
             raise HTTPException(status_code=409, detail="Offer already processed")
 
         # Update status
-        crud.session_waitlist.update_status(db, entry=entry, status='ACCEPTED')
+        crud.waitlist.update_status(db, entry=entry, status='ACCEPTED')
 
         # Increment attendance
         capacity_result = session_capacity_crud.increment_attendance(db, session_id)
@@ -346,12 +346,12 @@ class WaitlistMutations:
         validate_session_id(session_id)
 
         # Get entry
-        entry = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=user_id)
+        entry = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=user_id)
         if not entry:
             raise HTTPException(status_code=404, detail="Not on waitlist")
 
         # Update status
-        crud.session_waitlist.update_status(db, entry=entry, status='DECLINED')
+        crud.waitlist.update_status(db, entry=entry, status='DECLINED')
 
         # Log event
         crud.waitlist_event.log_event(db, waitlist_entry_id=entry.id, event_type='DECLINED')
@@ -391,7 +391,7 @@ class WaitlistMutations:
         _check_organizer_permission(db, user, session_id)
 
         # Get entry
-        entry = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=target_user_id)
+        entry = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=target_user_id)
         if not entry:
             raise HTTPException(status_code=404, detail="User not on waitlist")
 
@@ -399,7 +399,7 @@ class WaitlistMutations:
         remove_from_waitlist_queue(session_id, target_user_id, entry.priority_tier, redis_client)
 
         # Update status
-        crud.session_waitlist.update_status(db, entry=entry, status='LEFT')
+        crud.waitlist.update_status(db, entry=entry, status='LEFT')
 
         # Log event
         crud.waitlist_event.log_event(
@@ -446,7 +446,7 @@ class WaitlistMutations:
         _check_organizer_permission(db, user, session_id)
 
         # Get entry
-        entry = crud.session_waitlist.get_by_session_and_user(db, session_id=session_id, user_id=target_user_id)
+        entry = crud.waitlist.get_by_session_and_user(db, session_id=session_id, user_id=target_user_id)
         if not entry:
             raise HTTPException(status_code=404, detail="User not on waitlist")
 
@@ -457,7 +457,7 @@ class WaitlistMutations:
         offer_token, expires_at = generate_offer_token(target_user_id, session_id, expires_minutes)
 
         # Update entry
-        crud.session_waitlist.set_offer(db, entry=entry, offer_token=offer_token, expires_at=expires_at)
+        crud.waitlist.set_offer(db, entry=entry, offer_token=offer_token, expires_at=expires_at)
 
         # Log event
         crud.waitlist_event.log_event(
@@ -525,12 +525,12 @@ class WaitlistMutations:
             if not next_user_id:
                 break
 
-            entry = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=next_user_id)
+            entry = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=next_user_id)
             if not entry or entry.status != 'WAITING':
                 continue
 
             offer_token, expires_at = generate_offer_token(next_user_id, session_id, expires_minutes)
-            crud.session_waitlist.set_offer(db, entry=entry, offer_token=offer_token, expires_at=expires_at)
+            crud.waitlist.set_offer(db, entry=entry, offer_token=offer_token, expires_at=expires_at)
             crud.waitlist_event.log_event(
                 db,
                 waitlist_entry_id=entry.id,
@@ -602,12 +602,12 @@ class WaitlistMutations:
                 if not next_user_id:
                     break
 
-                entry = crud.session_waitlist.get_active_entry(db, session_id=session_id, user_id=next_user_id)
+                entry = crud.waitlist.get_active_entry(db, session_id=session_id, user_id=next_user_id)
                 if not entry or entry.status != 'WAITING':
                     continue
 
                 offer_token, expires_at = generate_offer_token(next_user_id, session_id, 5)
-                crud.session_waitlist.set_offer(db, entry=entry, offer_token=offer_token, expires_at=expires_at)
+                crud.waitlist.set_offer(db, entry=entry, offer_token=offer_token, expires_at=expires_at)
                 crud.waitlist_event.log_event(
                     db,
                     waitlist_entry_id=entry.id,

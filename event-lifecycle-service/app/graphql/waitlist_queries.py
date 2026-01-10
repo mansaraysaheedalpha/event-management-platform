@@ -110,7 +110,7 @@ class WaitlistQuery:
         session_id_str = str(session_id)
 
         # Get waitlist entry
-        entry = crud.session_waitlist.get_active_entry(
+        entry = crud.waitlist.get_active_entry(
             db,
             session_id=session_id_str,
             user_id=user_id
@@ -163,7 +163,7 @@ class WaitlistQuery:
         session_id_str = str(session_id)
 
         # Get waitlist entry
-        entry = crud.session_waitlist.get_active_entry(
+        entry = crud.waitlist.get_active_entry(
             db,
             session_id=session_id_str,
             user_id=user_id
@@ -274,7 +274,7 @@ class WaitlistQuery:
             )
 
         # Get entries
-        entries = crud.session_waitlist.get_session_waitlist(
+        entries = crud.waitlist.get_session_waitlist(
             db,
             session_id=session_id_str,
             status=status_filter
