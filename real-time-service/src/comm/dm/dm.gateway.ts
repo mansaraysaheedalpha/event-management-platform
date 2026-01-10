@@ -33,6 +33,55 @@ export class DmGateway {
   ) {}
 
   /**
+   * Handles request to get all conversations for the current user.
+   * @param client - The connected authenticated socket client.
+   * @returns An object with success status and conversations array.
+   */
+  @SubscribeMessage('dm.conversations.get')
+  async handleGetConversations(@ConnectedSocket() client: AuthenticatedSocket) {
+    const user = getAuthenticatedUser(client);
+    try {
+      const conversations = await this.dmService.getConversations(user.sub);
+      return { success: true, conversations };
+    } catch (error) {
+      this.logger.error(
+        `Failed to get conversations for user ${user.sub}:`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error), conversations: [] };
+    }
+  }
+
+  /**
+   * Handles request to get messages for a specific conversation.
+   * @param dto - Contains conversationId, optional limit and before cursor.
+   * @param client - The connected authenticated socket client.
+   * @returns An object with success status and messages array.
+   */
+  @SubscribeMessage('dm.messages.get')
+  async handleGetMessages(
+    @MessageBody() dto: { conversationId: string; limit?: number; before?: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    try {
+      const messages = await this.dmService.getMessages(
+        user.sub,
+        dto.conversationId,
+        dto.limit || 50,
+        dto.before,
+      );
+      return { success: true, messages };
+    } catch (error) {
+      this.logger.error(
+        `Failed to get messages for user ${user.sub}:`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error), messages: [] };
+    }
+  }
+
+  /**
    * Handles incoming direct message sending requests.
    * Sends the message to both sender's and recipient's private rooms.
    * @param dto - Data transfer object containing DM details.
@@ -46,7 +95,16 @@ export class DmGateway {
   ) {
     const sender = getAuthenticatedUser(client);
     try {
-      const newMessage = await this.dmService.sendMessage(sender.sub, dto);
+      // Extract name from email if not available (e.g., john.doe@email.com -> John)
+      const senderName = sender.email?.split('@')[0]?.split('.')[0] || 'User';
+      const formattedName = senderName.charAt(0).toUpperCase() + senderName.slice(1);
+
+      const newMessage = await this.dmService.sendMessage(
+        sender.sub,
+        sender.email || `${sender.sub}@unknown.local`,
+        formattedName,
+        dto,
+      );
 
       // --- WORLD-CLASS TARGETED BROADCASTING ---
       // Each user is in their own private room: `user:<userId>`
