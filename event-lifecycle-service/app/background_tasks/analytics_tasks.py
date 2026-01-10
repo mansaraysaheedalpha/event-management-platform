@@ -19,7 +19,7 @@ def refresh_analytics_views():
     """
     Refresh all analytics materialized views.
 
-    This task should run every hour to keep analytics data fresh.
+    This task runs every 5 minutes to keep analytics data near real-time.
 
     Refreshes:
     - monetization_conversion_funnels
