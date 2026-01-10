@@ -94,20 +94,9 @@ class AdClickResult:
     redirectUrl: Optional[str] = None
 
 
-def _convert_ad_to_type(ad: Ad) -> AdType:
-    """Convert Ad model to GraphQL type."""
-    return AdType(
-        id=ad.id,
-        organization_id=ad.organization_id,
-        event_id=ad.event_id,
-        name=ad.name,
-        content_type=ad.content_type,
-        media_url=ad.media_url,
-        click_url=ad.click_url,
-        is_archived=ad.is_archived,
-        displayDuration=ad.display_duration_seconds,
-        weight=ad.weight,
-    )
+def _convert_ad_to_type(ad: Ad) -> Ad:
+    """Return Ad model - Strawberry will use AdType resolvers to map fields."""
+    return ad
 
 
 class AdMutations:
