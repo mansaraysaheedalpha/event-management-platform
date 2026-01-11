@@ -21,7 +21,17 @@ import { IncidentsService } from './incidents.service';
 import { ReportIncidentDto } from './dto/report-incident.dto';
 import { IncidentDto } from './dto/incident.dto';
 import { UpdateIncidentDto } from './dto/update-incidents.dto';
-import { validate as isUUID } from 'uuid';
+
+// UUID v4 validation regex pattern
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates if a string is a valid UUID v4
+ */
+function isValidUUID(value: string): boolean {
+  return UUID_V4_REGEX.test(value);
+}
 
 // Define allowed origins for CORS - restrict in production
 // Uses ALLOWED_ORIGINS env var (consistent with main.ts and cors.config.ts)
@@ -56,7 +66,7 @@ export class IncidentsGateway {
       throw new BadRequestException('sessionId is required in query parameters');
     }
 
-    if (!isUUID(sessionIdValue)) {
+    if (!isValidUUID(sessionIdValue)) {
       throw new BadRequestException('sessionId must be a valid UUID');
     }
 
