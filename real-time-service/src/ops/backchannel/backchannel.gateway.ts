@@ -7,7 +7,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { ForbiddenException, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
@@ -35,9 +35,16 @@ export class BackchannelGateway {
     const requiredPermission = 'backchannel:join';
 
     if (!user.permissions?.includes(requiredPermission)) {
-      throw new ForbiddenException(
-        'You do not have permission to join the backchannel.',
+      this.logger.warn(
+        `User ${user.sub} attempted to join backchannel without permission`,
       );
+      return {
+        success: false,
+        error: {
+          message: 'You do not have permission to join the backchannel.',
+          statusCode: 403,
+        },
+      };
     }
 
     const backchannelRoom = `backchannel:${sessionId}`;
@@ -79,9 +86,16 @@ export class BackchannelGateway {
     const requiredPermission = 'backchannel:send';
 
     if (!user.permissions?.includes(requiredPermission)) {
-      throw new ForbiddenException(
-        'You do not have permission to send backchannel messages.',
+      this.logger.warn(
+        `User ${user.sub} attempted to send backchannel message without permission`,
       );
+      return {
+        success: false,
+        error: {
+          message: 'You do not have permission to send backchannel messages.',
+          statusCode: 403,
+        },
+      };
     }
 
     try {
