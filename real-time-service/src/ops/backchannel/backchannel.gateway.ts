@@ -26,9 +26,10 @@ export class BackchannelGateway {
 
   /**
    * Handles an authorized staff member joining the backchannel for a session.
+   * Fetches and emits message history after successful join.
    */
   @SubscribeMessage('backchannel.join')
-  handleJoinBackchannel(@ConnectedSocket() client: AuthenticatedSocket) {
+  async handleJoinBackchannel(@ConnectedSocket() client: AuthenticatedSocket) {
     const user = getAuthenticatedUser(client);
     const { sessionId } = client.handshake.query as { sessionId: string };
     const requiredPermission = 'backchannel:join';
@@ -43,11 +44,23 @@ export class BackchannelGateway {
     const roleSpecificRoom = `backchannel:${sessionId}:role:${user.role}`;
 
     // Join both the general backchannel and the user's role-specific room
-    void client.join([backchannelRoom, roleSpecificRoom]);
+    await client.join([backchannelRoom, roleSpecificRoom]);
 
     this.logger.log(
       `Staff member ${user.sub} (${user.role}) joined backchannel for session ${sessionId}`,
     );
+
+    // Fetch and emit message history to the joining client
+    try {
+      const messages = await this.backchannelService.getHistory(sessionId);
+      client.emit('backchannel.history', { messages });
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch backchannel history for session ${sessionId}`,
+        getErrorMessage(error),
+      );
+      // Don't fail the join, just log the error - client will still be in the room
+    }
 
     return { success: true };
   }

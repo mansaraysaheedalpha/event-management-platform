@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     ANOMALY_WARNING_THRESHOLD: float = 0.6
     ANOMALY_CRITICAL_THRESHOLD: float = 0.8
 
+    # Engagement Conductor Agent Settings
+    AGENT_AUTO_APPROVE_THRESHOLD: float = 0.75  # Confidence threshold for auto-approval
+    AGENT_PENDING_APPROVAL_TTL_SECONDS: int = 1800  # 30 minutes TTL for pending approvals
+    AGENT_MAX_PENDING_APPROVALS: int = 1000  # Max pending approvals before eviction
+    AGENT_ENGAGEMENT_CALCULATION_INTERVAL: int = 5  # Seconds between engagement calculations
+    AGENT_CLEANUP_INTERVAL_SECONDS: int = 300  # 5 minutes for cleanup tasks
+
+    # LLM Settings
+    LLM_TIMEOUT_SECONDS: int = 30  # Timeout for LLM calls
+
     # Rate Limiting
     MAX_REQUESTS_PER_MINUTE: int = 60
     MAX_LLM_COST_PER_HOUR: float = 20.0

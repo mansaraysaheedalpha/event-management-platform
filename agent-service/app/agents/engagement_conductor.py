@@ -24,9 +24,9 @@ State Flow:
 
 import asyncio
 import os
-from typing import Dict, Optional, List, TypedDict, Literal
+from typing import Dict, Optional, List, TypedDict, Literal, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 import logging
 
@@ -51,6 +51,7 @@ from app.agents.intervention_executor import InterventionExecutor
 from app.models.anomaly import Anomaly
 from app.db.timescale import AsyncSessionLocal
 from app.core.redis_client import redis_client
+from app.core.config import get_settings
 import json
 
 logger = logging.getLogger(__name__)
@@ -147,8 +148,23 @@ class EngagementConductorAgent:
     three operating modes (Manual, Semi-Auto, Auto).
     """
 
-    # Confidence threshold for semi-auto mode
-    AUTO_APPROVE_THRESHOLD = 0.75
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+    @property
+    def AUTO_APPROVE_THRESHOLD(self) -> float:
+        """Confidence threshold for semi-auto mode (from config)"""
+        return get_settings().AGENT_AUTO_APPROVE_THRESHOLD
+
+    @property
+    def PENDING_APPROVAL_TTL_SECONDS(self) -> int:
+        """TTL for pending approvals in seconds (from config)"""
+        return get_settings().AGENT_PENDING_APPROVAL_TTL_SECONDS
+
+    @property
+    def MAX_PENDING_APPROVALS(self) -> int:
+        """Maximum pending approvals to prevent memory exhaustion (from config)"""
+        return get_settings().AGENT_MAX_PENDING_APPROVALS
 
     def __init__(
         self,
@@ -172,10 +188,104 @@ class EngagementConductorAgent:
         self.memory = MemorySaver()
         self.app = self.workflow.compile(checkpointer=self.memory)
 
-        # Track active decisions awaiting approval
-        self.pending_approvals: Dict[str, AgentState] = {}
+        # Track active decisions awaiting approval with timestamps for TTL cleanup
+        # Format: {session_id: (AgentState, created_at)}
+        self._pending_approvals: Dict[str, Tuple[AgentState, datetime]] = {}
+
+        # Start background cleanup task
+        self._cleanup_task: Optional[asyncio.Task] = None
+
+        # Store current agent mode (default to MANUAL)
+        self._current_mode: AgentMode = AgentMode.MANUAL
 
         logger.info("EngagementConductorAgent initialized with LangGraph workflow")
+
+    @property
+    def pending_approvals(self) -> Dict[str, AgentState]:
+        """Get pending approvals dict (for backwards compatibility)."""
+        return {k: v[0] for k, v in self._pending_approvals.items()}
+
+    async def start_cleanup_task(self):
+        """Start the background cleanup task for expired pending approvals."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._cleanup_expired_approvals())
+            logger.info("Started pending approvals cleanup task")
+
+    async def stop_cleanup_task(self):
+        """Stop the background cleanup task."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Stopped pending approvals cleanup task")
+
+    async def _cleanup_expired_approvals(self):
+        """Background task to clean up expired pending approvals."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                now = datetime.now(timezone.utc)
+                expired = []
+
+                for session_id, (state, created_at) in self._pending_approvals.items():
+                    age = (now - created_at).total_seconds()
+                    if age > self.PENDING_APPROVAL_TTL_SECONDS:
+                        expired.append(session_id)
+
+                for session_id in expired:
+                    logger.info(
+                        f"Cleaning up expired pending approval for session {session_id} "
+                        f"(TTL exceeded: {self.PENDING_APPROVAL_TTL_SECONDS}s)"
+                    )
+                    del self._pending_approvals[session_id]
+
+                if expired:
+                    logger.info(f"Cleaned up {len(expired)} expired pending approvals")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in pending approvals cleanup: {e}")
+
+    def _add_pending_approval(self, session_id: str, state: AgentState):
+        """Add a pending approval with TTL tracking and size limit enforcement."""
+        # Enforce max size limit
+        if len(self._pending_approvals) >= self.MAX_PENDING_APPROVALS:
+            # Remove oldest approval
+            oldest_session = min(
+                self._pending_approvals.keys(),
+                key=lambda k: self._pending_approvals[k][1]
+            )
+            logger.warning(
+                f"Max pending approvals reached ({self.MAX_PENDING_APPROVALS}). "
+                f"Removing oldest: {oldest_session}"
+            )
+            del self._pending_approvals[oldest_session]
+
+        self._pending_approvals[session_id] = (state, datetime.now(timezone.utc))
+
+    def _get_pending_approval(self, session_id: str) -> Optional[AgentState]:
+        """Get a pending approval if it exists and hasn't expired."""
+        if session_id not in self._pending_approvals:
+            return None
+
+        state, created_at = self._pending_approvals[session_id]
+        age = (datetime.now(timezone.utc) - created_at).total_seconds()
+
+        if age > self.PENDING_APPROVAL_TTL_SECONDS:
+            # Expired, clean it up
+            del self._pending_approvals[session_id]
+            logger.info(f"Pending approval for session {session_id} expired")
+            return None
+
+        return state
+
+    def _remove_pending_approval(self, session_id: str):
+        """Remove a pending approval."""
+        if session_id in self._pending_approvals:
+            del self._pending_approvals[session_id]
 
     async def _publish_agent_event(
         self,
@@ -195,7 +305,7 @@ class EngagementConductorAgent:
             event = {
                 "type": event_type,
                 "session_id": session_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "data": data
             }
 
@@ -289,7 +399,7 @@ class EngagementConductorAgent:
         else:
             state["anomaly_detected"] = False
 
-        state["timestamp"] = datetime.utcnow().isoformat()
+        state["timestamp"] = datetime.now(timezone.utc).isoformat()
 
         # Publish status update
         await self._publish_agent_event(
@@ -364,7 +474,7 @@ class EngagementConductorAgent:
                         "isExploring": stats.total_attempts < 5 if stats else True
                     },
                     "autoApproved": False,  # Will be updated in check_approval
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             }
         )
@@ -422,8 +532,8 @@ class EngagementConductorAgent:
 
         logger.info(f"[WAIT] Session {session_id}: Waiting for approval")
 
-        # Store state for later retrieval
-        self.pending_approvals[session_id] = state
+        # Store state for later retrieval with TTL tracking
+        self._add_pending_approval(session_id, state)
 
         # Publish waiting for approval status
         await self._publish_agent_event(
@@ -535,10 +645,11 @@ class EngagementConductorAgent:
             f"reward={reward:.2f}"
         )
 
-        # Export updated stats (for persistence)
-        stats_export = self.thompson_sampling.export_stats()
-
-        # TODO: Persist to database for long-term learning
+        # Persist Thompson Sampling stats to Redis for long-term learning
+        try:
+            await self.thompson_sampling.save_to_redis()
+        except Exception as e:
+            logger.error(f"[LEARN] Failed to persist Thompson Sampling stats: {e}")
 
         return state
 
@@ -608,7 +719,7 @@ class EngagementConductorAgent:
             "success": False,
             "reward": 0.0,
             "status": AgentStatus.IDLE,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "explanation": ""
         }
 
@@ -626,14 +737,16 @@ class EngagementConductorAgent:
             session_id: Session ID
             approved: True to approve, False to dismiss
         """
-        if session_id not in self.pending_approvals:
-            raise ValueError(f"No pending approval for session {session_id}")
+        state = self._get_pending_approval(session_id)
+        if state is None:
+            raise ValueError(f"No pending approval for session {session_id} (may have expired)")
 
-        state = self.pending_approvals[session_id]
         state["approved"] = approved
 
         if approved:
             logger.info(f"[APPROVAL] Session {session_id}: Intervention approved")
+            # Remove from pending before continuing
+            self._remove_pending_approval(session_id)
             # Continue workflow from wait_approval node
             config = {"configurable": {"thread_id": session_id}}
             final_state = await self.app.ainvoke(state, config)
@@ -641,15 +754,14 @@ class EngagementConductorAgent:
         else:
             logger.info(f"[APPROVAL] Session {session_id}: Intervention dismissed")
             # Remove from pending
-            del self.pending_approvals[session_id]
+            self._remove_pending_approval(session_id)
             return state
 
     def get_pending_approval(self, session_id: str) -> Optional[AgentDecision]:
         """Get pending approval for a session"""
-        if session_id not in self.pending_approvals:
+        state = self._get_pending_approval(session_id)
+        if state is None:
             return None
-
-        state = self.pending_approvals[session_id]
 
         return AgentDecision(
             intervention_type=state["selected_intervention"],
@@ -669,9 +781,14 @@ class EngagementConductorAgent:
         Args:
             mode: New agent mode (MANUAL, SEMI_AUTO, AUTO)
         """
-        logger.info(f"Agent mode changed to {mode.value}")
-        # Mode is passed per-run in the run() method, so this is just for logging
-        # The actual mode will be set when run() is called
+        old_mode = self._current_mode
+        self._current_mode = mode
+        logger.info(f"Agent mode changed from {old_mode.value} to {mode.value}")
+
+    @property
+    def current_mode(self) -> AgentMode:
+        """Get the current agent mode."""
+        return self._current_mode
 
     async def get_state(self) -> Dict:
         """

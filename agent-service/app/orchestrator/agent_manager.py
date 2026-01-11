@@ -554,6 +554,62 @@ class AgentOrchestrator:
 
         logger.info(f"Imported orchestrator state: {len(self.configs)} sessions")
 
+    # ==================== GRACEFUL SHUTDOWN ====================
+
+    async def shutdown(self):
+        """
+        Gracefully shutdown all agents and save state.
+
+        Call this on application shutdown to:
+        - Cancel all running tasks
+        - Stop cleanup tasks
+        - Save Thompson Sampling state
+        - Export orchestrator state
+        """
+        logger.info("Initiating graceful shutdown of AgentOrchestrator...")
+
+        # Cancel all running tasks
+        cancelled_tasks = []
+        for session_id, task in list(self.tasks.items()):
+            if not task.done():
+                task.cancel()
+                cancelled_tasks.append(task)
+                logger.info(f"Cancelled task for session {session_id}")
+
+        # Wait for all tasks to complete cancellation
+        if cancelled_tasks:
+            await asyncio.gather(*cancelled_tasks, return_exceptions=True)
+            logger.info(f"Cancelled {len(cancelled_tasks)} running tasks")
+
+        # Stop cleanup tasks for all agents
+        for session_id, agent in self.agents.items():
+            try:
+                await agent.stop_cleanup_task()
+                logger.info(f"Stopped cleanup task for session {session_id}")
+            except Exception as e:
+                logger.error(f"Error stopping cleanup task for session {session_id}: {e}")
+
+        # Save Thompson Sampling state to Redis
+        try:
+            await self.thompson_sampling.save_to_redis()
+            logger.info("Saved Thompson Sampling state to Redis")
+        except Exception as e:
+            logger.error(f"Failed to save Thompson Sampling state: {e}")
+
+        # Export state (could be saved to database)
+        try:
+            state = self.export_state()
+            logger.info(f"Exported orchestrator state: {len(state.get('configs', {}))} sessions")
+        except Exception as e:
+            logger.error(f"Failed to export orchestrator state: {e}")
+
+        # Clear all data structures
+        self.tasks.clear()
+        self.agents.clear()
+        self.configs.clear()
+
+        logger.info("AgentOrchestrator shutdown complete")
+
 
 # Global orchestrator instance
 _orchestrator_instance: Optional[AgentOrchestrator] = None

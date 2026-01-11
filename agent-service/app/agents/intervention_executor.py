@@ -4,8 +4,9 @@ Executes interventions and tracks their outcomes
 """
 import logging
 import json
+import asyncio
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 
@@ -13,8 +14,18 @@ from app.agents.intervention_selector import InterventionRecommendation
 from app.agents.poll_intervention_strategy import poll_strategy, PollQuestion
 from app.db.models import Intervention
 from app.core.redis_client import RedisClient
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def get_llm_timeout() -> int:
+    """Get LLM timeout from config"""
+    return get_settings().LLM_TIMEOUT_SECONDS
+
+
+# LLM call timeout in seconds (kept for backwards compatibility, use get_llm_timeout() for dynamic value)
+LLM_TIMEOUT_SECONDS = 30
 
 
 class InterventionExecutor:
@@ -25,16 +36,30 @@ class InterventionExecutor:
     Phase 4 (Full Integration): Direct integration with platform services
     """
 
-    def __init__(self, redis_client: RedisClient):
+    def __init__(self, redis_client: Optional[RedisClient] = None):
         """
         Initialize intervention executor.
 
         Args:
-            redis_client: Redis client for publishing interventions
+            redis_client: Redis client for publishing interventions (optional, uses global if not provided)
         """
-        self.redis = redis_client
+        self._redis = redis_client
         self.logger = logging.getLogger(__name__)
         self.pending_interventions: Dict[str, Dict] = {}  # Track pending interventions
+
+    @property
+    def redis(self) -> RedisClient:
+        """Get Redis client, falling back to global instance if not provided."""
+        if self._redis is not None:
+            return self._redis
+        # Import global redis_client lazily to avoid circular imports
+        from app.core.redis_client import redis_client as global_redis
+        if global_redis is None:
+            raise RuntimeError(
+                "Redis client not initialized. Either pass redis_client to constructor "
+                "or ensure global redis_client is initialized before use."
+            )
+        return global_redis
 
     async def execute(
         self,
@@ -98,15 +123,43 @@ class InterventionExecutor:
             event_id = recommendation.context['event_id']
             anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
 
-            # Generate poll question using AI (Phase 4) or templates (Phase 3)
-            poll = await poll_strategy.generate_with_ai(
-                session_id=session_id,
-                event_id=event_id,
-                anomaly_type=anomaly_type,
-                session_context=session_context or {},
-                signals=recommendation.context.get('signals', {}),
-                use_llm=True  # Enable LLM generation
-            )
+            # Validate UUIDs early
+            try:
+                session_uuid = uuid.UUID(session_id)
+            except ValueError as e:
+                return {
+                    'success': False,
+                    'error': f'Invalid session_id format: {e}'
+                }
+
+            # Generate poll question using AI with timeout
+            # Falls back to template if LLM times out or fails
+            timeout = get_llm_timeout()
+            try:
+                poll = await asyncio.wait_for(
+                    poll_strategy.generate_with_ai(
+                        session_id=session_id,
+                        event_id=event_id,
+                        anomaly_type=anomaly_type,
+                        session_context=session_context or {},
+                        signals=recommendation.context.get('signals', {}),
+                        use_llm=True  # Enable LLM generation
+                    ),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning(
+                    f"LLM call timed out after {timeout}s, using template fallback"
+                )
+                # Fall back to template-based generation
+                poll = await poll_strategy.generate_with_ai(
+                    session_id=session_id,
+                    event_id=event_id,
+                    anomaly_type=anomaly_type,
+                    session_context=session_context or {},
+                    signals=recommendation.context.get('signals', {}),
+                    use_llm=False  # Use template fallback
+                )
 
             if not poll:
                 return {
@@ -118,8 +171,8 @@ class InterventionExecutor:
             intervention_id = str(uuid.uuid4())
             intervention = Intervention(
                 id=uuid.UUID(intervention_id),
-                session_id=uuid.UUID(session_id),
-                timestamp=datetime.utcnow(),
+                session_id=session_uuid,
+                timestamp=datetime.now(timezone.utc),
                 type='POLL',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
@@ -151,7 +204,7 @@ class InterventionExecutor:
             self.pending_interventions[intervention_id] = {
                 'type': 'POLL',
                 'session_id': session_id,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'recommendation': recommendation
             }
 
@@ -220,7 +273,7 @@ class InterventionExecutor:
             intervention = Intervention(
                 id=uuid.UUID(intervention_id),
                 session_id=uuid.UUID(session_id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 type='CHAT_PROMPT',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
@@ -283,7 +336,7 @@ class InterventionExecutor:
             intervention = Intervention(
                 id=uuid.UUID(intervention_id),
                 session_id=uuid.UUID(session_id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 type='NOTIFICATION',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
@@ -352,7 +405,7 @@ class InterventionExecutor:
             intervention = Intervention(
                 id=uuid.UUID(intervention_id),
                 session_id=uuid.UUID(session_id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 type='GAMIFICATION',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
@@ -395,7 +448,7 @@ class InterventionExecutor:
             'intervention_id': intervention_id,
             'session_id': session_id,
             'event_id': event_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'poll': {
                 'question': poll.question,
                 'options': poll.options,
@@ -426,7 +479,7 @@ class InterventionExecutor:
             'intervention_id': intervention_id,
             'session_id': session_id,
             'event_id': event_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'prompt': prompt
         }
 
@@ -448,7 +501,7 @@ class InterventionExecutor:
             'intervention_id': intervention_id,
             'session_id': session_id,
             'event_id': event_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'notification_type': notification_type,
             'target': target,
             'escalate': escalate

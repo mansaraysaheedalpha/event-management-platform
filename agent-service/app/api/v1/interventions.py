@@ -1,6 +1,8 @@
 """
 Interventions API Endpoints
 Provides manual intervention triggers and history viewing
+
+SECURITY: All endpoints require authentication and verify user permissions
 """
 import logging
 from typing import List, Optional
@@ -16,6 +18,7 @@ from app.db.models import Intervention
 from app.agents.intervention_selector import intervention_selector, InterventionRecommendation
 from app.agents.intervention_executor import InterventionExecutor
 from app.core.redis_client import redis_client
+from app.middleware.auth import verify_token, verify_organizer, AuthUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/interventions", tags=["interventions"])
@@ -60,17 +63,20 @@ class InterventionHistoryResponse(BaseModel):
 @router.post("/manual", response_model=InterventionResponse)
 async def trigger_manual_intervention(
     request: ManualInterventionRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(verify_organizer)  # Authentication required
 ):
     """
     Manually trigger an intervention for a session.
 
     This endpoint allows organizers to manually trigger interventions
     without waiting for anomaly detection.
+
+    **Authentication Required**: Must be event organizer
     """
     try:
         logger.info(
-            f"🎯 Manual intervention requested: {request.intervention_type} "
+            f"🎯 Manual intervention requested by user {user.sub}: {request.intervention_type} "
             f"for session {request.session_id[:8]}..."
         )
 
@@ -84,13 +90,14 @@ async def trigger_manual_intervention(
                 'session_id': request.session_id,
                 'event_id': request.event_id,
                 'manual': True,
+                'triggered_by': user.sub,
                 **request.context
             },
             estimated_impact=0.0  # Unknown for manual interventions
         )
 
-        # Execute intervention
-        executor = InterventionExecutor(redis_client)
+        # Execute intervention (InterventionExecutor handles redis_client internally)
+        executor = InterventionExecutor()
         result = await executor.execute(
             recommendation=recommendation,
             db_session=db,
@@ -123,12 +130,15 @@ async def get_intervention_history(
     session_id: str,
     limit: int = Query(default=50, le=200, description="Maximum number of interventions to return"),
     offset: int = Query(default=0, ge=0, description="Offset for pagination"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(verify_organizer)  # Authentication required
 ):
     """
     Get intervention history for a session.
 
     Returns a list of all interventions that were triggered for the specified session.
+
+    **Authentication Required**: Must be event organizer
     """
     try:
         session_uuid = uuid.UUID(session_id)
@@ -187,12 +197,15 @@ async def get_event_intervention_history(
     event_id: str,
     hours: int = Query(default=24, le=168, description="Look back hours (max 1 week)"),
     limit: int = Query(default=100, le=500),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(verify_organizer)  # Authentication required
 ):
     """
     Get intervention history for all sessions in an event.
 
     Returns interventions from the past N hours for the specified event.
+
+    **Authentication Required**: Must be event organizer
     """
     try:
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)
@@ -246,12 +259,15 @@ async def get_event_intervention_history(
 @router.get("/stats/{session_id}")
 async def get_intervention_stats(
     session_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(verify_organizer)  # Authentication required
 ):
     """
     Get intervention statistics for a session.
 
     Returns counts by type, success rate, and effectiveness metrics.
+
+    **Authentication Required**: Must be event organizer
     """
     try:
         session_uuid = uuid.UUID(session_id)

@@ -5,8 +5,9 @@ Subscribes to platform events via Redis and calculates engagement scores
 import asyncio
 import json
 import logging
-from typing import Optional
-from datetime import datetime
+from typing import Optional, Dict
+from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from app.core.redis_client import RedisClient
@@ -23,6 +24,73 @@ from app.orchestrator import agent_manager
 from sqlalchemy import UUID
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CollectorMetrics:
+    """Metrics for monitoring signal collector health"""
+    messages_processed: int = 0
+    messages_failed: int = 0
+    engagement_calculations: int = 0
+    engagement_calculation_errors: int = 0
+    db_write_errors: int = 0
+    redis_publish_errors: int = 0
+    anomaly_detections: int = 0
+    interventions_triggered: int = 0
+    last_error: Optional[str] = None
+    last_error_time: Optional[datetime] = None
+    consecutive_errors: int = 0
+    started_at: Optional[datetime] = None
+
+    def record_error(self, error_type: str, error_msg: str):
+        """Record an error and update metrics"""
+        self.last_error = f"{error_type}: {error_msg}"
+        self.last_error_time = datetime.now(timezone.utc)
+        self.consecutive_errors += 1
+
+        # Log warning if consecutive errors exceed threshold
+        if self.consecutive_errors >= 5:
+            logger.warning(
+                f"🚨 Signal collector has {self.consecutive_errors} consecutive errors. "
+                f"Last error: {self.last_error}"
+            )
+
+    def record_success(self):
+        """Record a successful operation (resets consecutive error count)"""
+        self.consecutive_errors = 0
+
+    def to_dict(self) -> Dict:
+        """Export metrics as dictionary"""
+        return {
+            "messages_processed": self.messages_processed,
+            "messages_failed": self.messages_failed,
+            "engagement_calculations": self.engagement_calculations,
+            "engagement_calculation_errors": self.engagement_calculation_errors,
+            "db_write_errors": self.db_write_errors,
+            "redis_publish_errors": self.redis_publish_errors,
+            "anomaly_detections": self.anomaly_detections,
+            "interventions_triggered": self.interventions_triggered,
+            "error_rate": self.error_rate,
+            "last_error": self.last_error,
+            "last_error_time": self.last_error_time.isoformat() if self.last_error_time else None,
+            "consecutive_errors": self.consecutive_errors,
+            "uptime_seconds": self.uptime_seconds,
+        }
+
+    @property
+    def error_rate(self) -> float:
+        """Calculate error rate as percentage"""
+        total = self.messages_processed + self.messages_failed
+        if total == 0:
+            return 0.0
+        return (self.messages_failed / total) * 100
+
+    @property
+    def uptime_seconds(self) -> float:
+        """Calculate uptime in seconds"""
+        if not self.started_at:
+            return 0.0
+        return (datetime.now(timezone.utc) - self.started_at).total_seconds()
 
 
 class EngagementSignalCollector:
@@ -60,6 +128,7 @@ class EngagementSignalCollector:
         self.intervention_executor = InterventionExecutor(redis_client)
         self.running = False
         self.tasks = []
+        self.metrics = CollectorMetrics()
 
     async def start(self):
         """Start collecting signals and calculating engagement"""
@@ -68,6 +137,7 @@ class EngagementSignalCollector:
             return
 
         self.running = True
+        self.metrics.started_at = datetime.now(timezone.utc)
         logger.info("🚀 Starting Engagement Signal Collector...")
 
         # Subscribe to Redis channels
@@ -102,6 +172,32 @@ class EngagementSignalCollector:
         self.tasks = []
 
         logger.info("✅ Signal collector stopped")
+
+    def get_metrics(self) -> Dict:
+        """
+        Get current collector metrics for monitoring.
+
+        Returns:
+            Dictionary containing collector health metrics
+        """
+        return self.metrics.to_dict()
+
+    def is_healthy(self) -> bool:
+        """
+        Check if the collector is healthy.
+
+        Returns:
+            True if healthy, False if there are concerning error patterns
+        """
+        # Unhealthy if too many consecutive errors
+        if self.metrics.consecutive_errors >= 10:
+            return False
+
+        # Unhealthy if error rate exceeds 10%
+        if self.metrics.error_rate > 10.0:
+            return False
+
+        return True
 
     async def _listen_to_events(self, pubsub):
         """
@@ -261,7 +357,11 @@ class EngagementSignalCollector:
                 for session_id in active_sessions:
                     try:
                         await self._calculate_and_store_engagement(session_id)
+                        self.metrics.engagement_calculations += 1
+                        self.metrics.record_success()
                     except Exception as e:
+                        self.metrics.engagement_calculation_errors += 1
+                        self.metrics.record_error("engagement_calculation", str(e))
                         logger.error(f"Error calculating engagement for {session_id}: {e}")
 
         except asyncio.CancelledError:

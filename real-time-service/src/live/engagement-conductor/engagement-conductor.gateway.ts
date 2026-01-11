@@ -39,6 +39,8 @@ export class EngagementConductorGateway
   private readonly logger = new Logger('EngagementConductorGateway');
   private redisSubscriber: Redis;
   private subscribedChannels = new Set<string>();
+  // Track how many clients are subscribed to each channel for cleanup
+  private channelSubscriberCount = new Map<string, number>();
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -168,11 +170,16 @@ export class EngagementConductorGateway
     if (!this.subscribedChannels.has(channel)) {
       await this.redisSubscriber.subscribe(channel);
       this.subscribedChannels.add(channel);
+      this.channelSubscriberCount.set(channel, 0);
       this.logger.log(`Subscribed to Redis channel: ${channel}`);
     }
 
+    // Increment subscriber count
+    const count = this.channelSubscriberCount.get(channel) || 0;
+    this.channelSubscriberCount.set(channel, count + 1);
+
     this.logger.log(
-      `Client ${client.id} subscribed to agent events for session ${sessionId}`,
+      `Client ${client.id} subscribed to agent events for session ${sessionId} (${count + 1} subscribers)`,
     );
 
     return { success: true, sessionId };
@@ -196,11 +203,36 @@ export class EngagementConductorGateway
     // Leave socket room
     await client.leave(`session:${sessionId}:agent`);
 
+    // Decrement subscriber count and unsubscribe if no more subscribers
+    const channel = `session:${sessionId}:events`;
+    await this.cleanupChannelIfEmpty(channel);
+
     this.logger.log(
       `Client ${client.id} unsubscribed from agent events for session ${sessionId}`,
     );
 
     return { success: true, sessionId };
+  }
+
+  /**
+   * Clean up Redis channel subscription if no more clients are subscribed
+   */
+  private async cleanupChannelIfEmpty(channel: string) {
+    const count = this.channelSubscriberCount.get(channel) || 0;
+    if (count > 0) {
+      this.channelSubscriberCount.set(channel, count - 1);
+    }
+
+    if (count <= 1 && this.subscribedChannels.has(channel)) {
+      try {
+        await this.redisSubscriber.unsubscribe(channel);
+        this.subscribedChannels.delete(channel);
+        this.channelSubscriberCount.delete(channel);
+        this.logger.log(`Unsubscribed from Redis channel: ${channel} (no more subscribers)`);
+      } catch (error) {
+        this.logger.error(`Failed to unsubscribe from Redis channel ${channel}: ${error}`);
+      }
+    }
   }
 
   /**

@@ -56,7 +56,11 @@
       "Bash(./venv/Scripts/python.exe --version)",
       "Bash(python3.12 -m venv:*)",
       "Bash(where:*)",
-      "Bash(py -3.12:*)"
+      "Bash(py -3.12:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(mkdir:*)",
+      "Bash(pnpm exec next lint:*)",
+      "Bash(node -e:*)"
     ],
     "deny": [],
     "ask": []

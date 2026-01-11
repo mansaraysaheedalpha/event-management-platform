@@ -1144,32 +1144,39 @@ class Query:
         )
 
         # --- Ads Analytics ---
-        # Count impressions (event_type = 'IMPRESSION')
+        # Only count metrics for ACTIVE (non-archived) ads
+        # This ensures deleted ads don't inflate current performance metrics
+
+        # Count impressions (event_type = 'IMPRESSION') - active ads only
         total_impressions = db.query(func.count(AdEvent.id)).join(
             Ad, Ad.id == AdEvent.ad_id
         ).filter(
             Ad.event_id == event_id_str,
+            Ad.is_archived == False,  # Exclude deleted/archived ads
             AdEvent.event_type == 'IMPRESSION'
         ).scalar() or 0
 
-        # Count clicks (event_type = 'CLICK')
+        # Count clicks (event_type = 'CLICK') - active ads only
         total_clicks = db.query(func.count(AdEvent.id)).join(
             Ad, Ad.id == AdEvent.ad_id
         ).filter(
             Ad.event_id == event_id_str,
+            Ad.is_archived == False,  # Exclude deleted/archived ads
             AdEvent.event_type == 'CLICK'
         ).scalar() or 0
 
         avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0.0
 
-        # Top performing ads
+        # Top performing ads - active ads only
+        # Archived ads are excluded to show current campaign performance
         top_ads_query = db.query(
             Ad.id,
             Ad.name,
             func.sum(case((AdEvent.event_type == 'IMPRESSION', 1), else_=0)).label('impressions'),
             func.sum(case((AdEvent.event_type == 'CLICK', 1), else_=0)).label('clicks')
         ).outerjoin(AdEvent, AdEvent.ad_id == Ad.id).filter(
-            Ad.event_id == event_id_str
+            Ad.event_id == event_id_str,
+            Ad.is_archived == False  # Exclude deleted/archived ads
         ).group_by(Ad.id).order_by(func.sum(case((AdEvent.event_type == 'IMPRESSION', 1), else_=0)).desc()).limit(5).all()
 
         top_ads = []

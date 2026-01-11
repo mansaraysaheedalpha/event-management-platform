@@ -14,11 +14,15 @@ Key Concepts:
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
+import json
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+# Redis key for storing Thompson Sampling stats
+THOMPSON_SAMPLING_REDIS_KEY = "agent:thompson_sampling:stats"
 
 
 class InterventionType(str, Enum):
@@ -46,7 +50,7 @@ class ContextKey:
     session_size_bucket: str  # 'small', 'medium', 'large'
 
     def to_string(self) -> str:
-        return f"{self.anomaly_type}_{self.engagement_bucket}_{self.session_size_bucket}"
+        return f"{self.anomaly_type.value}_{self.engagement_bucket}_{self.session_size_bucket}"
 
 
 @dataclass
@@ -227,7 +231,7 @@ class ThompsonSampling:
             stats.beta += 1.0
 
         stats.total_attempts += 1
-        stats.last_updated = datetime.utcnow()
+        stats.last_updated = datetime.now(timezone.utc)
 
         logger.info(
             f"Updated {intervention_type} in context {context_key}: "
@@ -286,7 +290,7 @@ class ThompsonSampling:
                 alpha=self.alpha_prior,
                 beta=self.beta_prior,
                 total_attempts=0,
-                last_updated=datetime.utcnow()
+                last_updated=datetime.now(timezone.utc)
             )
 
         logger.info(f"Initialized new context: {context_key}")
@@ -302,7 +306,6 @@ class ThompsonSampling:
                     'beta': stats.beta,
                     'total_attempts': stats.total_attempts,
                     'success_rate': stats.success_rate,
-                    'confidence_interval': stats.confidence_interval,
                     'last_updated': stats.last_updated.isoformat()
                 }
         return export
@@ -310,17 +313,28 @@ class ThompsonSampling:
     def import_stats(self, data: Dict):
         """Import statistics from persistence"""
         for context_key, context_data in data.items():
-            # Parse context from key
+            # Parse context from key: {anomaly_type}_{engagement_bucket}_{session_size_bucket}
+            # Note: anomaly_type may contain underscores (e.g., SUDDEN_DROP)
             parts = context_key.split('_')
-            if len(parts) != 3:
+            if len(parts) < 3:
                 logger.warning(f"Invalid context key format: {context_key}")
                 continue
 
-            context = ContextKey(
-                anomaly_type=AnomalyType(parts[0]),
-                engagement_bucket=parts[1],
-                session_size_bucket=parts[2]
-            )
+            # The last two parts are always engagement_bucket and session_size_bucket
+            # Everything before that is the anomaly_type (which may contain underscores)
+            session_size_bucket = parts[-1]
+            engagement_bucket = parts[-2]
+            anomaly_type_str = '_'.join(parts[:-2])
+
+            try:
+                context = ContextKey(
+                    anomaly_type=AnomalyType(anomaly_type_str),
+                    engagement_bucket=engagement_bucket,
+                    session_size_bucket=session_size_bucket
+                )
+            except ValueError:
+                logger.warning(f"Unknown anomaly type in context key: {anomaly_type_str}")
+                continue
 
             self.stats[context_key] = {}
 
@@ -337,6 +351,52 @@ class ThompsonSampling:
 
         logger.info(f"Imported statistics for {len(self.stats)} contexts")
 
+    async def save_to_redis(self):
+        """
+        Save Thompson Sampling statistics to Redis for persistence.
+        This should be called periodically or after significant updates.
+        """
+        try:
+            from app.core.redis_client import redis_client
+            if redis_client is None:
+                logger.warning("Redis client not available, cannot persist Thompson Sampling stats")
+                return False
+
+            stats_data = self.export_stats()
+            await redis_client.client.set(
+                THOMPSON_SAMPLING_REDIS_KEY,
+                json.dumps(stats_data)
+            )
+            logger.info(f"Saved Thompson Sampling stats to Redis ({len(self.stats)} contexts)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save Thompson Sampling stats to Redis: {e}")
+            return False
+
+    async def load_from_redis(self) -> bool:
+        """
+        Load Thompson Sampling statistics from Redis on startup.
+        Returns True if stats were loaded, False otherwise.
+        """
+        try:
+            from app.core.redis_client import redis_client
+            if redis_client is None:
+                logger.warning("Redis client not available, cannot load Thompson Sampling stats")
+                return False
+
+            data = await redis_client.client.get(THOMPSON_SAMPLING_REDIS_KEY)
+            if data:
+                stats_data = json.loads(data)
+                self.import_stats(stats_data)
+                logger.info(f"Loaded Thompson Sampling stats from Redis ({len(self.stats)} contexts)")
+                return True
+            else:
+                logger.info("No existing Thompson Sampling stats found in Redis")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to load Thompson Sampling stats from Redis: {e}")
+            return False
+
 
 # Global Thompson Sampling instance
 _thompson_sampling_instance: Optional[ThompsonSampling] = None
@@ -348,3 +408,13 @@ def get_thompson_sampling() -> ThompsonSampling:
     if _thompson_sampling_instance is None:
         _thompson_sampling_instance = ThompsonSampling()
     return _thompson_sampling_instance
+
+
+async def initialize_thompson_sampling() -> ThompsonSampling:
+    """
+    Initialize Thompson Sampling with persisted stats from Redis.
+    Call this on application startup.
+    """
+    ts = get_thompson_sampling()
+    await ts.load_from_redis()
+    return ts
