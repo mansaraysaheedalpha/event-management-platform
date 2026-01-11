@@ -11,7 +11,7 @@ import { AxiosError, AxiosResponse } from 'axios';
 const mockPrisma = { message: { findUnique: jest.fn() } };
 const mockHttp = { post: jest.fn() };
 const mockConfig = { get: jest.fn().mockReturnValue('test-api-key') };
-const mockRedis = { get: jest.fn(), set: jest.fn() };
+const mockRedis = { get: jest.fn(), set: jest.fn(), incr: jest.fn() };
 
 const messageId = 'msg-123';
 const originalText = 'Hello';
@@ -89,5 +89,92 @@ describe('TranslationService', () => {
     await expect(
       service.getTranslation(messageId, targetLanguage),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  // Metrics tests
+  describe('metrics tracking', () => {
+    it('should increment cache_hit metric on cache hit', async () => {
+      mockRedis.get.mockResolvedValue(translatedText);
+      await service.getTranslation(messageId, targetLanguage);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:cache_hit');
+    });
+
+    it('should increment cache_miss metric on cache miss', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.message.findUnique.mockResolvedValue({ text: originalText });
+      const apiResponse: AxiosResponse = {
+        data: { data: { translations: [{ translatedText }] } },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {} as any,
+      };
+      mockHttp.post.mockReturnValue(of(apiResponse));
+
+      await service.getTranslation(messageId, targetLanguage);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:cache_miss');
+    });
+
+    it('should increment success metric on successful API call', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.message.findUnique.mockResolvedValue({ text: originalText });
+      const apiResponse: AxiosResponse = {
+        data: { data: { translations: [{ translatedText }] } },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {} as any,
+      };
+      mockHttp.post.mockReturnValue(of(apiResponse));
+
+      await service.getTranslation(messageId, targetLanguage);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:success');
+    });
+
+    it('should increment failure:no_api_key metric when API key not configured', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.message.findUnique.mockResolvedValue({ text: originalText });
+      mockConfig.get.mockReturnValue(undefined);
+
+      const result = await service.getTranslation(messageId, targetLanguage);
+      expect(result).toBe(originalText);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:failure:no_api_key');
+    });
+
+    it('should increment failure:rate_limit metric on 429 response', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.message.findUnique.mockResolvedValue({ text: originalText });
+      mockConfig.get.mockReturnValue('test-api-key');
+      mockHttp.post.mockReturnValue(
+        throwError(() => ({ response: { status: 429 }, message: 'Too Many Requests' })),
+      );
+
+      await service.getTranslation(messageId, targetLanguage);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:failure:rate_limit');
+    });
+
+    it('should increment failure:auth metric on 403 response', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.message.findUnique.mockResolvedValue({ text: originalText });
+      mockConfig.get.mockReturnValue('test-api-key');
+      mockHttp.post.mockReturnValue(
+        throwError(() => ({ response: { status: 403 }, message: 'Forbidden' })),
+      );
+
+      await service.getTranslation(messageId, targetLanguage);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:failure:auth');
+    });
+
+    it('should increment failure:server_error metric on 5xx response', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.message.findUnique.mockResolvedValue({ text: originalText });
+      mockConfig.get.mockReturnValue('test-api-key');
+      mockHttp.post.mockReturnValue(
+        throwError(() => ({ response: { status: 503 }, message: 'Service Unavailable' })),
+      );
+
+      await service.getTranslation(messageId, targetLanguage);
+      expect(mockRedis.incr).toHaveBeenCalledWith('metrics:translation:failure:server_error');
+    });
   });
 });

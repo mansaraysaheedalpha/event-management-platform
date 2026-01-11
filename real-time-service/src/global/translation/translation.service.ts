@@ -119,6 +119,16 @@ export class TranslationService {
     target: string,
   ): Promise<TranslationResult> {
     const apiKey = this.configService.get<string>('TRANSLATION_API_KEY');
+
+    // Check if API key is configured
+    if (!apiKey) {
+      this.logger.warn(
+        'TRANSLATION_API_KEY not configured - returning original text',
+      );
+      await this.incrementMetric('failure:no_api_key');
+      return { text: text, isSuccess: false };
+    }
+
     const apiUrl = `https://translation.googleapis.com/language/translate/v2`;
 
     try {
@@ -130,10 +140,35 @@ export class TranslationService {
         ),
       );
       const translatedText = response.data.data.translations[0].translatedText;
-      return { text: translatedText, isSuccess: true }; // Return success object
+      await this.incrementMetric('success');
+      return { text: translatedText, isSuccess: true };
     } catch (error) {
-      this.logger.error('Failed to fetch from Translation API', error);
-      // **FIX**: Return failure object with original text
+      // Structured error logging for monitoring/alerting
+      const axiosError = error as AxiosError;
+      const statusCode = axiosError.response?.status;
+      const errorCode = (axiosError.response?.data as { error?: { code?: string } })?.error?.code;
+
+      this.logger.error({
+        message: 'Translation API request failed',
+        targetLanguage: target,
+        textLength: text.length,
+        statusCode,
+        errorCode,
+        errorMessage: axiosError.message,
+      });
+
+      // Track specific failure types for alerting
+      if (statusCode === 403) {
+        await this.incrementMetric('failure:auth');
+      } else if (statusCode === 429) {
+        await this.incrementMetric('failure:rate_limit');
+      } else if (statusCode && statusCode >= 500) {
+        await this.incrementMetric('failure:server_error');
+      } else {
+        await this.incrementMetric('failure:other');
+      }
+
+      // Return original text on failure (graceful degradation)
       return { text: text, isSuccess: false };
     }
   }
