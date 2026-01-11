@@ -30,46 +30,63 @@ export class BackchannelGateway {
    */
   @SubscribeMessage('backchannel.join')
   async handleJoinBackchannel(@ConnectedSocket() client: AuthenticatedSocket) {
-    const user = getAuthenticatedUser(client);
-    const { sessionId } = client.handshake.query as { sessionId: string };
-    const requiredPermission = 'backchannel:join';
+    try {
+      const user = getAuthenticatedUser(client);
+      const { sessionId } = client.handshake.query as { sessionId: string };
+      const requiredPermission = 'backchannel:join';
 
-    if (!user.permissions?.includes(requiredPermission)) {
-      this.logger.warn(
-        `User ${user.sub} attempted to join backchannel without permission`,
+      this.logger.log(
+        `Backchannel join attempt - User: ${user?.sub}, SessionId: ${sessionId}, Permissions: ${user?.permissions?.join(', ')}`,
+      );
+
+      if (!user.permissions?.includes(requiredPermission)) {
+        this.logger.warn(
+          `User ${user.sub} attempted to join backchannel without permission`,
+        );
+        return {
+          success: false,
+          error: {
+            message: 'You do not have permission to join the backchannel.',
+            statusCode: 403,
+          },
+        };
+      }
+
+      const backchannelRoom = `backchannel:${sessionId}`;
+      const roleSpecificRoom = `backchannel:${sessionId}:role:${user.role}`;
+
+      // Join both the general backchannel and the user's role-specific room
+      await client.join([backchannelRoom, roleSpecificRoom]);
+
+      this.logger.log(
+        `Staff member ${user.sub} (${user.role}) joined backchannel for session ${sessionId}`,
+      );
+
+      // Fetch and emit message history to the joining client
+      try {
+        const messages = await this.backchannelService.getHistory(sessionId);
+        client.emit('backchannel.history', { messages });
+      } catch (historyError) {
+        this.logger.error(
+          `Failed to fetch backchannel history for session ${sessionId}`,
+          getErrorMessage(historyError),
+        );
+        // Don't fail the join, just log the error - client will still be in the room
+      }
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(
+        `Failed to handle backchannel join: ${getErrorMessage(error)}`,
       );
       return {
         success: false,
         error: {
-          message: 'You do not have permission to join the backchannel.',
-          statusCode: 403,
+          message: 'Failed to join backchannel. Please try again.',
+          statusCode: 500,
         },
       };
     }
-
-    const backchannelRoom = `backchannel:${sessionId}`;
-    const roleSpecificRoom = `backchannel:${sessionId}:role:${user.role}`;
-
-    // Join both the general backchannel and the user's role-specific room
-    await client.join([backchannelRoom, roleSpecificRoom]);
-
-    this.logger.log(
-      `Staff member ${user.sub} (${user.role}) joined backchannel for session ${sessionId}`,
-    );
-
-    // Fetch and emit message history to the joining client
-    try {
-      const messages = await this.backchannelService.getHistory(sessionId);
-      client.emit('backchannel.history', { messages });
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch backchannel history for session ${sessionId}`,
-        getErrorMessage(error),
-      );
-      // Don't fail the join, just log the error - client will still be in the room
-    }
-
-    return { success: true };
   }
 
   /**
