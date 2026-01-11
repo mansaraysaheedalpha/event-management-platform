@@ -1,15 +1,50 @@
 # app/graphql/types.py
 import strawberry
-import typing 
+import typing
 from typing import Optional
 import json
 from datetime import datetime
+from enum import Enum
 from ..models.event import Event as EventModel
 from .. import crud
 from strawberry.types import Info
 from ..models.venue import Venue as VenueModel
 from ..models.registration import Registration as RegistrationModel
 from ..models.session import Session as SessionModel
+
+
+# ==== VIRTUAL EVENT ENUMS (Phase 1) ====
+
+@strawberry.enum
+class EventTypeEnum(Enum):
+    """Event type classification for virtual event support."""
+    IN_PERSON = "IN_PERSON"
+    VIRTUAL = "VIRTUAL"
+    HYBRID = "HYBRID"
+
+
+@strawberry.enum
+class SessionTypeEnum(Enum):
+    """Session type classification for virtual event support."""
+    MAINSTAGE = "MAINSTAGE"
+    BREAKOUT = "BREAKOUT"
+    WORKSHOP = "WORKSHOP"
+    NETWORKING = "NETWORKING"
+    EXPO = "EXPO"
+
+
+@strawberry.type
+class VirtualSettingsType:
+    """Virtual event configuration settings."""
+    streamingProvider: Optional[str] = None
+    streamingUrl: Optional[str] = None
+    recordingEnabled: bool = True
+    autoCaptions: bool = False
+    timezoneDisplay: Optional[str] = None
+    lobbyEnabled: bool = False
+    lobbyVideoUrl: Optional[str] = None
+    maxConcurrentViewers: Optional[int] = None
+    geoRestrictions: Optional[typing.List[str]] = None
 
 
 @strawberry.type
@@ -61,12 +96,9 @@ class EventType:
             root["organization_id"] if isinstance(root, dict) else root.organization_id
         )
 
-    # --- THIS IS THE NEWLY ADDED FIELD ---
     @strawberry.field
     def owner_id(self, root) -> str:
         return root["owner_id"] if isinstance(root, dict) else root.owner_id
-
-    # ------------------------------------
 
     @strawberry.field
     def name(self, root) -> str:
@@ -124,6 +156,33 @@ class EventType:
     @strawberry.field
     def updatedAt(self, root) -> datetime:
         return root["updatedAt"] if isinstance(root, dict) else root.updatedAt
+
+    # ==== VIRTUAL EVENT SUPPORT (Phase 1) ====
+
+    @strawberry.field
+    def eventType(self, root) -> EventTypeEnum:
+        """Event type: IN_PERSON, VIRTUAL, or HYBRID."""
+        event_type_value = root.get("event_type", "IN_PERSON") if isinstance(root, dict) else getattr(root, "event_type", "IN_PERSON")
+        return EventTypeEnum(event_type_value)
+
+    @strawberry.field
+    def virtualSettings(self, root) -> Optional[VirtualSettingsType]:
+        """Virtual event configuration settings."""
+        settings = root.get("virtual_settings") if isinstance(root, dict) else getattr(root, "virtual_settings", None)
+        if not settings:
+            return None
+        # Parse JSONB to VirtualSettingsType
+        return VirtualSettingsType(
+            streamingProvider=settings.get("streaming_provider"),
+            streamingUrl=settings.get("streaming_url"),
+            recordingEnabled=settings.get("recording_enabled", True),
+            autoCaptions=settings.get("auto_captions", False),
+            timezoneDisplay=settings.get("timezone_display"),
+            lobbyEnabled=settings.get("lobby_enabled", False),
+            lobbyVideoUrl=settings.get("lobby_video_url"),
+            maxConcurrentViewers=settings.get("max_concurrent_viewers"),
+            geoRestrictions=settings.get("geo_restrictions")
+        )
 
 
 # The rest of the types are correct.
@@ -198,6 +257,55 @@ class SessionType:
         if now <= root.end_time:
             return "LIVE"
         return "ENDED"
+
+    # ==== VIRTUAL SESSION SUPPORT (Phase 1) ====
+
+    @strawberry.field
+    def sessionType(self, root: SessionModel) -> SessionTypeEnum:
+        """Session type: MAINSTAGE, BREAKOUT, WORKSHOP, NETWORKING, EXPO."""
+        session_type_value = getattr(root, "session_type", "MAINSTAGE")
+        return SessionTypeEnum(session_type_value)
+
+    @strawberry.field
+    def virtualRoomId(self, root: SessionModel) -> Optional[str]:
+        """External virtual room identifier."""
+        return getattr(root, "virtual_room_id", None)
+
+    @strawberry.field
+    def streamingUrl(self, root: SessionModel) -> Optional[str]:
+        """Live stream URL for virtual sessions."""
+        return getattr(root, "streaming_url", None)
+
+    @strawberry.field
+    def recordingUrl(self, root: SessionModel) -> Optional[str]:
+        """Recording URL for on-demand playback."""
+        return getattr(root, "recording_url", None)
+
+    @strawberry.field
+    def isRecordable(self, root: SessionModel) -> bool:
+        """Whether session can be recorded."""
+        return getattr(root, "is_recordable", True)
+
+    @strawberry.field
+    def requiresCamera(self, root: SessionModel) -> bool:
+        """Whether attendees need camera access."""
+        return getattr(root, "requires_camera", False)
+
+    @strawberry.field
+    def requiresMicrophone(self, root: SessionModel) -> bool:
+        """Whether attendees need microphone access."""
+        return getattr(root, "requires_microphone", False)
+
+    @strawberry.field
+    def maxParticipants(self, root: SessionModel) -> Optional[int]:
+        """Max participants for interactive sessions."""
+        return getattr(root, "max_participants", None)
+
+    @strawberry.field
+    def broadcastOnly(self, root: SessionModel) -> bool:
+        """View-only session (no attendee A/V)."""
+        return getattr(root, "broadcast_only", True)
+
 
 @strawberry.type
 class RegistrationType:
@@ -625,21 +733,27 @@ class OffersAnalyticsType:
 
 @strawberry.type
 class AdPerformerType:
-    """Top performing ad."""
+    """Individual ad performance metrics."""
     adId: str
     name: str
     impressions: int
     clicks: int
     ctr: float
+    isArchived: bool = False  # Indicates if ad was deleted/archived
+    contentType: typing.Optional[str] = None  # BANNER, VIDEO, etc.
 
 
 @strawberry.type
 class AdsAnalyticsType:
-    """Ads analytics breakdown."""
+    """Ads analytics breakdown with enhanced metrics."""
     totalImpressions: int
     totalClicks: int
     averageCTR: float
+    activeAdsCount: int = 0  # Number of active (non-archived) ads
+    archivedAdsCount: int = 0  # Number of archived ads (for historical reference)
     topPerformers: typing.List[AdPerformerType]
+    # All ads with their individual metrics (not just top performers)
+    allAdsPerformance: typing.List[AdPerformerType] = strawberry.field(default_factory=list)
 
 
 @strawberry.type

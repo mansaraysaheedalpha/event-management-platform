@@ -8,7 +8,7 @@ import { PrismaModule } from './prisma.module';
 import { UsersModule } from './users/users.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { GqlThrottlerGuard } from './auth/guards/gql-throttler.guard';
-import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+// import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'; // Disabled to save Redis quota
 import { OrganizationsModule } from './organizations/organizations.module';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -69,26 +69,24 @@ import { Response } from 'express';
     PrismaModule,
     UsersModule,
     OrganizationsModule,
-    ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        throttlers: [
-          {
-            name: 'default',
-            ttl: 60000,
-            limit: 100, // 100 requests per minute
-          },
-          {
-            name: 'strict',
-            ttl: 60000,
-            limit: 10, // Stricter limit for sensitive endpoints like auth
-          },
-        ],
-        storage: new ThrottlerStorageRedisService(
-          configService.get<string>('REDIS_URL'),
-        ),
-      }),
-      inject: [ConfigService],
+    // Rate limiting with in-memory storage (saves Redis quota)
+    // Note: For multi-instance deployments, switch back to Redis storage
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          name: 'default',
+          ttl: 60000,
+          limit: 100, // 100 requests per minute
+        },
+        {
+          name: 'strict',
+          ttl: 60000,
+          limit: 10, // Stricter limit for sensitive endpoints like auth
+        },
+      ],
+      // Using in-memory storage to reduce Redis usage
+      // Redis storage can be re-enabled for production scale:
+      // storage: new ThrottlerStorageRedisService(process.env.REDIS_URL),
     }),
     InvitationsModule,
     MailerModule.forRootAsync({

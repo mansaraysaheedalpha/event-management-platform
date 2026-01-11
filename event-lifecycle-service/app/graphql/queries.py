@@ -1045,11 +1045,16 @@ class Query:
         event_id: strawberry.ID,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
+        include_archived: bool = False,  # Include archived ads in analytics
         info: Info = None
     ) -> MonetizationAnalyticsType:
         """
         [ADMIN] Get comprehensive monetization analytics for an event.
         Includes revenue, offers, ads, and waitlist metrics.
+
+        Args:
+            include_archived: If True, includes metrics from archived/deleted ads
+                            in the totals and lists. Default is False (active only).
         """
         user = info.context.user
         if not user:
@@ -1144,59 +1149,86 @@ class Query:
         )
 
         # --- Ads Analytics ---
-        # Only count metrics for ACTIVE (non-archived) ads
-        # This ensures deleted ads don't inflate current performance metrics
+        # Enhanced analytics with per-ad breakdown and historical data support
 
-        # Count impressions (event_type = 'IMPRESSION') - active ads only
+        # Count active and archived ads for this event
+        active_ads_count = db.query(func.count(Ad.id)).filter(
+            Ad.event_id == event_id_str,
+            Ad.is_archived.is_(False)
+        ).scalar() or 0
+
+        archived_ads_count = db.query(func.count(Ad.id)).filter(
+            Ad.event_id == event_id_str,
+            Ad.is_archived.is_(True)
+        ).scalar() or 0
+
+        # Build base filter for include_archived parameter
+        ad_base_filters = [Ad.event_id == event_id_str]
+        if not include_archived:
+            ad_base_filters.append(Ad.is_archived.is_(False))
+
+        # Count impressions (event_type = 'IMPRESSION')
         total_impressions = db.query(func.count(AdEvent.id)).join(
             Ad, Ad.id == AdEvent.ad_id
         ).filter(
-            Ad.event_id == event_id_str,
-            Ad.is_archived == False,  # Exclude deleted/archived ads
+            *ad_base_filters,
             AdEvent.event_type == 'IMPRESSION'
         ).scalar() or 0
 
-        # Count clicks (event_type = 'CLICK') - active ads only
+        # Count clicks (event_type = 'CLICK')
         total_clicks = db.query(func.count(AdEvent.id)).join(
             Ad, Ad.id == AdEvent.ad_id
         ).filter(
-            Ad.event_id == event_id_str,
-            Ad.is_archived == False,  # Exclude deleted/archived ads
+            *ad_base_filters,
             AdEvent.event_type == 'CLICK'
         ).scalar() or 0
 
         avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0.0
 
-        # Top performing ads - active ads only
-        # Archived ads are excluded to show current campaign performance
-        top_ads_query = db.query(
+        # Get ALL ads with their individual performance metrics
+        all_ads_query = db.query(
             Ad.id,
             Ad.name,
+            Ad.content_type,
+            Ad.is_archived,
             func.sum(case((AdEvent.event_type == 'IMPRESSION', 1), else_=0)).label('impressions'),
             func.sum(case((AdEvent.event_type == 'CLICK', 1), else_=0)).label('clicks')
         ).outerjoin(AdEvent, AdEvent.ad_id == Ad.id).filter(
-            Ad.event_id == event_id_str,
-            Ad.is_archived == False  # Exclude deleted/archived ads
-        ).group_by(Ad.id).order_by(func.sum(case((AdEvent.event_type == 'IMPRESSION', 1), else_=0)).desc()).limit(5).all()
+            *ad_base_filters
+        ).group_by(Ad.id).order_by(
+            func.sum(case((AdEvent.event_type == 'CLICK', 1), else_=0)).desc()  # Order by clicks for CTR relevance
+        ).all()
 
-        top_ads = []
-        for ad in top_ads_query:
+        all_ads_performance = []
+        for ad in all_ads_query:
             ad_impressions = int(ad.impressions or 0)
             ad_clicks = int(ad.clicks or 0)
             ad_ctr = (ad_clicks / ad_impressions * 100) if ad_impressions > 0 else 0.0
-            top_ads.append(AdPerformerType(
+            all_ads_performance.append(AdPerformerType(
                 adId=str(ad.id),
                 name=ad.name or "Untitled",
                 impressions=ad_impressions,
                 clicks=ad_clicks,
-                ctr=round(ad_ctr, 2)
+                ctr=round(ad_ctr, 2),
+                isArchived=ad.is_archived or False,
+                contentType=ad.content_type
             ))
+
+        # Top 5 performers (by CTR, excluding zero-impression ads for fairness)
+        top_ads = sorted(
+            [a for a in all_ads_performance if a.impressions > 0],
+            key=lambda x: x.ctr,
+            reverse=True
+        )[:5]
 
         ads = AdsAnalyticsType(
             totalImpressions=total_impressions,
             totalClicks=total_clicks,
             averageCTR=round(avg_ctr, 2),
-            topPerformers=top_ads
+            activeAdsCount=active_ads_count,
+            archivedAdsCount=archived_ads_count,
+            topPerformers=top_ads,
+            allAdsPerformance=all_ads_performance
         )
 
         # --- Waitlist Analytics ---
