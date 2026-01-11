@@ -1,4 +1,5 @@
 # alembic/env.py
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,6 +11,14 @@ from sqlalchemy import create_engine
 from sqlalchemy import pool
 from app.models.base import Base
 from app.core.config import settings
+
+
+def get_database_url() -> str:
+    """Get the appropriate database URL based on environment."""
+    env = os.getenv("ENV", "local")
+    if env == "prod":
+        return os.getenv("DATABASE_URL_PROD", "")
+    return os.getenv("DATABASE_URL_LOCAL", "")
 from app.models import (
     ad,
     blueprint,
@@ -93,10 +102,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    # THIS IS THE KEY CHANGE:
-    # Instead of using settings.DATABASE_URL, we get the configuration
-    # from the alembic.ini file itself.
-    connectable = create_engine(config.get_main_option("sqlalchemy.url"))
+    # Use environment-aware database URL for production compatibility
+    db_url = get_database_url()
+    if not db_url:
+        # Fallback to alembic.ini for local development
+        db_url = config.get_main_option("sqlalchemy.url")
+
+    connectable = create_engine(db_url)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
