@@ -12,6 +12,7 @@ from app.features import  (
     management,
     testing,
     intelligence,
+    booking,
 )
 
 api_router = APIRouter()
@@ -27,3 +28,4 @@ api_router.include_router(reporting.router)
 api_router.include_router(management.router)
 api_router.include_router(testing.router)
 api_router.include_router(intelligence.router)
+api_router.include_router(booking.router)
