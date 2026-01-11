@@ -399,14 +399,8 @@ class AdMutations:
         if ad.is_archived or not ad.is_active:
             return AdClickResult(success=False, redirectUrl=None)
 
-        # SECURITY: Validate the redirect URL before returning
-        valid, _ = validate_url(ad.click_url, "click_url", allow_http=False, allow_redirects=True)
-        if not valid:
-            logger.warning(f"Ad {ad_id} has invalid click_url, blocking redirect")
-            return AdClickResult(success=False, redirectUrl=None)
-
+        # Track click FIRST (regardless of URL validation)
         try:
-            # Track click using CRUD
             ad_event.track_click(
                 db,
                 ad_id=ad_id,
@@ -417,9 +411,15 @@ class AdMutations:
                 ip_address=None,
                 referer=None
             )
-
-            return AdClickResult(success=True, redirectUrl=ad.click_url)
+            logger.info(f"Ad click tracked for ad_id={ad_id}")
         except Exception as e:
-            # SECURITY: Log error but still return redirect URL for valid ads
             logger.error(f"Error tracking ad click: {e}")
-            return AdClickResult(success=True, redirectUrl=ad.click_url)
+
+        # SECURITY: Validate the redirect URL before returning it
+        valid, error_msg = validate_url(ad.click_url, "click_url", allow_http=False, allow_redirects=True)
+        if not valid:
+            logger.warning(f"Ad {ad_id} has invalid click_url ({error_msg}), click tracked but blocking redirect. URL: {ad.click_url}")
+            # Click is tracked but redirect URL is not returned
+            return AdClickResult(success=True, redirectUrl=None)
+
+        return AdClickResult(success=True, redirectUrl=ad.click_url)
