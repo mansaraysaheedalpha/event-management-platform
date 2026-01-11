@@ -6,6 +6,8 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { sanitizeTransform } from 'src/common/utils/sanitize.utils';
 
 // Match the enums defined in the Prisma schema
 // We exclude 'REPORTED' as this is the initial state
@@ -28,7 +30,8 @@ export class UpdateIncidentDto {
   @IsEnum(IncidentUpdateStatus)
   status: IncidentUpdateStatus;
 
-  /** Optional notes describing how the incident was resolved */
+  /** Optional notes describing how the incident was resolved (sanitized to prevent XSS) */
+  @Transform(({ value }) => sanitizeTransform(value))
   @IsString()
   @MaxLength(2000)
   @IsOptional()

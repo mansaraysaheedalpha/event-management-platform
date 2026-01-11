@@ -7,7 +7,13 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { ForbiddenException, Inject, Logger, forwardRef } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Logger,
+  forwardRef,
+} from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
@@ -15,9 +21,16 @@ import { IncidentsService } from './incidents.service';
 import { ReportIncidentDto } from './dto/report-incident.dto';
 import { IncidentDto } from './dto/incident.dto';
 import { UpdateIncidentDto } from './dto/update-incidents.dto';
+import { validate as isUUID } from 'uuid';
+
+// Define allowed origins for CORS - restrict in production
+// Uses ALLOWED_ORIGINS env var (consistent with main.ts and cors.config.ts)
+const CORS_ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
+  : ['http://localhost:3000', 'http://localhost:3001'];
 
 @WebSocketGateway({
-  cors: { origin: true, credentials: true },
+  cors: { origin: CORS_ALLOWED_ORIGINS, credentials: true },
   namespace: '/events',
 })
 export class IncidentsGateway {
@@ -30,6 +43,27 @@ export class IncidentsGateway {
   ) {}
 
   /**
+   * Validates sessionId from query params.
+   * @throws BadRequestException if sessionId is missing or invalid
+   */
+  private validateSessionId(client: AuthenticatedSocket): string {
+    const { sessionId } = client.handshake.query;
+
+    // Handle array case (query string can parse as array)
+    const sessionIdValue = Array.isArray(sessionId) ? sessionId[0] : sessionId;
+
+    if (!sessionIdValue || typeof sessionIdValue !== 'string') {
+      throw new BadRequestException('sessionId is required in query parameters');
+    }
+
+    if (!isUUID(sessionIdValue)) {
+      throw new BadRequestException('sessionId must be a valid UUID');
+    }
+
+    return sessionIdValue;
+  }
+
+  /**
    * Handles the WebSocket event 'incident.report'.
    * Allows an authenticated user to report a new incident for a session.
    * Returns a success message and the ID of the created incident.
@@ -40,11 +74,14 @@ export class IncidentsGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
-    const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
+      // Validate sessionId before proceeding
+      const sessionId = this.validateSessionId(client);
+
       const newIncident = await this.incidentsService.reportIncident(
         user.sub,
+        user.orgId, // Pass user's orgId for authorization check
         sessionId,
         dto,
       );

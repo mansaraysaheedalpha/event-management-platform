@@ -35,8 +35,9 @@ class TestInterventionExecutorInit:
     def test_redis_property_lazy_loading(self):
         """Test redis property lazy loads global client"""
         executor = InterventionExecutor()
+        mock_global = MagicMock()
 
-        with patch('app.agents.intervention_executor.redis_client', MagicMock()) as mock_global:
+        with patch('app.core.redis_client.redis_client', mock_global):
             result = executor.redis
             assert result is mock_global
 
@@ -44,7 +45,7 @@ class TestInterventionExecutorInit:
         """Test redis property raises RuntimeError when global is None"""
         executor = InterventionExecutor()
 
-        with patch('app.agents.intervention_executor.redis_client', None):
+        with patch('app.core.redis_client.redis_client', None):
             with pytest.raises(RuntimeError, match="Redis client not initialized"):
                 _ = executor.redis
 
@@ -304,7 +305,7 @@ class TestRecordOutcome:
         mock_intervention = MagicMock()
         mock_intervention.outcome = None
 
-        with patch('app.agents.intervention_executor.select') as mock_select:
+        with patch('sqlalchemy.select') as mock_select:
             mock_result = MagicMock()
             mock_result.scalar_one_or_none = MagicMock(return_value=mock_intervention)
             mock_db.execute = AsyncMock(return_value=mock_result)
@@ -327,7 +328,7 @@ class TestRecordOutcome:
 
         mock_db = AsyncMock()
 
-        with patch('app.agents.intervention_executor.select') as mock_select:
+        with patch('sqlalchemy.select') as mock_select:
             mock_result = MagicMock()
             mock_result.scalar_one_or_none = MagicMock(return_value=None)
             mock_db.execute = AsyncMock(return_value=mock_result)

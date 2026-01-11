@@ -72,6 +72,42 @@ from .offer_mutations import (
 )
 
 
+# ==== VIRTUAL EVENT ENUMS FOR INPUT (Phase 1) ====
+from enum import Enum as PyEnum
+
+
+@strawberry.enum
+class EventTypeInput(PyEnum):
+    """Event type classification for virtual event support."""
+    IN_PERSON = "IN_PERSON"
+    VIRTUAL = "VIRTUAL"
+    HYBRID = "HYBRID"
+
+
+@strawberry.enum
+class SessionTypeInput(PyEnum):
+    """Session type classification for virtual event support."""
+    MAINSTAGE = "MAINSTAGE"
+    BREAKOUT = "BREAKOUT"
+    WORKSHOP = "WORKSHOP"
+    NETWORKING = "NETWORKING"
+    EXPO = "EXPO"
+
+
+@strawberry.input
+class VirtualSettingsInput:
+    """Virtual event configuration settings input."""
+    streamingProvider: Optional[str] = None
+    streamingUrl: Optional[str] = None
+    recordingEnabled: Optional[bool] = True
+    autoCaptions: Optional[bool] = False
+    timezoneDisplay: Optional[str] = None
+    lobbyEnabled: Optional[bool] = False
+    lobbyVideoUrl: Optional[str] = None
+    maxConcurrentViewers: Optional[int] = None
+    geoRestrictions: Optional[List[str]] = None
+
+
 # --- All Input types defined at the top ---
 @strawberry.input
 class EventCreateInput:
@@ -81,6 +117,9 @@ class EventCreateInput:
     endDate: str
     venueId: Optional[str] = None
     imageUrl: Optional[str] = None
+    # Virtual Event Support (Phase 1)
+    eventType: Optional[EventTypeInput] = EventTypeInput.IN_PERSON
+    virtualSettings: Optional[VirtualSettingsInput] = None
 
 
 @strawberry.input
@@ -92,6 +131,9 @@ class EventUpdateInput:
     venueId: Optional[str] = None
     isPublic: Optional[bool] = None
     imageUrl: Optional[str] = None
+    # Virtual Event Support (Phase 1)
+    eventType: Optional[EventTypeInput] = None
+    virtualSettings: Optional[VirtualSettingsInput] = None
 
 
 @strawberry.input
@@ -105,6 +147,15 @@ class SessionCreateInput:
     chatEnabled: Optional[bool] = True  # Defaults to enabled
     qaEnabled: Optional[bool] = True  # Defaults to enabled
     pollsEnabled: Optional[bool] = True  # Defaults to enabled
+    # Virtual Session Support (Phase 1)
+    sessionType: Optional[SessionTypeInput] = SessionTypeInput.MAINSTAGE
+    virtualRoomId: Optional[str] = None
+    streamingUrl: Optional[str] = None
+    isRecordable: Optional[bool] = True
+    requiresCamera: Optional[bool] = False
+    requiresMicrophone: Optional[bool] = False
+    maxParticipants: Optional[int] = None
+    broadcastOnly: Optional[bool] = True
 
 
 @strawberry.input
@@ -139,6 +190,16 @@ class SessionUpdateInput:
     chatEnabled: Optional[bool] = None
     qaEnabled: Optional[bool] = None
     pollsEnabled: Optional[bool] = None
+    # Virtual Session Support (Phase 1)
+    sessionType: Optional[SessionTypeInput] = None
+    virtualRoomId: Optional[str] = None
+    streamingUrl: Optional[str] = None
+    recordingUrl: Optional[str] = None
+    isRecordable: Optional[bool] = None
+    requiresCamera: Optional[bool] = None
+    requiresMicrophone: Optional[bool] = None
+    maxParticipants: Optional[int] = None
+    broadcastOnly: Optional[bool] = None
 
 
 @strawberry.input
@@ -178,6 +239,22 @@ class Mutation:
         db = info.context.db
         org_id = user["orgId"]
         user_id = user["sub"]
+
+        # Convert virtual_settings input to dict
+        virtual_settings_dict = None
+        if eventIn.virtualSettings:
+            virtual_settings_dict = {
+                "streaming_provider": eventIn.virtualSettings.streamingProvider,
+                "streaming_url": eventIn.virtualSettings.streamingUrl,
+                "recording_enabled": eventIn.virtualSettings.recordingEnabled,
+                "auto_captions": eventIn.virtualSettings.autoCaptions,
+                "timezone_display": eventIn.virtualSettings.timezoneDisplay,
+                "lobby_enabled": eventIn.virtualSettings.lobbyEnabled,
+                "lobby_video_url": eventIn.virtualSettings.lobbyVideoUrl,
+                "max_concurrent_viewers": eventIn.virtualSettings.maxConcurrentViewers,
+                "geo_restrictions": eventIn.virtualSettings.geoRestrictions,
+            }
+
         event_schema = EventCreate(
             owner_id=user_id,
             name=eventIn.name,
@@ -186,6 +263,8 @@ class Mutation:
             end_date=eventIn.endDate,
             venue_id=eventIn.venueId,
             imageUrl=eventIn.imageUrl,
+            event_type=eventIn.eventType.value if eventIn.eventType else "IN_PERSON",
+            virtual_settings=virtual_settings_dict,
         )
         return crud.event.create_with_organization(
             db, obj_in=event_schema, org_id=org_id
@@ -217,6 +296,25 @@ class Mutation:
         if "isPublic" in update_data:
             update_data["is_public"] = update_data.pop("isPublic")
         # imageUrl stays as-is since schema uses imageUrl (matches model column)
+
+        # Handle virtual event fields (Phase 1)
+        if "eventType" in update_data:
+            event_type_input = update_data.pop("eventType")
+            update_data["event_type"] = event_type_input.value if event_type_input else None
+        if "virtualSettings" in update_data:
+            vs = update_data.pop("virtualSettings")
+            if vs:
+                update_data["virtual_settings"] = {
+                    "streaming_provider": vs.streamingProvider,
+                    "streaming_url": vs.streamingUrl,
+                    "recording_enabled": vs.recordingEnabled,
+                    "auto_captions": vs.autoCaptions,
+                    "timezone_display": vs.timezoneDisplay,
+                    "lobby_enabled": vs.lobbyEnabled,
+                    "lobby_video_url": vs.lobbyVideoUrl,
+                    "max_concurrent_viewers": vs.maxConcurrentViewers,
+                    "geo_restrictions": vs.geoRestrictions,
+                }
 
         update_schema = EventUpdate(**update_data)
         return crud.event.update(
@@ -362,6 +460,15 @@ class Mutation:
             chat_enabled=sessionIn.chatEnabled if sessionIn.chatEnabled is not None else True,
             qa_enabled=sessionIn.qaEnabled if sessionIn.qaEnabled is not None else True,
             polls_enabled=sessionIn.pollsEnabled if sessionIn.pollsEnabled is not None else True,
+            # Virtual Session Support (Phase 1)
+            session_type=sessionIn.sessionType.value if sessionIn.sessionType else "MAINSTAGE",
+            virtual_room_id=sessionIn.virtualRoomId,
+            streaming_url=sessionIn.streamingUrl,
+            is_recordable=sessionIn.isRecordable if sessionIn.isRecordable is not None else True,
+            requires_camera=sessionIn.requiresCamera if sessionIn.requiresCamera is not None else False,
+            requires_microphone=sessionIn.requiresMicrophone if sessionIn.requiresMicrophone is not None else False,
+            max_participants=sessionIn.maxParticipants,
+            broadcast_only=sessionIn.broadcastOnly if sessionIn.broadcastOnly is not None else True,
         )
         return crud.session.create_with_event(
             db, obj_in=session_schema, event_id=sessionIn.eventId, producer=producer
@@ -430,6 +537,28 @@ class Mutation:
             update_data["qa_enabled"] = update_data.pop("qaEnabled")
         if "pollsEnabled" in update_data:
             update_data["polls_enabled"] = update_data.pop("pollsEnabled")
+
+        # Handle virtual session fields (Phase 1)
+        if "sessionType" in update_data:
+            session_type_input = update_data.pop("sessionType")
+            update_data["session_type"] = session_type_input.value if session_type_input else None
+        if "virtualRoomId" in update_data:
+            update_data["virtual_room_id"] = update_data.pop("virtualRoomId")
+        if "streamingUrl" in update_data:
+            update_data["streaming_url"] = update_data.pop("streamingUrl")
+        if "recordingUrl" in update_data:
+            update_data["recording_url"] = update_data.pop("recordingUrl")
+        if "isRecordable" in update_data:
+            update_data["is_recordable"] = update_data.pop("isRecordable")
+        if "requiresCamera" in update_data:
+            update_data["requires_camera"] = update_data.pop("requiresCamera")
+        if "requiresMicrophone" in update_data:
+            update_data["requires_microphone"] = update_data.pop("requiresMicrophone")
+        if "maxParticipants" in update_data:
+            update_data["max_participants"] = update_data.pop("maxParticipants")
+        if "broadcastOnly" in update_data:
+            update_data["broadcast_only"] = update_data.pop("broadcastOnly")
+
         update_schema = SessionUpdate(**update_data)
         return crud.session.update(db, db_obj=session, obj_in=update_schema)
 

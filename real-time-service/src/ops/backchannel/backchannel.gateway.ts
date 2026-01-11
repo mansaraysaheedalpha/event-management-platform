@@ -94,7 +94,6 @@ export class BackchannelGateway {
       const backchannelRoom = `backchannel:${sessionId}`;
       const eventName = 'backchannel.message.new';
 
-      // --- THIS IS THE REAL IMPLEMENTATION ---
       if (dto.targetUserId) {
         // Whisper to a specific user.
         // Send to the sender's socket ID and the target's private user room.
@@ -126,7 +125,6 @@ export class BackchannelGateway {
         // This is a regular message to the whole backchannel.
         this.server.to(backchannelRoom).emit(eventName, newMessage);
       }
-      // --- END OF REAL IMPLEMENTATION ---
 
       return { success: true, messageId: newMessage.id };
     } catch (error) {

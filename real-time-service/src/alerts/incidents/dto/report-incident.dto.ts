@@ -6,6 +6,8 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { sanitizeTransform } from 'src/common/utils/sanitize.utils';
 
 // Match the enums defined in the Prisma schema
 export enum IncidentType {
@@ -37,12 +39,13 @@ export class ReportIncidentDto {
   severity: IncidentSeverity;
 
   /** Detailed description of the incident (max 2000 chars) */
+  @Transform(({ value }) => sanitizeTransform(value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(2000)
   details: string;
 
-  /** Idempotency key to ensure duplicate reports aren’t stored */
+  /** Idempotency key to ensure duplicate reports aren't stored */
   @IsUUID('4')
   idempotencyKey: string;
 }

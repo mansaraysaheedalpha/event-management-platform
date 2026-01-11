@@ -1,8 +1,17 @@
 # app/models/event.py
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, text, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 import uuid
+import enum
+
+
+class EventType(str, enum.Enum):
+    """Event type classification for virtual event support."""
+    IN_PERSON = "IN_PERSON"
+    VIRTUAL = "VIRTUAL"
+    HYBRID = "HYBRID"
 
 
 class Event(Base):
@@ -25,6 +34,20 @@ class Event(Base):
     createdAt = Column(DateTime, nullable=False, server_default=text("now()"))
     updatedAt = Column(DateTime, nullable=False, server_default=text("now()"))
     imageUrl = Column(String, nullable=True)
+
+    # Virtual Event Support (Phase 1)
+    event_type = Column(
+        String,
+        nullable=False,
+        server_default=text("'IN_PERSON'"),
+        index=True
+    )
+    virtual_settings = Column(
+        JSONB,
+        nullable=True,
+        server_default=text("'{}'::jsonb"),
+        comment="Virtual event configuration: streaming_provider, streaming_url, recording_enabled, auto_captions, lobby_enabled, lobby_video_url, max_concurrent_viewers, geo_restrictions"
+    )
 
     # Relationships for eager loading
     registrations = relationship("Registration", back_populates="event")

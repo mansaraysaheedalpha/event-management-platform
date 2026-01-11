@@ -6,6 +6,7 @@ import { Redis } from 'ioredis';
 import { PrismaService } from 'src/prisma.service';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { firstValueFrom } from 'rxjs';
+import { AxiosError } from 'axios';
 
 interface GoogleTranslateResponse {
   data: {
@@ -15,15 +16,24 @@ interface GoogleTranslateResponse {
   };
 }
 
-// **FIX**: A new type to indicate if the API call succeeded
+// Type to indicate if the API call succeeded
 type TranslationResult = {
   text: string;
   isSuccess: boolean;
 };
 
+// Metrics keys for monitoring
+const METRICS_PREFIX = 'metrics:translation';
+
 /**
  * Service for handling message translation using Google Translate API
  * and caching results with Redis.
+ *
+ * Monitoring: Track these Redis keys for alerting:
+ * - metrics:translation:success - Total successful translations
+ * - metrics:translation:failure - Total failed translations
+ * - metrics:translation:cache_hit - Cache hits
+ * - metrics:translation:cache_miss - Cache misses
  */
 
 @Injectable()
@@ -53,10 +63,13 @@ export class TranslationService {
     const cachedTranslation = await this.redis.get(cacheKey);
     if (cachedTranslation) {
       this.logger.log(`Cache hit for message ${messageId}`);
+      await this.incrementMetric('cache_hit');
       return cachedTranslation;
     }
 
     this.logger.log(`Cache miss for message ${messageId}. Fetching...`);
+    await this.incrementMetric('cache_miss');
+
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       select: { text: true },
@@ -70,7 +83,7 @@ export class TranslationService {
       targetLanguage,
     );
 
-    // **FIX**: Only store the translation in the cache if the API call was successful.
+    // Only store the translation in the cache if the API call was successful.
     if (translationResult.isSuccess) {
       await this.redis.set(
         cacheKey,
@@ -81,6 +94,18 @@ export class TranslationService {
     }
 
     return translationResult.text;
+  }
+
+  /**
+   * Increment a metric counter in Redis for monitoring.
+   */
+  private async incrementMetric(metric: string): Promise<void> {
+    try {
+      await this.redis.incr(`${METRICS_PREFIX}:${metric}`);
+    } catch (error) {
+      // Don't fail the main operation if metrics fail
+      this.logger.warn(`Failed to increment metric ${metric}`);
+    }
   }
 
   /**

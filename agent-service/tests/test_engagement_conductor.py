@@ -153,13 +153,16 @@ class TestPendingApprovals:
         """Test that max pending approvals limit is enforced"""
         with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
             mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
 
-            # Set a low limit for testing
-            original_limit = agent.MAX_PENDING_APPROVALS
-            agent.MAX_PENDING_APPROVALS = 3
+            # Mock the config settings to use a low limit for testing
+            mock_settings = MagicMock()
+            mock_settings.AGENT_MAX_PENDING_APPROVALS = 3
+            mock_settings.AGENT_AUTO_APPROVE_THRESHOLD = 0.75
+            mock_settings.AGENT_PENDING_APPROVAL_TTL_SECONDS = 1800
 
-            try:
+            with patch('app.agents.engagement_conductor.get_settings', return_value=mock_settings):
+                agent = EngagementConductorAgent()
+
                 # Add more than limit
                 for i in range(5):
                     agent._add_pending_approval(f"session-{i}", {"index": i})
@@ -171,9 +174,6 @@ class TestPendingApprovals:
                 assert "session-4" in agent._pending_approvals
                 assert "session-3" in agent._pending_approvals
                 assert "session-2" in agent._pending_approvals
-
-            finally:
-                agent.MAX_PENDING_APPROVALS = original_limit
 
     def test_pending_approvals_backwards_compatible_property(self):
         """Test that pending_approvals property returns dict without timestamps"""

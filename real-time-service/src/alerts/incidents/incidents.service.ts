@@ -39,17 +39,30 @@ export class IncidentsService {
    * Broadcasts the new incident to admins via the gateway.
    *
    * @param reporterId - ID of the user reporting the incident
+   * @param reporterOrgId - Organization ID of the reporting user (for authorization)
    * @param sessionId - ID of the session where the incident occurred
    * @param dto - Payload containing incident details and idempotencyKey
    * @returns The newly created incident with basic reporter info
    * @throws ConflictException - If the same incident has already been submitted
+   * @throws ForbiddenException - If user is not part of the session's organization
    */
-
   async reportIncident(
     reporterId: string,
+    reporterOrgId: string,
     sessionId: string,
     dto: ReportIncidentDto,
   ): Promise<IncidentDto> {
+    // Fetch session metadata FIRST to validate organization before idempotency
+    const metadata = await this._getSessionMetadata(sessionId);
+
+    // Security: Ensure the reporter belongs to the same organization as the session
+    if (metadata.organizationId !== reporterOrgId) {
+      throw new ForbiddenException(
+        'You can only report incidents for sessions within your organization.',
+      );
+    }
+
+    // Check idempotency AFTER authorization to avoid consuming keys for unauthorized requests
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
@@ -59,12 +72,12 @@ export class IncidentsService {
       );
     }
 
-    // FIX: Fetch real eventId and orgId using our established cache pattern.
-    const metadata = await this._getSessionMetadata(sessionId);
-
+    // Explicitly specify fields to avoid mass assignment vulnerability
     const newIncident = await this.prisma.incident.create({
       data: {
-        ...dto,
+        type: dto.type,
+        severity: dto.severity,
+        details: dto.details,
         reporterId,
         sessionId,
         eventId: metadata.eventId,
@@ -119,16 +132,8 @@ export class IncidentsService {
     adminOrgId: string,
     dto: UpdateIncidentDto,
   ) {
-    const canProceed = await this.idempotencyService.checkAndSet(
-      dto.idempotencyKey,
-    );
-    if (!canProceed) {
-      throw new ConflictException(
-        'This incident update has already been processed.',
-      );
-    }
-
     // First, find the incident to ensure it exists and belongs to the admin's org
+    // Do authorization BEFORE idempotency to avoid consuming keys on unauthorized requests
     const incident = await this.prisma.incident.findUnique({
       where: { id: dto.incidentId },
     });
@@ -143,6 +148,16 @@ export class IncidentsService {
     if (incident.organizationId !== adminOrgId) {
       throw new ForbiddenException(
         'You do not have permission to manage this incident.',
+      );
+    }
+
+    // Check idempotency AFTER authorization to avoid consuming keys for unauthorized requests
+    const canProceed = await this.idempotencyService.checkAndSet(
+      dto.idempotencyKey,
+    );
+    if (!canProceed) {
+      throw new ConflictException(
+        'This incident update has already been processed.',
       );
     }
 
@@ -234,14 +249,46 @@ export class IncidentsService {
 
   /**
    * Publishes an audit event to the Redis channel for system-wide logging.
+   * Implements exponential backoff retry logic for resilience.
    *
    * @param payload - Structured data for the audit event
+   * @param retries - Number of retry attempts (default: 3)
+   * @param baseDelayMs - Base delay between retries in milliseconds (default: 100)
    */
-  private async _publishAuditEvent(payload: AuditLogPayload) {
-    try {
-      await this.redis.publish('audit-events', JSON.stringify(payload));
-    } catch (error) {
-      this.logger.error('Failed to publish audit event', error);
+  private async _publishAuditEvent(
+    payload: AuditLogPayload,
+    retries = 3,
+    baseDelayMs = 100,
+  ): Promise<void> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        await this.redis.publish('audit-events', JSON.stringify(payload));
+        return; // Success - exit early
+      } catch (error) {
+        const isLastAttempt = attempt === retries;
+
+        if (isLastAttempt) {
+          // Log failure after all retries exhausted
+          this.logger.error(
+            `Failed to publish audit event after ${retries + 1} attempts`,
+            {
+              action: payload.action,
+              userId: payload.actingUserId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+          return; // Don't throw - audit failures shouldn't break the main flow
+        }
+
+        // Calculate delay with exponential backoff: 100ms, 200ms, 400ms...
+        const delayMs = baseDelayMs * Math.pow(2, attempt);
+        this.logger.warn(
+          `Audit event publish failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delayMs}ms`,
+        );
+
+        // Wait before retrying
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
   }
 }

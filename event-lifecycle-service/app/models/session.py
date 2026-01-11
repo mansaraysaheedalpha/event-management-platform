@@ -1,9 +1,19 @@
 #app/models/session.py
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, text
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, text, Integer
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 from app.models.session_speaker import session_speaker_association
 import uuid
+import enum
+
+
+class SessionType(str, enum.Enum):
+    """Session type classification for virtual event support."""
+    MAINSTAGE = "MAINSTAGE"
+    BREAKOUT = "BREAKOUT"
+    WORKSHOP = "WORKSHOP"
+    NETWORKING = "NETWORKING"
+    EXPO = "EXPO"
 
 
 class Session(Base):
@@ -27,6 +37,22 @@ class Session(Base):
     chat_open = Column(Boolean, nullable=False, server_default=text("false"))
     qa_open = Column(Boolean, nullable=False, server_default=text("false"))
     polls_open = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # Virtual Session Support (Phase 1)
+    session_type = Column(
+        String,
+        nullable=False,
+        server_default=text("'MAINSTAGE'"),
+        index=True
+    )
+    virtual_room_id = Column(String, nullable=True, comment="External virtual room identifier")
+    streaming_url = Column(String, nullable=True, comment="Live stream URL for virtual sessions")
+    recording_url = Column(String, nullable=True, comment="Recording URL for on-demand playback")
+    is_recordable = Column(Boolean, nullable=False, server_default=text("true"))
+    requires_camera = Column(Boolean, nullable=False, server_default=text("false"))
+    requires_microphone = Column(Boolean, nullable=False, server_default=text("false"))
+    max_participants = Column(Integer, nullable=True, comment="Max participants for interactive sessions")
+    broadcast_only = Column(Boolean, nullable=False, server_default=text("true"), comment="View-only sessions")
 
     # Relationships
     speakers = relationship(

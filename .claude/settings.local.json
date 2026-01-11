@@ -60,7 +60,13 @@
       "Bash(npx prisma migrate dev:*)",
       "Bash(mkdir:*)",
       "Bash(pnpm exec next lint:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git -C globalconnect status)",
+      "Bash(git rm:*)",
+      "Bash(java:*)",
+      "Bash(set \"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/event_lifecycle\")"
     ],
     "deny": [],
     "ask": []

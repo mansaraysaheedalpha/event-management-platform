@@ -1,4 +1,4 @@
-//src/networking/proximity/proximity.gateway/.ts
+//src/networking/proximity/proximity.gateway.ts
 import {
   ConnectedSocket,
   MessageBody,
@@ -8,6 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
@@ -42,7 +43,9 @@ export class ProximityGateway {
 
   /**
    * Handles a user's location update.
+   * Rate limited to 30 requests per minute to prevent abuse.
    */
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @SubscribeMessage('proximity.location.update')
   async handleUpdateLocation(
     @MessageBody() dto: UpdateLocationDto,
@@ -75,7 +78,9 @@ export class ProximityGateway {
 
   /**
    * Handles a user sending a "ping" to another nearby user.
+   * Rate limited to 10 pings per minute to prevent harassment.
    */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @SubscribeMessage('proximity.ping')
   async handleProximityPing(
     @MessageBody() dto: ProximityPingDto,
