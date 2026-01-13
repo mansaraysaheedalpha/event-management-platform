@@ -297,6 +297,18 @@ class CRUDMonetizationEvent:
         Should be called periodically (e.g., hourly via cron).
         """
         try:
+            # Check if the materialized view exists before refreshing
+            view_exists = db.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_matviews
+                    WHERE matviewname = 'monetization_conversion_funnels'
+                )
+            """)).scalar()
+
+            if not view_exists:
+                logger.debug("monetization_conversion_funnels view does not exist yet - skipping refresh")
+                return
+
             # Refresh conversion funnels view
             db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY monetization_conversion_funnels"))
             db.commit()

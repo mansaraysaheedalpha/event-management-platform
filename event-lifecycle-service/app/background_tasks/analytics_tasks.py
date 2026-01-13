@@ -33,11 +33,21 @@ def refresh_analytics_views():
         # Refresh monetization conversion funnels
         monetization_event.refresh_materialized_views(db)
 
-        # Refresh ad analytics daily view
+        # Refresh ad analytics daily view (if exists)
         try:
-            db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY ad_analytics_daily"))
-            db.commit()
-            logger.info("Successfully refreshed ad_analytics_daily")
+            view_exists = db.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_matviews
+                    WHERE matviewname = 'ad_analytics_daily'
+                )
+            """)).scalar()
+
+            if view_exists:
+                db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY ad_analytics_daily"))
+                db.commit()
+                logger.info("Successfully refreshed ad_analytics_daily")
+            else:
+                logger.debug("ad_analytics_daily view does not exist yet - skipping refresh")
         except Exception as e:
             logger.error(f"Error refreshing ad_analytics_daily: {e}")
             db.rollback()
