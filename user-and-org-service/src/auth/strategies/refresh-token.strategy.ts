@@ -17,7 +17,9 @@ export class RefreshTokenStrategy extends PassportStrategy(
       throw new Error('JWT_REFRESH_SECRET environment variable is not configured');
     }
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (req: Request) => req?.cookies?.refresh_token
+      ]),
       secretOrKey: jwtRefreshSecret,
       passReqToCallback: true,
     });
