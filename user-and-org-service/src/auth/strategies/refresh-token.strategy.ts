@@ -29,11 +29,8 @@ export class RefreshTokenStrategy extends PassportStrategy(
     req: Request,
     payload: { sub: string; email: string; [key: string]: any },
   ) {
-    const authHeader = req.get('authorization');
-    const refreshToken = authHeader
-      ? authHeader.replace('Bearer', '').trim()
-      : '';
-
+    
+    const refreshToken = req?.cookies?.refresh_token || ''
     return { ...payload, refreshToken };
   }
 }
