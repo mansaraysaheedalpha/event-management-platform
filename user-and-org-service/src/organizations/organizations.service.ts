@@ -111,12 +111,18 @@ export class OrganizationsService {
       );
     }
 
-    const newRole = await this.prisma.role.findUnique({
-      where: { id: newRoleId, organizationId: orgId },
+    const newRole = await this.prisma.role.findFirst({
+      where: {
+        id: newRoleId,
+        OR: [
+          { organizationId: orgId },  // Org-specific role
+          { isSystemRole: true },     // System role
+        ],
+      },
     });
     if (!newRole) {
       throw new NotFoundException(
-        `Role with ID ${newRoleId} not found in this organization.`,
+        `Role not found.`,
       );
     }
 

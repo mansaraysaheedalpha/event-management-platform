@@ -32,17 +32,19 @@ export class InvitationsService {
   ) {}
 
   async create(data: CreateInvitationData) {
-    const role = await this.prisma.role.findUnique({
+    // Look for org-specific role first, then fall back to system role
+    const role = await this.prisma.role.findFirst({
       where: {
-        name_organizationId: {
-          name: data.role,
-          organizationId: data.organizationId,
-        },
+        name: data.role,
+        OR: [
+          { organizationId: data.organizationId },  // Org-specific role
+          { isSystemRole: true },                   // System role
+        ],
       },
     });
     if (!role)
       throw new NotFoundException(
-        `Role '${data.role}' not found in this organization.`,
+        `Role '${data.role}' not found.`,
       );
 
     const rawToken = randomBytes(32).toString('hex');
