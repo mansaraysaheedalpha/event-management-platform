@@ -91,7 +91,6 @@ export class IncidentsGateway {
 
       const newIncident = await this.incidentsService.reportIncident(
         user.sub,
-        user.orgId, // Pass user's orgId for authorization check
         sessionId,
         dto,
       );

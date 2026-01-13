@@ -38,31 +38,26 @@ export class IncidentsService {
    * Uses idempotency to avoid duplicate submissions.
    * Broadcasts the new incident to admins via the gateway.
    *
+   * Note: Authorization is handled at the session-join level (ContentGateway validates
+   * event registration before allowing users to join). Any authenticated user who has
+   * joined a session can report incidents in that session.
+   *
    * @param reporterId - ID of the user reporting the incident
-   * @param reporterOrgId - Organization ID of the reporting user (for authorization)
    * @param sessionId - ID of the session where the incident occurred
    * @param dto - Payload containing incident details and idempotencyKey
    * @returns The newly created incident with basic reporter info
    * @throws ConflictException - If the same incident has already been submitted
-   * @throws ForbiddenException - If user is not part of the session's organization
+   * @throws NotFoundException - If the session doesn't exist
    */
   async reportIncident(
     reporterId: string,
-    reporterOrgId: string,
     sessionId: string,
     dto: ReportIncidentDto,
   ): Promise<IncidentDto> {
-    // Fetch session metadata FIRST to validate organization before idempotency
+    // Fetch session metadata to get eventId and organizationId for the incident record
     const metadata = await this._getSessionMetadata(sessionId);
 
-    // Security: Ensure the reporter belongs to the same organization as the session
-    if (metadata.organizationId !== reporterOrgId) {
-      throw new ForbiddenException(
-        'You can only report incidents for sessions within your organization.',
-      );
-    }
-
-    // Check idempotency AFTER authorization to avoid consuming keys for unauthorized requests
+    // Check idempotency to avoid duplicate submissions
     const canProceed = await this.idempotencyService.checkAndSet(
       dto.idempotencyKey,
     );
