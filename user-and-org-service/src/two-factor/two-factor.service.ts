@@ -24,8 +24,14 @@ export class TwoFactorService {
   }
 
   async setup2FA(userId: string) {
+    // Fetch user to get their email
+  const user = await this.prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { email: true },
+  });
+
     const secret = speakeasy.generateSecret({
-      name: 'GlobalConnect (myemaildomain.com)',
+      name: user.email,
       issuer: 'GlobalConnect',
     });
 

@@ -80,7 +80,10 @@ export class OrganizationsService {
   async getRoles(organizationId: string) {
     return this.prisma.role.findMany({
       where: {
-        organizationId,
+        OR: [
+          { organizationId },           // Org-specific roles
+          { isSystemRole: true },       // System roles (shared by all orgs)
+        ],
         name: {
           not: 'OWNER',
         },
