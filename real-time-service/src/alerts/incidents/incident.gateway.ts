@@ -112,9 +112,10 @@ export class IncidentsGateway {
    * Handles the WebSocket event 'incidents.join'.
    * Lets an authorized admin join a room to receive real-time incident updates.
    * Checks for required 'ops:incident:read' permission before joining.
+   * Returns existing incidents for the organization.
    */
   @SubscribeMessage('incidents.join')
-  handleJoinIncidentsStream(@ConnectedSocket() client: AuthenticatedSocket) {
+  async handleJoinIncidentsStream(@ConnectedSocket() client: AuthenticatedSocket) {
     const user = getAuthenticatedUser(client);
     // This permission would be for viewing all incidents in an organization
     const requiredPermission = 'ops:incident:read';
@@ -131,7 +132,22 @@ export class IncidentsGateway {
       `Admin ${user.sub} joined incidents stream for org ${user.orgId}`,
     );
 
-    return { success: true };
+    // Fetch existing incidents for the organization
+    try {
+      const incidents = await this.incidentsService.getIncidentsForOrganization(
+        user.orgId,
+      );
+      this.logger.log(
+        `Sent ${incidents.length} existing incidents to admin ${user.sub}`,
+      );
+      return { success: true, incidents };
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch incidents for org ${user.orgId}`,
+        error,
+      );
+      return { success: true, incidents: [] };
+    }
   }
 
   /**

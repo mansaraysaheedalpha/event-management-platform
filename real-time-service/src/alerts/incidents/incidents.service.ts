@@ -193,6 +193,30 @@ export class IncidentsService {
   }
 
   /**
+   * Fetches all incidents for an organization.
+   * Used when an admin joins the incidents stream to get existing incidents.
+   *
+   * @param organizationId - ID of the organization
+   * @returns Array of incidents with reporter info
+   */
+  async getIncidentsForOrganization(organizationId: string): Promise<IncidentDto[]> {
+    const incidents = await this.prisma.incident.findMany({
+      where: { organizationId },
+      include: {
+        reporter: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        assignee: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return incidents;
+  }
+
+  /**
    * Fetches session metadata (eventId, organizationId) from Redis cache or DB fallback.
    * Ensures structure is valid using a type guard and re-caches if pulled from DB.
    *
