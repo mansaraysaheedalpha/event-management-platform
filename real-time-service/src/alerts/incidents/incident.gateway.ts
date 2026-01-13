@@ -22,15 +22,15 @@ import { ReportIncidentDto } from './dto/report-incident.dto';
 import { IncidentDto } from './dto/incident.dto';
 import { UpdateIncidentDto } from './dto/update-incidents.dto';
 
-// UUID v4 validation regex pattern
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Session ID validation regex pattern
+// Format: ses_ prefix followed by 12 hex characters (e.g., ses_d8ba9693193b)
+const SESSION_ID_REGEX = /^ses_[0-9a-f]{12}$/i;
 
 /**
- * Validates if a string is a valid UUID v4
+ * Validates if a string is a valid session ID
  */
-function isValidUUID(value: string): boolean {
-  return UUID_V4_REGEX.test(value);
+function isValidSessionId(value: string): boolean {
+  return SESSION_ID_REGEX.test(value);
 }
 
 // Define allowed origins for CORS - restrict in production
@@ -66,8 +66,8 @@ export class IncidentsGateway {
       throw new BadRequestException('sessionId is required in query parameters');
     }
 
-    if (!isValidUUID(sessionIdValue)) {
-      throw new BadRequestException('sessionId must be a valid UUID');
+    if (!isValidSessionId(sessionIdValue)) {
+      throw new BadRequestException('sessionId must be a valid session ID (format: ses_xxxxxxxxxxxx)');
     }
 
     return sessionIdValue;
