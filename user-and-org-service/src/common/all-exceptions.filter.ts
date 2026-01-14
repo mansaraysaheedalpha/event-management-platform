@@ -5,12 +5,14 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  ExceptionFilter,
 } from '@nestjs/common';
-import { GqlExceptionFilter, GqlArgumentsHost } from '@nestjs/graphql';
+import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { ApolloError } from 'apollo-server-express';
+import { Response } from 'express';
 
 @Catch()
-export class AllExceptionsFilter implements GqlExceptionFilter {
+export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
   // Messages that are safe to expose to clients
@@ -62,8 +64,6 @@ export class AllExceptionsFilter implements GqlExceptionFilter {
   }
 
   catch(exception: unknown, host: ArgumentsHost) {
-    const gqlHost = GqlArgumentsHost.create(host);
-
     // Log full error for debugging (never exposed to client)
     this.logger.error('Exception caught', {
       exception: exception instanceof Error ? {
@@ -73,6 +73,51 @@ export class AllExceptionsFilter implements GqlExceptionFilter {
       } : exception,
     });
 
+    // Determine if this is a GraphQL or HTTP request
+    const contextType = host.getType<GqlContextType>();
+
+    if (contextType === 'graphql') {
+      // Handle GraphQL requests
+      return this.handleGraphQLException(exception, host);
+    } else {
+      // Handle HTTP/REST requests
+      return this.handleHttpException(exception, host);
+    }
+  }
+
+  private handleHttpException(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'An unexpected error occurred';
+
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      let rawMessage = exception.message;
+
+      // Handle ValidationPipe errors
+      const exceptionResponse = exception.getResponse();
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const responseObj = exceptionResponse as Record<string, unknown>;
+        if (Array.isArray(responseObj.message)) {
+          rawMessage = responseObj.message.join(', ');
+        } else if (typeof responseObj.message === 'string') {
+          rawMessage = responseObj.message;
+        }
+      }
+
+      message = this.sanitizeMessage(rawMessage, status);
+    }
+
+    response.status(status).json({
+      statusCode: status,
+      message: message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private handleGraphQLException(exception: unknown, host: ArgumentsHost) {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       let rawMessage = exception.message;
@@ -82,7 +127,6 @@ export class AllExceptionsFilter implements GqlExceptionFilter {
       if (typeof response === 'object' && response !== null) {
         const responseObj = response as Record<string, unknown>;
         if (Array.isArray(responseObj.message)) {
-          // ValidationPipe returns array of error messages
           rawMessage = responseObj.message.join(', ');
         } else if (typeof responseObj.message === 'string') {
           rawMessage = responseObj.message;
