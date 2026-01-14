@@ -166,28 +166,69 @@ The **user-and-org service** is a NestJS-based microservice that handles authent
 | Feature | REST Endpoint | Purpose |
 |---------|---------------|---------|
 | Create Invitation | `POST /organizations/:orgId/invitations` | Send invite to email |
-| Accept Invitation | `POST /auth/invitations/:token/accept` | Accept and create account |
+| Preview Invitation | `GET /auth/invitations/:token/preview` | Get invitation details & check if user exists |
+| Accept (New User) | `POST /auth/invitations/:token/accept/new-user` | Accept and create new account |
+| Accept (Existing User) | `POST /auth/invitations/:token/accept/existing-user` | Accept with existing account (requires auth) |
+| Accept (Legacy) | `POST /auth/invitations/:token/accept` | Auto-detect user type (deprecated) |
 
 ### Key Files
 
 - Service: `src/invitations/invitations.service.ts`
 - DTOs: `src/invitations/dto/`
+  - `AcceptInvitationDTO.ts` - For new users (first_name, last_name, password)
+  - `AcceptInvitationExistingUserDTO.ts` - For existing users (password only)
+  - `InvitationPreviewDTO.ts` - Preview response structure
 
 ### Invitation Flow
 
+#### For New Users (No Existing Account)
 1. Owner/Admin creates invitation with email + role
 2. System generates 32-byte random token (bcrypt hashed)
 3. Email sent with unique acceptance link
-4. Invitee provides: first name, last name, password
-5. If user doesn't exist, new account is created
-6. Membership record created with assigned role
-7. JWT tokens returned for immediate login
+4. Frontend calls `GET /preview` to check if user exists → `userExists: false`
+5. Frontend shows registration form (first name, last name, password)
+6. Invitee submits to `POST /accept/new-user`
+7. New account created + membership record with assigned role
+8. JWT tokens returned for immediate login
+
+#### For Existing Users (Account Already Exists)
+1. Owner/Admin creates invitation with email + role
+2. Email sent with unique acceptance link
+3. Frontend calls `GET /preview` → `userExists: true`, `existingUserFirstName: "Jane"`
+4. Frontend shows login form (password only) with personalized greeting
+5. Invitee submits to `POST /accept/existing-user` with their existing password
+6. System authenticates user (verifies password matches existing account)
+7. Membership record created with assigned role
+8. JWT tokens returned for immediate login
+
+### Preview Response
+
+```json
+{
+  "email": "user@example.com",
+  "organizationName": "Acme Corp",
+  "inviterName": "John Doe",
+  "roleName": "MEMBER",
+  "userExists": true,
+  "existingUserFirstName": "Jane",
+  "expiresAt": "2024-01-21T00:00:00.000Z"
+}
+```
+
+### Security: Existing User Authentication
+
+**Why require password for existing users?**
+- Prevents unauthorized org additions without user consent
+- Industry standard (Google Workspace, Slack, Microsoft Teams all require this)
+- User must prove they own the account before joining a new organization
+- Protects against invitation link interception attacks
 
 ### Invitation Properties
 
 - **Expiration:** 7 days from creation
 - **Single-use:** Token invalidated after acceptance
 - **Role assignment:** Invitee gets specified role upon joining
+- **Duplicate membership check:** Returns error if user is already a member
 
 ---
 
@@ -381,7 +422,10 @@ POST /auth/logout
 POST /auth/refresh
 POST /auth/password-reset-request
 POST /auth/password-reset
-POST /auth/invitations/:token/accept
+GET  /auth/invitations/:token/preview
+POST /auth/invitations/:token/accept/new-user
+POST /auth/invitations/:token/accept/existing-user
+POST /auth/invitations/:token/accept (deprecated)
 POST /auth/token/switch
 ```
 
@@ -449,13 +493,13 @@ GET /health
 
 | Category | Feature Count |
 |----------|--------------|
-| Authentication | 8 endpoints |
+| Authentication | 10 endpoints |
 | User Management | 7 endpoints |
 | Organization Management | 11 endpoints |
-| Invitations | 2 endpoints |
+| Invitations | 4 endpoints |
 | 2FA | 4 endpoints |
 | Internal API | 1 endpoint |
-| **Total** | **33 endpoints** |
+| **Total** | **37 endpoints** |
 
 ---
 
