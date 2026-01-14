@@ -171,6 +171,7 @@ class SpeakerCreateInput:
     name: str
     bio: Optional[str] = None
     expertise: Optional[List[str]] = None
+    userId: Optional[str] = None  # Links speaker to a platform user account
 
 
 @strawberry.input
@@ -178,6 +179,7 @@ class SpeakerUpdateInput:
     name: Optional[str] = None
     bio: Optional[str] = None
     expertise: Optional[List[str]] = None
+    userId: Optional[str] = None  # Links speaker to a platform user account
 
 
 @strawberry.input
@@ -593,7 +595,10 @@ class Mutation:
         db = info.context.db
         org_id = user["orgId"]
         speaker_schema = SpeakerCreate(
-            name=speakerIn.name, bio=speakerIn.bio, expertise=speakerIn.expertise
+            name=speakerIn.name,
+            bio=speakerIn.bio,
+            expertise=speakerIn.expertise,
+            user_id=speakerIn.userId,  # Link to platform user account
         )
         return crud.speaker.create_with_organization(
             db, obj_in=speaker_schema, org_id=org_id
@@ -611,9 +616,14 @@ class Mutation:
         speaker = crud.speaker.get(db, id=id)
         if not speaker or speaker.organization_id != org_id:
             raise HTTPException(status_code=404, detail="Speaker not found")
-        update_schema = SpeakerUpdate(
-            **{k: v for k, v in speakerIn.__dict__.items() if v is not None}
-        )
+        # Convert camelCase GraphQL input to snake_case for schema
+        update_data = {}
+        for k, v in speakerIn.__dict__.items():
+            if v is not None:
+                # Convert userId to user_id for the schema
+                key = "user_id" if k == "userId" else k
+                update_data[key] = v
+        update_schema = SpeakerUpdate(**update_data)
         return crud.speaker.update(db, db_obj=speaker, obj_in=update_schema)
 
     @strawberry.mutation

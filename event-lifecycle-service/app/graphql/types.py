@@ -73,6 +73,7 @@ class SpeakerType:
     bio: typing.Optional[str]
     expertise: typing.Optional[list[str]]
     is_archived: bool
+    user_id: typing.Optional[str]  # Links speaker to a platform user account
 
 
 @strawberry.type

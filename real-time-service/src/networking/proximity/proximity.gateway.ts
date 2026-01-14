@@ -109,25 +109,6 @@ export class ProximityGateway {
     const targetUserRoom = `user:${dto.targetUserId}`;
     const eventName = 'proximity.ping.received';
 
-    // Debug: Check room membership
-    const adapter = this.server?.sockets?.adapter;
-    if (!adapter) {
-      this.logger.error('Server adapter is not available!');
-    } else {
-      const allRooms = Array.from(adapter.rooms.keys()).filter(
-        (r) => r.startsWith('user:'),
-      );
-      this.logger.log(`All user rooms: ${JSON.stringify(allRooms)}`);
-    }
-
-    // Check how many sockets are in the target room
-    const socketsInRoom = adapter?.rooms?.get(targetUserRoom);
-    const socketCount = socketsInRoom ? socketsInRoom.size : 0;
-
-    this.logger.log(
-      `Emitting ping to room "${targetUserRoom}" | from: ${sender.sub} | sockets in room: ${socketCount} | payload: ${JSON.stringify(pingPayload)}`,
-    );
-
     this.server.to(targetUserRoom).emit(eventName, pingPayload);
 
     this.logger.log(
