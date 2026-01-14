@@ -29,6 +29,9 @@ const allPermissions = [
     name: 'dashboard:read:live',
     description: 'Can view the live event dashboard',
   },
+  // Incident Management
+  { name: 'ops:incident:read', description: 'Can view reported incidents' },
+  { name: 'ops:incident:manage', description: 'Can update incident status and resolution' },
 ];
 
 const roles = {
@@ -45,6 +48,8 @@ const roles = {
     'chat:delete:any',
     'dm:send',
     'dashboard:read:live',
+    'ops:incident:read',
+    'ops:incident:manage',
   ],
   ADMIN: [
     'poll:create',
@@ -59,6 +64,8 @@ const roles = {
     'chat:delete:any',
     'dm:send',
     'dashboard:read:live',
+    'ops:incident:read',
+    'ops:incident:manage',
   ],
   MEMBER: [
     'poll:vote',
