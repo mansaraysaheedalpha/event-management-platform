@@ -328,12 +328,20 @@ export class AuthService {
     const refreshTokenId = randomBytes(32).toString('hex');
     const existingPermissions = membership.role.permissions.map((p) => p.name);
 
+    // Base permissions that all org members get
+    const additionalPermissions = ['content:manage'];
+
+    // Backchannel access for OWNER and ADMIN roles
+    if (['OWNER', 'ADMIN'].includes(membership.role.name)) {
+      additionalPermissions.push('backchannel:join', 'backchannel:send');
+    }
+
     const accessTokenPayload: JwtPayload = {
       sub: user.id,
       email: user.email,
       orgId: membership.organizationId,
       role: membership.role.name,
-      permissions: [...new Set([...existingPermissions, 'content:manage'])],
+      permissions: [...new Set([...existingPermissions, ...additionalPermissions])],
       tier: (user.tier as 'default' | 'vip') || 'default',
       preferredLanguage: user.preferredLanguage || 'en',
       sponsorId: user.sponsorId || undefined,
