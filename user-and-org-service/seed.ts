@@ -32,6 +32,9 @@ const allPermissions = [
   // Incident Management
   { name: 'ops:incident:read', description: 'Can view reported incidents' },
   { name: 'ops:incident:manage', description: 'Can update incident status and resolution' },
+  // Staff Backchannel
+  { name: 'backchannel:join', description: 'Can join the staff backchannel' },
+  { name: 'backchannel:send', description: 'Can send messages in the staff backchannel' },
 ];
 
 const roles = {
@@ -50,6 +53,8 @@ const roles = {
     'dashboard:read:live',
     'ops:incident:read',
     'ops:incident:manage',
+    'backchannel:join',
+    'backchannel:send',
   ],
   ADMIN: [
     'poll:create',
@@ -66,6 +71,8 @@ const roles = {
     'dashboard:read:live',
     'ops:incident:read',
     'ops:incident:manage',
+    'backchannel:join',
+    'backchannel:send',
   ],
   MEMBER: [
     'poll:vote',
