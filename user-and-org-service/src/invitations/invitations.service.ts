@@ -89,6 +89,7 @@ export class InvitationsService {
       inviterName,
       invitation.organization.name,
       invitationUrl,
+      role.name, // Include role name in email so invitee knows their assigned role
     );
 
     return {

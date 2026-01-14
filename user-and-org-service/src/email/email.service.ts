@@ -253,7 +253,25 @@ export class EmailService {
     inviterName: string,
     organizationName: string,
     invitationUrl: string,
+    roleName?: string,
   ): Promise<boolean> {
+    // Role descriptions for the email
+    const roleDescriptions: Record<string, string> = {
+      ADMIN: 'Full access to manage events, team members, and organization settings.',
+      MODERATOR: 'Moderate Q&A and chat during live events, view the live dashboard, and access the staff backchannel.',
+      SPEAKER: 'Present at events, control your own presentations, and receive speaker-targeted backchannel messages.',
+      MEMBER: 'Basic team access to participate in events. Cannot moderate or manage settings.',
+    };
+
+    const roleDescription = roleName ? roleDescriptions[roleName] : null;
+
+    const roleSection = roleName ? `
+            <div style="background-color: #f0f9ff; border-radius: 8px; padding: 16px; margin: 0 0 24px 0; border-left: 4px solid #2563eb;">
+              <p style="color: #1e40af; font-size: 14px; font-weight: 600; margin: 0 0 8px 0;">Your Role: ${roleName}</p>
+              ${roleDescription ? `<p style="color: #3b82f6; font-size: 14px; line-height: 1.5; margin: 0;">${roleDescription}</p>` : ''}
+            </div>
+    ` : '';
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -269,6 +287,7 @@ export class EmailService {
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
               <strong>${inviterName}</strong> has invited you to join their organization <strong>${organizationName}</strong> on <strong>GlobalConnect</strong>.
             </p>
+            ${roleSection}
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
               Click the button below to accept your invitation and create your account:
             </p>

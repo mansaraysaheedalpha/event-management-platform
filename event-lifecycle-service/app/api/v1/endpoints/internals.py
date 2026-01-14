@@ -275,3 +275,50 @@ def check_user_registration(
         "status": registration.status,
         "ticket_code": registration.ticket_code,
     }
+
+
+@router.get("/internal/sessions/{session_id}/speakers/{user_id}/check")
+def check_if_user_is_speaker(
+    session_id: str,
+    user_id: str,
+    db: Session = Depends(get_db),
+    api_key: str = Security(deps.get_internal_api_key),
+):
+    """
+    Internal endpoint to check if a user is assigned as a speaker for a session.
+    Used by real-time service for backchannel role-based targeting.
+
+    Returns:
+        - is_speaker: True if user is a speaker for this session
+        - speaker_id: The speaker record ID if found
+
+    Note: Speakers must have their user_id field populated for this to work.
+    """
+    from app.models.speaker import Speaker
+    from app.models.session_speaker import session_speaker_association
+
+    # Query for a speaker with this user_id that is assigned to this session
+    speaker = (
+        db.query(Speaker)
+        .join(
+            session_speaker_association,
+            Speaker.id == session_speaker_association.c.speaker_id,
+        )
+        .filter(
+            session_speaker_association.c.session_id == session_id,
+            Speaker.user_id == user_id,
+            Speaker.is_archived == "false",
+        )
+        .first()
+    )
+
+    if not speaker:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User is not a speaker for this session",
+        )
+
+    return {
+        "is_speaker": True,
+        "speaker_id": speaker.id,
+    }

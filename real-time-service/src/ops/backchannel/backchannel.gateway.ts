@@ -13,6 +13,7 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { BackchannelService } from './backchannel.service';
 import { SendBackchannelMessageDto } from './dto/send-backchannel-message.dto';
+import { BackchannelRoleService } from './backchannel-role.service';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -22,11 +23,22 @@ export class BackchannelGateway {
   private readonly logger = new Logger(BackchannelGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly backchannelService: BackchannelService) {}
+  constructor(
+    private readonly backchannelService: BackchannelService,
+    private readonly backchannelRoleService: BackchannelRoleService,
+  ) {}
 
   /**
    * Handles an authorized staff member joining the backchannel for a session.
-   * Fetches and emits message history after successful join.
+   *
+   * The user is joined to:
+   * 1. General backchannel room (for "All Staff" messages)
+   * 2. Role-specific rooms based on their permissions and session assignment:
+   *    - STAFF: Organization admins/owners with backchannel permission
+   *    - MODERATOR: Users with moderation permissions (qna:moderate, chat:moderate)
+   *    - SPEAKER: Users assigned as speakers for this session
+   *
+   * A user can belong to multiple roles simultaneously.
    */
   @SubscribeMessage('backchannel.join')
   async handleJoinBackchannel(@ConnectedSocket() client: AuthenticatedSocket) {
@@ -52,14 +64,26 @@ export class BackchannelGateway {
         };
       }
 
-      const backchannelRoom = `backchannel:${sessionId}`;
-      const roleSpecificRoom = `backchannel:${sessionId}:role:${user.role}`;
+      // Determine user's backchannel roles based on permissions and session assignment
+      const userRoles = await this.backchannelRoleService.getUserBackchannelRoles(
+        user.sub,
+        sessionId,
+        user.permissions || [],
+      );
 
-      // Join both the general backchannel and the user's role-specific room
-      await client.join([backchannelRoom, roleSpecificRoom]);
+      // Build list of rooms to join
+      const backchannelRoom = `backchannel:${sessionId}`;
+      const roleRooms = this.backchannelRoleService.getRoomNamesForRoles(
+        sessionId,
+        userRoles,
+      );
+
+      // Join general backchannel room and all applicable role-specific rooms
+      const allRooms = [backchannelRoom, ...roleRooms];
+      await client.join(allRooms);
 
       this.logger.log(
-        `Staff member ${user.sub} (${user.role}) joined backchannel for session ${sessionId}`,
+        `Staff member ${user.sub} joined backchannel for session ${sessionId} with roles: [${userRoles.join(', ')}]`,
       );
 
       // Fetch and emit message history to the joining client
@@ -74,7 +98,8 @@ export class BackchannelGateway {
         // Don't fail the join, just log the error - client will still be in the room
       }
 
-      return { success: true };
+      // Return success with the user's roles for frontend awareness
+      return { success: true, roles: userRoles };
     } catch (error) {
       this.logger.error(
         `Failed to handle backchannel join: ${getErrorMessage(error)}`,

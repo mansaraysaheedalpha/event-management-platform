@@ -176,12 +176,8 @@ export class OrganizationsService {
           data: { name: newOrgDto.organization_name },
         });
 
-        await tx.role.createMany({
-          data: [
-            { name: 'ADMIN', organizationId: newOrg.id },
-            { name: 'MEMBER', organizationId: newOrg.id },
-          ],
-        });
+        // System roles (OWNER, ADMIN, MODERATOR, MEMBER) are created via seed
+        // and shared across all organizations. No need to create org-specific roles.
 
         const ownerRole = await tx.role.findFirstOrThrow({
           where: { name: 'OWNER', isSystemRole: true },

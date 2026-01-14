@@ -331,9 +331,14 @@ export class AuthService {
     // Base permissions that all org members get
     const additionalPermissions = ['content:manage'];
 
-    // Backchannel access for OWNER and ADMIN roles
-    if (['OWNER', 'ADMIN'].includes(membership.role.name)) {
+    // Backchannel access for OWNER, ADMIN, MODERATOR, and SPEAKER roles
+    if (['OWNER', 'ADMIN', 'MODERATOR', 'SPEAKER'].includes(membership.role.name)) {
       additionalPermissions.push('backchannel:join', 'backchannel:send');
+    }
+
+    // Presentation control for SPEAKER role
+    if (membership.role.name === 'SPEAKER') {
+      additionalPermissions.push('presentation:control');
     }
 
     const accessTokenPayload: JwtPayload = {

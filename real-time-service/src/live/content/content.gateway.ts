@@ -289,8 +289,11 @@ export class ContentGateway {
       `[ContentGateway] Received 'content.control' for session ${sessionId} with action: ${dto.action}`,
     );
 
-    const requiredPermission = 'content:manage';
-    if (!user.permissions?.includes(requiredPermission)) {
+    // Allow users with content:manage (admins/moderators) OR presentation:control (speakers)
+    const hasContentManage = user.permissions?.includes('content:manage');
+    const hasPresentationControl = user.permissions?.includes('presentation:control');
+
+    if (!hasContentManage && !hasPresentationControl) {
       this.logger.warn(
         `User ${user.sub} forbidden to control content for session ${sessionId}.`,
       );

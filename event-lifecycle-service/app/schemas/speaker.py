@@ -11,6 +11,12 @@ class SpeakerBase(BaseModel):
     expertise: Optional[List[str]] = Field(
         None, json_schema_extra={"example": ["AI", "Machine Learning"]}
     )
+    # Optional: Link to a platform user account for backchannel access
+    user_id: Optional[str] = Field(
+        None,
+        json_schema_extra={"example": "cmk5d9grp0001gb24ciavcgga"},
+        description="Platform user ID to link speaker to their account for backchannel access",
+    )
 
 
 class SpeakerCreate(SpeakerBase):
@@ -21,6 +27,7 @@ class SpeakerUpdate(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     expertise: Optional[List[str]] = None
+    user_id: Optional[str] = None
 
 
 class Speaker(SpeakerBase):

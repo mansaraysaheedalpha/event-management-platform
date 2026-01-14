@@ -14,6 +14,8 @@ class Speaker(Base):
         String, primary_key=True, default=lambda: f"spk_{uuid.uuid4().hex[:12]}"
     )
     organization_id = Column(String, nullable=False, index=True)
+    # Optional: Link speaker to a platform user account for backchannel access
+    user_id = Column(String, nullable=True, index=True)
     name = Column(String, nullable=False)
     bio = Column(String, nullable=True)
     expertise = Column(ARRAY(String), nullable=True)

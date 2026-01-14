@@ -35,9 +35,23 @@ const allPermissions = [
   // Staff Backchannel
   { name: 'backchannel:join', description: 'Can join the staff backchannel' },
   { name: 'backchannel:send', description: 'Can send messages in the staff backchannel' },
+  // Presentation Control
+  { name: 'presentation:control', description: 'Can control live presentations (start/stop, navigate slides)' },
 ];
 
-const roles = {
+/**
+ * Role Definitions:
+ *
+ * OWNER - Organization owner with full access to everything
+ * ADMIN - Full administrative access, can manage events, team, and settings
+ * MODERATOR - Live event moderator, can moderate Q&A/chat, view dashboard, join backchannel
+ *             but cannot manage organization settings or team members
+ * SPEAKER - Event speaker, can control their presentations, receive speaker-targeted
+ *           backchannel messages, but cannot moderate Q&A/chat
+ * MEMBER - Basic team member, can participate in events but cannot moderate
+ *          Useful for volunteers or helpers who need internal access
+ */
+const roles: Record<string, string[]> = {
   OWNER: [
     'poll:create',
     'poll:manage',
@@ -71,6 +85,35 @@ const roles = {
     'dashboard:read:live',
     'ops:incident:read',
     'ops:incident:manage',
+    'backchannel:join',
+    'backchannel:send',
+  ],
+  MODERATOR: [
+    'poll:create',
+    'poll:manage',
+    'poll:vote',
+    'qna:ask',
+    'qna:upvote',
+    'qna:moderate',
+    'chat:send',
+    'chat:edit:own',
+    'chat:delete:own',
+    'chat:delete:any',
+    'dm:send',
+    'dashboard:read:live',
+    'ops:incident:read',
+    'backchannel:join',
+    'backchannel:send',
+  ],
+  SPEAKER: [
+    'poll:vote',
+    'qna:ask',
+    'qna:upvote',
+    'chat:send',
+    'chat:edit:own',
+    'chat:delete:own',
+    'dm:send',
+    'presentation:control',
     'backchannel:join',
     'backchannel:send',
   ],
