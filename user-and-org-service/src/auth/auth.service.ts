@@ -331,13 +331,18 @@ export class AuthService {
     // Base permissions that all org members get
     const additionalPermissions = ['content:manage'];
 
-    // Backchannel access for OWNER, ADMIN, MODERATOR, and SPEAKER roles
-    if (['OWNER', 'ADMIN', 'MODERATOR', 'SPEAKER'].includes(membership.role.name)) {
+    // Backchannel access for system roles: OWNER, ADMIN, MODERATOR, and SPEAKER
+    // We check isSystemRole to prevent custom org roles with these names from gaining elevated access
+    const systemRolesWithBackchannel = ['OWNER', 'ADMIN', 'MODERATOR', 'SPEAKER'];
+    if (
+      membership.role.isSystemRole &&
+      systemRolesWithBackchannel.includes(membership.role.name)
+    ) {
       additionalPermissions.push('backchannel:join', 'backchannel:send');
     }
 
-    // Presentation control for SPEAKER role
-    if (membership.role.name === 'SPEAKER') {
+    // Presentation control for system SPEAKER role only
+    if (membership.role.isSystemRole && membership.role.name === 'SPEAKER') {
       additionalPermissions.push('presentation:control');
     }
 

@@ -10,6 +10,9 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { Server } from 'socket.io';
 import { ForbiddenException, forwardRef, Inject, Logger } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getErrorMessage } from 'src/common/utils/error.utils';
@@ -73,6 +76,8 @@ interface ContentControlResponse {
 export class ContentGateway {
   private readonly logger = new Logger(ContentGateway.name);
   @WebSocketServer() server: Server;
+  private readonly eventServiceUrl: string;
+  private readonly internalApiKey: string;
 
   constructor(
     private readonly contentService: ContentService,
@@ -85,7 +90,15 @@ export class ContentGateway {
     private readonly pollsService: PollsService,
     private readonly eventRegistrationValidationService: EventRegistrationValidationService,
     private readonly sessionSettingsService: SessionSettingsService,
-  ) {}
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    this.eventServiceUrl = this.configService.get<string>(
+      'EVENT_LIFECYCLE_SERVICE_URL',
+      'http://localhost:8000',
+    );
+    this.internalApiKey = this.configService.get<string>('INTERNAL_API_KEY', '');
+  }
 
   /**
    * Checks if user has any admin/moderator permissions that bypass registration checks.
@@ -93,6 +106,44 @@ export class ContentGateway {
   private hasAdminPermissions(permissions: string[] | undefined): boolean {
     if (!permissions) return false;
     return permissions.some((p) => ADMIN_PERMISSIONS.includes(p));
+  }
+
+  /**
+   * Checks if a user is assigned as a speaker for the given session.
+   * This provides defense-in-depth by validating speaker assignment on the backend,
+   * in addition to the frontend check.
+   *
+   * @param userId - The user's ID
+   * @param sessionId - The session ID to check
+   * @returns true if user is a speaker for this session
+   */
+  private async checkIfUserIsSpeaker(
+    userId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    try {
+      const baseUrl = this.eventServiceUrl.replace('/graphql', '');
+      const response = await firstValueFrom(
+        this.httpService.get<{ is_speaker: boolean }>(
+          `${baseUrl}/api/v1/internal/sessions/${sessionId}/speakers/${userId}/check`,
+          {
+            headers: { 'X-Internal-Api-Key': this.internalApiKey },
+            timeout: 2000, // Short timeout to prevent blocking
+          },
+        ),
+      );
+      return response.data?.is_speaker ?? false;
+    } catch (error: any) {
+      // 404 means user is not a speaker - this is expected
+      if (error.response?.status === 404) {
+        return false;
+      }
+      // Log other errors but don't fail - gracefully degrade
+      this.logger.debug(
+        `Speaker check unavailable for user ${userId}, session ${sessionId}: ${error.message}`,
+      );
+      return false;
+    }
   }
 
   @SubscribeMessage('session.join')
@@ -299,6 +350,27 @@ export class ContentGateway {
       );
       throw new ForbiddenException(
         'You do not have permission to control content.',
+      );
+    }
+
+    // For users with presentation:control (speakers) but not content:manage,
+    // verify they are actually assigned as a speaker for this specific session.
+    // Users with content:manage (admins) can control any session.
+    if (hasPresentationControl && !hasContentManage) {
+      const isSpeakerForSession = await this.checkIfUserIsSpeaker(
+        user.sub,
+        sessionId,
+      );
+      if (!isSpeakerForSession) {
+        this.logger.warn(
+          `User ${user.sub} has presentation:control but is not a speaker for session ${sessionId}.`,
+        );
+        throw new ForbiddenException(
+          'You are not assigned as a speaker for this session.',
+        );
+      }
+      this.logger.log(
+        `User ${user.sub} verified as speaker for session ${sessionId}.`,
       );
     }
 

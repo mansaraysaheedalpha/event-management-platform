@@ -96,9 +96,10 @@ export class AppGateway
       });
       client.data.user = payload;
 
-      await client.join(`user:${payload.sub}`);
+      const userRoom = `user:${payload.sub}`;
+      await client.join(userRoom);
       this.logger.log(
-        `✅ Client Connected: ${client.id} | User: ${payload.email}`,
+        `✅ Client Connected: ${client.id} | User: ${payload.email} | Joined room: ${userRoom}`,
       );
       client.emit('connectionAcknowledged', { userId: payload.sub });
       this.connectionService.startHeartbeat(client);
