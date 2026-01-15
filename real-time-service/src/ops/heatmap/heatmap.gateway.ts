@@ -57,8 +57,9 @@ export class HeatmapGateway {
 
   private async runBroadcastCycle(eventId: string) {
     const heatmapRoom = `heatmap:${eventId}`;
-    const room = this.server.sockets.adapter.rooms.get(heatmapRoom);
-    if (!room || room.size === 0) {
+    // Use fetchSockets() - the reliable way to get sockets in a room when using namespaces
+    const socketsInRoom = await this.server.in(heatmapRoom).fetchSockets();
+    if (socketsInRoom.length === 0) {
       this.logger.log(
         `No admins listening; stopping heatmap loop for event: ${eventId}`,
       );
