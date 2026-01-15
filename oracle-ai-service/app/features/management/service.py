@@ -16,14 +16,13 @@ from app.core.config import settings
 # --- ADAPTER FOR GITHUB APP AUTHENTICATION ---
 class DeploymentClient:
     def __init__(
-        self, app_id: str, private_key: str, installation_id: str, workflow_url: str
+        self, app_id: str | None, private_key: str | None, installation_id: str | None, workflow_url: str | None
     ):
         self.app_id = app_id
-        self.private_key = private_key.replace(
-            "\\n", "\n"
-        )  # Handles multi-line key from .env
+        self.private_key = private_key.replace("\\n", "\n") if private_key else None
         self.installation_id = installation_id
         self.workflow_url = workflow_url
+        self.enabled = all([app_id, private_key, installation_id, workflow_url])
 
     def _get_installation_access_token(self) -> str:
         """Generates a short-lived access token for the app installation."""
@@ -49,6 +48,12 @@ class DeploymentClient:
 
     def trigger(self, model_id: str, version: str):
         """Triggers a GitHub Actions workflow_dispatch event using a short-lived token."""
+        if not self.enabled:
+            print("DEPLOYMENT: GitHub App not configured, skipping deployment trigger.")
+            raise HTTPException(
+                status_code=503,
+                detail="Deployment service not configured. Set GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_INSTALLATION_ID, and GITHUB_WORKFLOW_DISPATCH_URL."
+            )
         print(
             f"DELEGATING: Triggering deployment pipeline for {model_id} v{version}..."
         )
@@ -110,13 +115,14 @@ def deploy_model(db: Session, request: ModelDeployRequest) -> ModelDeployRespons
 class Monitoring_Client:
     """Mocks a client for a monitoring service like Datadog."""
 
-    def __init__(self, api_key: str, app_key: str):
+    def __init__(self, api_key: str | None, app_key: str | None):
         self.api_key = api_key
         self.app_key = app_key
+        self.enabled = bool(api_key and app_key)
 
     def get_metrics(self, model_id: str) -> dict:
         print(f"MONITORING: Fetching mock metrics for {model_id}...")
-        # Return plausible, consistent fake data
+        # Return plausible, consistent fake data (works even without Datadog)
         seed = hash(model_id) % 100
         return {
             "accuracy": 0.90 + (seed / 5000),
