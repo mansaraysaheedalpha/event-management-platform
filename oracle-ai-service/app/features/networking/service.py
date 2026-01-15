@@ -9,6 +9,8 @@ from app.features.networking.schemas import (
     ConversationStarterResponse,
     BoothSuggestionRequest,
     BoothSuggestionResponse,
+    FollowUpGenerateRequest,
+    FollowUpGenerateResponse,
 )
 
 from .schemas import MatchmakingRequest, MatchmakingResponse
@@ -171,6 +173,157 @@ def get_booth_suggestions(request: BoothSuggestionRequest) -> BoothSuggestionRes
     ]
 
     return BoothSuggestionResponse(suggested_booths=suggestions)
+
+
+def generate_follow_up_suggestion(
+    request: FollowUpGenerateRequest,
+) -> FollowUpGenerateResponse:
+    """
+    Generate an AI-powered follow-up message suggestion based on connection context.
+
+    Uses context-aware templates with tone adjustment. In production, this would
+    integrate with an LLM (e.g., Claude) for more personalized suggestions.
+    """
+    other_name = request.other_user_name
+    first_name = other_name.split()[0] if other_name else "there"
+
+    # Extract contexts for personalization
+    contexts_used: List[str] = []
+    talking_points: List[str] = []
+
+    # Analyze connection contexts
+    shared_sessions = []
+    shared_interests = []
+    qa_interactions = []
+    mutual_connections = []
+
+    for ctx in request.contexts:
+        ctx_type = ctx.get("type", "")
+        ctx_value = ctx.get("value", "")
+
+        if ctx_type == "SHARED_SESSION":
+            shared_sessions.append(ctx_value)
+            contexts_used.append(f"Attended '{ctx_value}' together")
+        elif ctx_type == "SHARED_INTEREST":
+            shared_interests.append(ctx_value)
+            contexts_used.append(f"Shared interest in {ctx_value}")
+        elif ctx_type == "QA_INTERACTION":
+            qa_interactions.append(ctx_value)
+            contexts_used.append(f"Q&A discussion: {ctx_value}")
+        elif ctx_type == "MUTUAL_CONNECTION":
+            mutual_connections.append(ctx_value)
+            contexts_used.append(f"Mutual connection: {ctx_value}")
+
+    # Build talking points based on context
+    if shared_sessions:
+        talking_points.append(f"The '{shared_sessions[0]}' session you both attended")
+    if shared_interests:
+        talking_points.append(f"Your shared interest in {shared_interests[0]}")
+    if qa_interactions:
+        talking_points.append(f"The Q&A topic about {qa_interactions[0]}")
+    if request.initial_message:
+        talking_points.append(f"Your initial conversation: \"{request.initial_message}\"")
+    if request.additional_context:
+        talking_points.append(request.additional_context)
+
+    # Generate subject line
+    if shared_sessions:
+        subject = f"Great connecting at {shared_sessions[0]}!"
+    elif shared_interests:
+        subject = f"Fellow {shared_interests[0]} enthusiast - great meeting you!"
+    else:
+        subject = "Great meeting you at the event!"
+
+    # Generate message based on context and tone
+    message = _build_follow_up_message(
+        first_name=first_name,
+        other_user_headline=request.other_user_headline,
+        shared_sessions=shared_sessions,
+        shared_interests=shared_interests,
+        qa_interactions=qa_interactions,
+        mutual_connections=mutual_connections,
+        initial_message=request.initial_message,
+        additional_context=request.additional_context,
+        tone=request.tone,
+    )
+
+    return FollowUpGenerateResponse(
+        suggested_subject=subject,
+        suggested_message=message,
+        talking_points=talking_points if talking_points else ["Your shared experience at the event"],
+        context_used=contexts_used,
+    )
+
+
+def _build_follow_up_message(
+    first_name: str,
+    other_user_headline: str | None,
+    shared_sessions: List[str],
+    shared_interests: List[str],
+    qa_interactions: List[str],
+    mutual_connections: List[str],
+    initial_message: str | None,
+    additional_context: str | None,
+    tone: str,
+) -> str:
+    """Build a personalized follow-up message based on available context."""
+
+    # Tone-appropriate greetings
+    greetings = {
+        "professional": f"Hi {first_name}",
+        "casual": f"Hey {first_name}",
+        "friendly": f"Hi {first_name}! 👋",
+    }
+    greeting = greetings.get(tone, greetings["professional"])
+
+    # Build opening based on best available context
+    if shared_sessions:
+        opening = f"It was great meeting you at the '{shared_sessions[0]}' session!"
+    elif shared_interests:
+        opening = f"It was great connecting with a fellow {shared_interests[0]} enthusiast!"
+    elif mutual_connections:
+        opening = f"Great meeting you through {mutual_connections[0]}!"
+    else:
+        opening = "It was great meeting you at the event!"
+
+    # Build middle section with context
+    middle_parts = []
+
+    if qa_interactions:
+        middle_parts.append(
+            f"I really enjoyed our discussion about {qa_interactions[0]}."
+        )
+
+    if initial_message:
+        middle_parts.append(
+            f"Our conversation about \"{initial_message}\" stuck with me."
+        )
+
+    if other_user_headline:
+        middle_parts.append(
+            f"I'd love to hear more about your work as {other_user_headline}."
+        )
+
+    if additional_context:
+        middle_parts.append(additional_context)
+
+    middle = " ".join(middle_parts) if middle_parts else ""
+
+    # Build closing based on tone
+    closings = {
+        "professional": "Would love to continue our conversation. Are you free for a quick call sometime next week?",
+        "casual": "Let's grab a virtual coffee sometime and keep the conversation going!",
+        "friendly": "Would be awesome to stay in touch and continue our chat! Let me know if you're up for a quick call.",
+    }
+    closing = closings.get(tone, closings["professional"])
+
+    # Assemble the message
+    parts = [greeting + ",", "", opening]
+    if middle:
+        parts.extend(["", middle])
+    parts.extend(["", closing, "", "Best,"])
+
+    return "\n".join(parts)
 
 
 ## Module Complete!

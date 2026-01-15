@@ -247,7 +247,7 @@ export class FollowUpService {
 
       // Call oracle-ai-service with retry logic
       const response = await this.fetchWithRetry(
-        `${this.oracleServiceUrl}/api/v1/networking/follow-up/generate`,
+        `${this.oracleServiceUrl}/oracle/networking/follow-up/generate`,
         {
           method: 'POST',
           headers,

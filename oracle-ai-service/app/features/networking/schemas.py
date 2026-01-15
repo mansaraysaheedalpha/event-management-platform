@@ -53,3 +53,63 @@ class BoothSuggestionResponse(BaseModel):
         relevance_score: float
 
     suggested_booths: List[SuggestedBooth]
+
+
+# Sprint 7: Follow-up Message Generation
+class FollowUpGenerateRequest(BaseModel):
+    """Request for AI-powered follow-up message generation."""
+
+    model_config = {"populate_by_name": True}
+
+    connection_id: str = Field(
+        ..., description="The connection ID for context", alias="connectionId"
+    )
+    user_id: str = Field(
+        ..., description="The user requesting the follow-up", alias="userId"
+    )
+    other_user_name: str = Field(
+        ..., description="Name of the person they're following up with", alias="otherUserName"
+    )
+    other_user_headline: Optional[str] = Field(
+        None, description="Professional headline of the other user", alias="otherUserHeadline"
+    )
+    connection_type: str = Field(
+        default="EVENT_NETWORKING", description="How they connected", alias="connectionType"
+    )
+    contexts: List[dict] = Field(
+        default_factory=list,
+        description="List of connection contexts, e.g., [{'type': 'SHARED_SESSION', 'value': 'AI Workshop'}]",
+    )
+    initial_message: Optional[str] = Field(
+        None, description="Initial message exchanged when connecting", alias="initialMessage"
+    )
+    activities: List[dict] = Field(
+        default_factory=list,
+        description="Recent activities between users",
+    )
+    tone: str = Field(
+        default="professional",
+        description="Message tone: professional, casual, or friendly",
+    )
+    additional_context: Optional[str] = Field(
+        None, description="Any additional context the user wants to include", alias="additionalContext"
+    )
+
+
+class FollowUpGenerateResponse(BaseModel):
+    """AI-generated follow-up message suggestion."""
+
+    model_config = {"populate_by_name": True}
+
+    suggested_subject: str = Field(
+        ..., description="Suggested email subject line", serialization_alias="suggestedSubject"
+    )
+    suggested_message: str = Field(
+        ..., description="The suggested follow-up message", serialization_alias="suggestedMessage"
+    )
+    talking_points: List[str] = Field(
+        default_factory=list, description="Key talking points to include", serialization_alias="talkingPoints"
+    )
+    context_used: List[str] = Field(
+        default_factory=list, description="Contexts that informed the message", serialization_alias="contextUsed"
+    )

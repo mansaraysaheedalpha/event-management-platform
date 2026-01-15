@@ -1,6 +1,15 @@
 # app/features/networking/router.py
 from fastapi import APIRouter
-from .schemas import *
+from .schemas import (
+    MatchmakingRequest,
+    MatchmakingResponse,
+    ConversationStarterRequest,
+    ConversationStarterResponse,
+    BoothSuggestionRequest,
+    BoothSuggestionResponse,
+    FollowUpGenerateRequest,
+    FollowUpGenerateResponse,
+)
 from . import service
 
 router = APIRouter()
@@ -36,3 +45,18 @@ def generate_conversation_starters(request: ConversationStarterRequest):
 def generate_booth_suggestions(request: BoothSuggestionRequest):
     """Suggests relevant exhibitor booths for attendees."""
     return service.get_booth_suggestions(request)
+
+
+@router.post(
+    "/networking/follow-up/generate",
+    response_model=FollowUpGenerateResponse,
+    tags=["AI-Powered Networking & Matchmaking"],
+)
+def generate_follow_up(request: FollowUpGenerateRequest):
+    """
+    Generate AI-powered follow-up message suggestions.
+
+    Takes connection context (shared sessions, interests, initial messages)
+    and generates personalized follow-up messages with appropriate tone.
+    """
+    return service.generate_follow_up_suggestion(request)
