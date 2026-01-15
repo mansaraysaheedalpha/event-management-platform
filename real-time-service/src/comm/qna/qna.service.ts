@@ -119,7 +119,11 @@ export class QnaService {
 
     void this._checkModerationVelocity(sessionId);
 
-    void this.publisherService.publish('heatmap-events', { sessionId });
+    // HEATMAP TRACKING (uses Pub/Sub, not Streams)
+    void this.redis.publish(
+      'heatmap-events',
+      JSON.stringify({ sessionId }),
+    );
 
     void this.gamificationService.awardPoints(
       userId,

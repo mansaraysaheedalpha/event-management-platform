@@ -45,9 +45,12 @@ export class ReactionsService {
     // Set expiration to clean up reaction data after 5 minutes of inactivity, only if not already set
     await this.redis.expire(redisKey, 300, 'NX');
 
-    // --- NEW HEATMAP LOGIC ---
-    void this.publisherService.publish('heatmap-events', { sessionId });
-    // --- END NEW LOGIC ---
+    // --- HEATMAP TRACKING (uses Pub/Sub, not Streams) ---
+    void this.redis.publish(
+      'heatmap-events',
+      JSON.stringify({ sessionId }),
+    );
+    // --- END HEATMAP LOGIC ---
 
     // Publish the reaction event for downstream consumers
     const reactionPayload = {

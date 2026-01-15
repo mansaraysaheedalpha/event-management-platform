@@ -159,9 +159,12 @@ export class ChatService {
       return createdMessage;
     });
 
-    // --- NEW HEATMAP LOGIC ---
-    void this.publisherService.publish('heatmap-events', { sessionId });
-    // --- END NEW LOGIC ---
+    // --- HEATMAP TRACKING (uses Pub/Sub, not Streams) ---
+    void this.redis.publish(
+      'heatmap-events',
+      JSON.stringify({ sessionId }),
+    );
+    // --- END HEATMAP LOGIC ---
 
     // --- NEW GAMIFICATION LOGIC ---
     // After the message is successfully created, award points to the author.
