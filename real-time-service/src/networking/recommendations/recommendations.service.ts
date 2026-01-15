@@ -182,6 +182,10 @@ export class RecommendationsService {
   /**
    * Call oracle-ai-service for LLM-based recommendations.
    * Protected by circuit breaker to prevent cascade failures.
+   *
+   * Calls two oracle endpoints:
+   * 1. /oracle/networking/matchmaking - for match scores and reasons
+   * 2. /oracle/networking/conversation-starters - for ice-breakers
    */
   private async callOracleService(
     request: OracleRecommendationRequest,
@@ -201,17 +205,73 @@ export class RecommendationsService {
 
     try {
       return await breaker.execute(async () => {
-        const response = await firstValueFrom(
-          this.httpService.post<OracleRecommendationResponse>(
-            `${oracleUrl}/api/v1/matchmaking/recommendations`,
-            request,
+        // Transform request to oracle's expected format
+        const oracleRequest = {
+          primary_user: {
+            user_id: request.userProfile.userId,
+            interests: request.userProfile.interests,
+          },
+          other_users: request.candidates.map((c) => ({
+            user_id: c.userId,
+            interests: c.interests,
+          })),
+          max_matches: request.maxRecommendations,
+        };
+
+        // Call matchmaking endpoint
+        const matchResponse = await firstValueFrom(
+          this.httpService.post<{
+            matches: Array<{
+              user_id: string;
+              match_score: number;
+              common_interests: string[];
+              match_reasons: string[];
+            }>;
+          }>(
+            `${oracleUrl}/oracle/networking/matchmaking`,
+            oracleRequest,
             {
               headers: { 'Content-Type': 'application/json' },
-              timeout: 30000, // 30 second timeout for LLM calls
+              timeout: 30000,
             },
           ),
         );
-        return response.data;
+
+        // Get conversation starters for top matches
+        const recommendations = await Promise.all(
+          matchResponse.data.matches.map(async (match) => {
+            let conversationStarters: string[] = [];
+            try {
+              const starterResponse = await firstValueFrom(
+                this.httpService.post<{ conversation_starters: string[] }>(
+                  `${oracleUrl}/oracle/networking/conversation-starters`,
+                  {
+                    user1_id: request.userProfile.userId,
+                    user2_id: match.user_id,
+                    common_interests: match.common_interests,
+                  },
+                  {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 10000,
+                  },
+                ),
+              );
+              conversationStarters = starterResponse.data.conversation_starters;
+            } catch {
+              // Use fallback starters if conversation starter call fails
+              conversationStarters = this.generateFallbackStarters(match.common_interests);
+            }
+
+            return {
+              userId: match.user_id,
+              matchScore: Math.round(match.match_score * 100), // Convert 0-1 to 0-100
+              reasons: match.match_reasons,
+              conversationStarters,
+            };
+          }),
+        );
+
+        return { recommendations };
       });
     } catch (error) {
       if (error instanceof CircuitBreakerOpenError) {
@@ -222,6 +282,23 @@ export class RecommendationsService {
       // Fallback to basic recommendations if oracle fails
       return this.generateFallbackRecommendations(request);
     }
+  }
+
+  /**
+   * Generate fallback conversation starters based on common interests.
+   */
+  private generateFallbackStarters(commonInterests: string[]): string[] {
+    if (commonInterests.length === 0) {
+      return [
+        "What brings you to this event?",
+        "What's been the highlight of the event for you so far?",
+      ];
+    }
+    const interest = commonInterests[0];
+    return [
+      `I noticed we both share an interest in ${interest}. What got you started in that area?`,
+      `How are you applying ${interest} in your current work?`,
+    ];
   }
 
   /**

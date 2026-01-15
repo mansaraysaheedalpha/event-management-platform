@@ -1,6 +1,6 @@
 """Add download feature fields to presentations table
 
-Revision ID: p002_add_presentation_download_fields
+Revision ID: p002_pres_download_fields
 Revises: s001_add_speaker_user_id
 Create Date: 2026-01-14
 
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "p002_add_presentation_download_fields"
+revision = "p002_pres_download_fields"
 down_revision = "s001_add_speaker_user_id"
 branch_labels = None
 depends_on = None
