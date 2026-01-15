@@ -9,7 +9,8 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
-// --- GUARDS & MAIN GATEWAY ---
+// --- AUTH & GUARDS ---
+import { AuthModule } from './common/auth';
 import { AppGateway } from './app.gateway';
 import { WsThrottlerGuard } from './common/guards/ws-throttler.guard';
 
@@ -27,6 +28,7 @@ import { PrismaModule } from './prisma.module';
 import { GlobalModule } from './global/global.module';
 import { ConnectionModule } from './system/connection/connection.module';
 import { TicketsModule } from './tickets/tickets.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -58,6 +60,7 @@ import { TicketsModule } from './tickets/tickets.module';
       },
       inject: [ConfigService],
     }),
+    AuthModule,
     CommModule,
     SharedModule,
     LiveModule,
@@ -70,6 +73,7 @@ import { TicketsModule } from './tickets/tickets.module';
     NetworkingModule,
     ConnectionModule,
     TicketsModule,
+    HealthModule,
     ThrottlerModule.forRoot([
       {
         name: 'default', // Name for the default tier

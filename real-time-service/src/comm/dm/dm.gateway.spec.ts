@@ -6,13 +6,15 @@ import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { Handshake } from 'socket.io/dist/socket-types';
 import { EditDmDto } from './dto/edit-dm.dto';
 import { DeleteDmDto } from './dto/delete-dm.dto';
-import { PrismaService } from 'src/prisma.service'; // Import PrismaService
+import { PrismaService } from 'src/prisma.service';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
 
 jest.mock('src/common/utils/auth.utils');
 const mockGetAuthenticatedUser = getAuthenticatedUser as jest.Mock;
 
-const mockAuthUser = { sub: 'user-1' };
+const mockAuthUser = { sub: 'user-1', email: 'john.doe@example.com' };
 const mockRecipientId = 'user-2';
+const mockEventId = 'event-123';
 
 const mockDmService = {
   sendMessage: jest.fn(),
@@ -22,12 +24,14 @@ const mockDmService = {
   deleteMessage: jest.fn(),
 };
 
-// **FIX**: We need a mock for PrismaService, even if it's empty,
-// because the DmGateway constructor requires it.
 const mockPrismaService = {
   conversation: {
     findUnique: jest.fn(),
   },
+};
+
+const mockEventRegistrationValidationService = {
+  isUserRegistered: jest.fn().mockResolvedValue(true),
 };
 
 const mockIoServer = {
@@ -58,8 +62,11 @@ describe('DmGateway', () => {
       providers: [
         DmGateway,
         { provide: DmService, useValue: mockDmService },
-        // **FIX**: Add the PrismaService provider back to the testing module.
         { provide: PrismaService, useValue: mockPrismaService },
+        {
+          provide: EventRegistrationValidationService,
+          useValue: mockEventRegistrationValidationService,
+        },
       ],
     }).compile();
 
@@ -78,6 +85,7 @@ describe('DmGateway', () => {
     const sendDmDto = {
       recipientId: mockRecipientId,
       text: 'Hello!',
+      eventId: mockEventId,
       idempotencyKey: 'key-1',
     };
     const newMessage = { id: 'dm-1', timestamp: new Date(), ...sendDmDto };
@@ -90,6 +98,8 @@ describe('DmGateway', () => {
       );
       expect(mockDmService.sendMessage).toHaveBeenCalledWith(
         mockAuthUser.sub,
+        mockAuthUser.email,
+        'John', // First part of email, capitalized
         sendDmDto,
       );
       expect(mockIoServer.to).toHaveBeenCalledWith(`user:${mockAuthUser.sub}`);

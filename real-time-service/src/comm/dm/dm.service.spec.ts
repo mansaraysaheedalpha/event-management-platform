@@ -22,6 +22,11 @@ const mockPrismaService = {
     findFirst: jest.fn(),
     create: jest.fn(),
   },
+  userReference: {
+    upsert: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn(),
+  },
   $transaction: jest.fn().mockImplementation((cb) => cb(mockPrismaService)),
 };
 
@@ -49,9 +54,12 @@ describe('DmService', () => {
 
   describe('sendMessage', () => {
     const senderId = 'user-1';
+    const senderEmail = 'john.doe@example.com';
+    const senderName = 'John';
     const sendDmDto = {
       recipientId: 'user-2',
       text: 'Hello!',
+      eventId: 'event-123',
       idempotencyKey: 'key-1',
     };
     const mockConversation = { id: 'convo-1' };
@@ -63,7 +71,7 @@ describe('DmService', () => {
       mockPrismaService.conversation.create.mockResolvedValue(mockConversation);
       mockPrismaService.directMessage.create.mockResolvedValue(mockMessage);
 
-      const result = await service.sendMessage(senderId, sendDmDto);
+      const result = await service.sendMessage(senderId, senderEmail, senderName, sendDmDto);
 
       expect(mockPrismaService.conversation.findFirst).toHaveBeenCalled();
       expect(mockPrismaService.conversation.create).toHaveBeenCalled();
@@ -81,13 +89,13 @@ describe('DmService', () => {
 
     it('should throw BadRequestException when sending a message to oneself', async () => {
       await expect(
-        service.sendMessage(senderId, { ...sendDmDto, recipientId: senderId }),
+        service.sendMessage(senderId, senderEmail, senderName, { ...sendDmDto, recipientId: senderId }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should throw ConflictException on duplicate request', async () => {
       mockIdempotencyService.checkAndSet.mockResolvedValue(false);
-      await expect(service.sendMessage(senderId, sendDmDto)).rejects.toThrow(
+      await expect(service.sendMessage(senderId, senderEmail, senderName, sendDmDto)).rejects.toThrow(
         ConflictException,
       );
     });

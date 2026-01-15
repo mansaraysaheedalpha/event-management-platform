@@ -3,9 +3,14 @@ import { ReactionsGateway } from './reactions.gateway';
 import { ReactionsService } from './reactions.service';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
 
 jest.mock('src/common/utils/auth.utils');
 const mockGetAuthenticatedUser = getAuthenticatedUser as jest.Mock;
+
+const mockEventRegistrationValidationService = {
+  isUserRegistered: jest.fn().mockResolvedValue(true),
+};
 
 describe('ReactionsGateway', () => {
   let module: TestingModule;
@@ -41,6 +46,10 @@ describe('ReactionsGateway', () => {
             exec: jest.fn(),
           },
         },
+        {
+          provide: EventRegistrationValidationService,
+          useValue: mockEventRegistrationValidationService,
+        },
       ],
     }).compile();
 
@@ -51,6 +60,7 @@ describe('ReactionsGateway', () => {
     // Reset all mocks before each test
     jest.clearAllMocks();
     mockGetAuthenticatedUser.mockReturnValue({ sub: 'user-1' });
+    mockEventRegistrationValidationService.isUserRegistered.mockResolvedValue(true);
   });
 
   // Clean up after each test to prevent leaks
@@ -64,6 +74,7 @@ describe('ReactionsGateway', () => {
     const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
     const mockClient = {
       handshake: { query: { sessionId: 'session-1' } },
+      emit: jest.fn(),
     } as any;
 
     await gateway.handleSendReaction({ emoji: '🔥' }, mockClient);
@@ -77,6 +88,23 @@ describe('ReactionsGateway', () => {
     expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
 
     setTimeoutSpy.mockRestore();
+  });
+
+  it('should deny unregistered users', async () => {
+    mockEventRegistrationValidationService.isUserRegistered.mockResolvedValue(false);
+    const mockClient = {
+      handshake: { query: { sessionId: 'session-1' } },
+      emit: jest.fn(),
+    } as any;
+
+    await gateway.handleSendReaction({ emoji: '🔥' }, mockClient);
+
+    const reactionsService = module.get<ReactionsService>(ReactionsService);
+    expect(reactionsService.addReaction).not.toHaveBeenCalled();
+    expect(mockClient.emit).toHaveBeenCalledWith('reaction.error', {
+      message: 'You are not registered for this event.',
+      statusCode: 403,
+    });
   });
 
   it('should broadcast reactions and continue the loop', async () => {

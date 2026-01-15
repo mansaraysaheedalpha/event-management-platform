@@ -20,4 +20,8 @@ export class ProximityPingDto {
   @IsUUID('4')
   @IsNotEmpty()
   idempotencyKey: string;
+
+  @IsString()
+  @IsNotEmpty()
+  eventId: string;
 }

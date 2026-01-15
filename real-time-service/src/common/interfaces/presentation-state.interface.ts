@@ -8,4 +8,6 @@ export interface PresentationState {
   totalSlides: number;
   isActive: boolean;
   slideUrls: string[];
+  downloadEnabled?: boolean;
+  originalFilename?: string;
 }

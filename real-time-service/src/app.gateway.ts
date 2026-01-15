@@ -1,6 +1,7 @@
 // src/app.gateway.ts
 import {
   ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
   OnGatewayInit,
@@ -111,6 +112,49 @@ export class AppGateway
   handleDisconnect(client: AuthenticatedSocket) {
     this.logger.log(`❌ Client Disconnected: ${client.id}`);
     this.connectionService.stopHeartbeat(client.id);
+  }
+
+  @SubscribeMessage('event.join')
+  async handleJoinEvent(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { eventId?: string },
+  ): Promise<{ success: boolean; error?: string }> {
+    const user = getAuthenticatedUser(client);
+    // Accept eventId from message body or query params
+    const eventId =
+      data?.eventId || (client.handshake.query as { eventId?: string }).eventId;
+
+    if (!eventId) {
+      this.logger.warn(
+        `Event join failed for user ${user.sub}: Missing eventId`,
+      );
+      return { success: false, error: 'Event ID is required' };
+    }
+
+    const eventRoom = `event:${eventId}`;
+    await client.join(eventRoom);
+    this.logger.log(`✅ User ${user.sub} joined event room: ${eventRoom}`);
+
+    return { success: true };
+  }
+
+  @SubscribeMessage('event.leave')
+  async handleLeaveEvent(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { eventId?: string },
+  ): Promise<{ success: boolean }> {
+    const user = getAuthenticatedUser(client);
+    // Accept eventId from message body or query params
+    const eventId =
+      data?.eventId || (client.handshake.query as { eventId?: string }).eventId;
+
+    if (eventId) {
+      const eventRoom = `event:${eventId}`;
+      await client.leave(eventRoom);
+      this.logger.log(`User ${user.sub} left event room: ${eventRoom}`);
+    }
+
+    return { success: true };
   }
 
   @SubscribeMessage('dashboard.join')

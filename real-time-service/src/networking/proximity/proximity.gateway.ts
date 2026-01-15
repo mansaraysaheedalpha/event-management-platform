@@ -17,6 +17,9 @@ import { UpdateLocationDto } from './dto/update-location.dto';
 import { ProximityPingDto } from './dto/proximity-ping.dto';
 import { PrismaService } from 'src/prisma.service';
 import { OnEvent } from '@nestjs/event-emitter';
+import { ConnectionsService } from '../connections/connections.service';
+import { MatchingService } from '../matching/matching.service';
+import { ConnectionType } from '@prisma/client';
 
 // Define the shape of the payload we expect from the Oracle AI
 interface ProximityUpdateDto {
@@ -39,6 +42,8 @@ export class ProximityGateway {
   constructor(
     private readonly proximityService: ProximityService,
     private readonly prisma: PrismaService,
+    private readonly connectionsService: ConnectionsService,
+    private readonly matchingService: MatchingService,
   ) {}
 
   /**
@@ -57,14 +62,69 @@ export class ProximityGateway {
       // 1. Update the user's location in Redis
       await this.proximityService.updateUserLocation(user.sub, dto);
 
-      // 2. Find users nearby this user's new location
+      // 2. Find users nearby this user's new location (scoped to this event)
       const nearbyUserIds = await this.proximityService.findNearbyUsers(
         user.sub,
+        dto.eventId || '',
       );
 
-      // 3. Send a personalized roster update back to the user who sent their location
-      // In a more advanced system, we would also update the other nearby users.
-      client.emit('proximity.roster.updated', { nearbyUserIds });
+      // 3. If eventId is provided, use matching service for enhanced context
+      if (dto.eventId && nearbyUserIds.length > 0) {
+        const enhancedUsers = await this.matchingService.getEnhancedNearbyUsers(
+          user.sub,
+          nearbyUserIds,
+          dto.eventId,
+        );
+
+        // Format for compatibility with existing frontend
+        const nearbyUsers = enhancedUsers.map((eu) => ({
+          user: {
+            id: eu.id,
+            name: eu.name,
+            avatarUrl: eu.avatarUrl,
+          },
+          distance: eu.distance,
+          sharedInterests: [], // Keep for backward compatibility
+          connectionContexts: eu.connectionContexts,
+          matchScore: eu.matchScore,
+          alreadyConnected: eu.alreadyConnected,
+        }));
+
+        client.emit('proximity.roster.updated', { nearbyUsers });
+        return { success: true };
+      }
+
+      // 4. Fallback: Fetch basic user details for all nearby users
+      const nearbyUserDetails = await this.prisma.userReference.findMany({
+        where: { id: { in: nearbyUserIds } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          avatarUrl: true,
+        },
+      });
+
+      // 5. Build basic roster with user details
+      const nearbyUsers = nearbyUserIds.map((id) => {
+        const userRef = nearbyUserDetails.find((u) => u.id === id);
+        const name = userRef
+          ? `${userRef.firstName || ''} ${userRef.lastName || ''}`.trim() ||
+            'Attendee'
+          : 'Attendee';
+        return {
+          user: {
+            id,
+            name,
+            avatarUrl: userRef?.avatarUrl || undefined,
+          },
+          distance: undefined,
+          sharedInterests: [],
+        };
+      });
+
+      // 6. Send the roster update
+      client.emit('proximity.roster.updated', { nearbyUsers });
 
       return { success: true };
     } catch (error) {
@@ -88,7 +148,6 @@ export class ProximityGateway {
   ) {
     const sender = getAuthenticatedUser(client);
 
-    // --- THIS IS THE FIX ---
     // Fetch the sender's name from our local UserReference table.
     const senderDetails = await this.prisma.userReference.findUnique({
       where: { id: sender.sub },
@@ -96,7 +155,6 @@ export class ProximityGateway {
     });
 
     const senderName = `${senderDetails?.firstName || 'An'} ${senderDetails?.lastName || 'Attendee'}`;
-    // --- END OF FIX ---
 
     const pingPayload = {
       fromUser: {
@@ -104,12 +162,52 @@ export class ProximityGateway {
         name: senderName,
       },
       message: dto.message || `Hey! I see you're nearby.`,
+      eventId: dto.eventId,
     };
 
     const targetUserRoom = `user:${dto.targetUserId}`;
     const eventName = 'proximity.ping.received';
 
     this.server.to(targetUserRoom).emit(eventName, pingPayload);
+
+    // Create a connection record for this ping (with deduplication)
+    try {
+      // Check if a ping connection already exists within the last 5 minutes
+      // to prevent duplicate records from repeated pings
+      const recentPingCutoff = new Date(Date.now() - 5 * 60 * 1000);
+      const existingConnection = await this.prisma.connection.findFirst({
+        where: {
+          userAId: sender.sub,
+          userBId: dto.targetUserId,
+          connectionType: ConnectionType.PROXIMITY_PING,
+          connectedAt: {
+            gte: recentPingCutoff,
+          },
+        },
+      });
+
+      if (!existingConnection) {
+        await this.connectionsService.createConnection({
+          userAId: sender.sub,
+          userBId: dto.targetUserId,
+          eventId: dto.eventId,
+          connectionType: ConnectionType.PROXIMITY_PING,
+          initialMessage: dto.message,
+        });
+        this.logger.log(
+          `Created connection record for proximity ping from ${sender.sub} to ${dto.targetUserId}`,
+        );
+      } else {
+        this.logger.log(
+          `Skipping duplicate connection record - recent ping exists from ${sender.sub} to ${dto.targetUserId}`,
+        );
+      }
+    } catch (error) {
+      // Don't fail the ping if connection tracking fails
+      this.logger.error(
+        `Failed to create connection record: ${getErrorMessage(error)}`,
+      );
+    }
 
     this.logger.log(
       `Sent proximity ping from ${sender.sub} to ${dto.targetUserId}`,

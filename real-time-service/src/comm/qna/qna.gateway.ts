@@ -20,6 +20,17 @@ import { AnswerQuestionDto } from './dto/answer-question.dto';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { TagQuestionDto } from './dto/tag-question.dto';
 import { SessionSettingsService } from 'src/shared/services/session-settings.service';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
+
+// Admin/moderator permissions that bypass registration checks
+const ADMIN_PERMISSIONS = [
+  'content:manage',
+  'chat:moderate',
+  'qna:moderate',
+  'poll:create',
+  'poll:manage',
+  'event:manage',
+];
 
 /**
  * WebSocket gateway for managing Q&A events during live sessions.
@@ -39,7 +50,104 @@ export class QnaGateway {
     @Inject(forwardRef(() => QnaService))
     private readonly qnaService: QnaService,
     private readonly sessionSettingsService: SessionSettingsService,
+    private readonly eventRegistrationValidationService: EventRegistrationValidationService,
   ) {}
+
+  /**
+   * Checks if user has any admin/moderator permissions that bypass registration checks.
+   */
+  private hasAdminPermissions(permissions: string[] | undefined): boolean {
+    if (!permissions) return false;
+    return permissions.some((p) => ADMIN_PERMISSIONS.includes(p));
+  }
+
+  /**
+   * Validates that a non-admin user is registered for the event.
+   * Returns an error response object if not registered, null otherwise.
+   */
+  private async validateRegistration(
+    userId: string,
+    eventId: string,
+    permissions: string[] | undefined,
+  ): Promise<{
+    success: false;
+    error: { message: string; statusCode: number };
+  } | null> {
+    if (this.hasAdminPermissions(permissions)) {
+      return null; // Admin users bypass registration check
+    }
+
+    const isRegistered =
+      await this.eventRegistrationValidationService.isUserRegistered(
+        userId,
+        eventId,
+      );
+
+    if (!isRegistered) {
+      this.logger.warn(
+        `[Q&A] User ${userId} denied - not registered for event ${eventId}`,
+      );
+      return {
+        success: false,
+        error: {
+          message: 'You are not registered for this event.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    return null; // User is registered
+  }
+
+  /**
+   * Validates that Q&A is active for the session.
+   * - If qa_enabled is false: Block everyone (feature completely disabled)
+   * - If qa_open is false: Block attendees, but allow organizers/speakers (bypass)
+   * - If both are true: Allow everyone
+   */
+  private async validateQaActive(
+    sessionId: string,
+    permissions?: string[],
+  ): Promise<{
+    success: false;
+    error: { message: string; statusCode: number };
+  } | null> {
+    const settings =
+      await this.sessionSettingsService.getSessionSettings(sessionId);
+
+    // If Q&A feature is completely disabled, block everyone (no bypass)
+    if (!settings?.qa_enabled) {
+      this.logger.warn(`[Q&A] Q&A is disabled for session ${sessionId}`);
+      return {
+        success: false,
+        error: {
+          message: 'Q&A is disabled for this session.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    // If Q&A is closed, check if user has organizer/speaker permissions to bypass
+    if (!settings?.qa_open) {
+      if (this.hasAdminPermissions(permissions)) {
+        this.logger.log(
+          `[Q&A] Q&A is closed for session ${sessionId}, but user has admin permissions - allowing bypass`,
+        );
+        return null; // Allow through
+      }
+
+      this.logger.warn(`[Q&A] Q&A is closed for session ${sessionId}`);
+      return {
+        success: false,
+        error: {
+          message: 'Q&A is currently closed for this session.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    return null; // Q&A is enabled and open
+  }
 
   /**
    * Handles incoming client requests to ask a new question.
@@ -63,6 +171,21 @@ export class QnaGateway {
 
     // Get eventId from query params (defaults to sessionId if not provided)
     const eventId = (client.handshake.query.eventId as string) || sessionId;
+
+    // Validate event registration for non-admin users
+    const registrationError = await this.validateRegistration(
+      user.sub,
+      eventId,
+      user.permissions,
+    );
+    if (registrationError) return registrationError;
+
+    // Validate that Q&A is enabled AND open for this session
+    const qaActiveError = await this.validateQaActive(
+      sessionId,
+      user.permissions,
+    );
+    if (qaActiveError) return qaActiveError;
 
     try {
       const newQuestion = await this.qnaService.askQuestion(
@@ -110,6 +233,17 @@ export class QnaGateway {
     if (typeof sessionId !== 'string') {
       return { success: false, error: 'Session ID is required.' };
     }
+
+    // Get eventId from query params (defaults to sessionId if not provided)
+    const eventId = (client.handshake.query.eventId as string) || sessionId;
+
+    // Validate event registration for non-admin users
+    const registrationError = await this.validateRegistration(
+      user.sub,
+      eventId,
+      user.permissions,
+    );
+    if (registrationError) return registrationError;
 
     try {
       const updatedQuestion = await this.qnaService.upvoteQuestion(

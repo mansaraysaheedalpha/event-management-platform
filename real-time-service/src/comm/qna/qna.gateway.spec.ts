@@ -6,6 +6,8 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { Handshake } from 'socket.io/dist/socket-types';
 import { ModerateQuestionDto } from './dto/moderate-question.dto';
 import { ForbiddenException } from '@nestjs/common';
+import { SessionSettingsService } from 'src/shared/services/session-settings.service';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
 
 jest.mock('src/common/utils/auth.utils');
 const mockGetAuthenticatedUser = getAuthenticatedUser as jest.Mock;
@@ -16,6 +18,17 @@ const mockQnaService = {
   moderateQuestion: jest.fn(),
   answerQuestion: jest.fn(),
   tagQuestion: jest.fn(),
+};
+
+const mockSessionSettingsService = {
+  getSessionSettings: jest.fn().mockResolvedValue({
+    qa_enabled: true,
+    qa_open: true,
+  }),
+};
+
+const mockEventRegistrationValidationService = {
+  isUserRegistered: jest.fn().mockResolvedValue(true),
 };
 
 const mockIoServer = {
@@ -47,6 +60,11 @@ describe('QnaGateway', () => {
       providers: [
         QnaGateway,
         { provide: QnaService, useValue: mockQnaService },
+        { provide: SessionSettingsService, useValue: mockSessionSettingsService },
+        {
+          provide: EventRegistrationValidationService,
+          useValue: mockEventRegistrationValidationService,
+        },
       ],
     }).compile();
 
@@ -55,6 +73,11 @@ describe('QnaGateway', () => {
 
     jest.clearAllMocks();
     mockGetAuthenticatedUser.mockReturnValue(mockUser);
+    mockSessionSettingsService.getSessionSettings.mockResolvedValue({
+      qa_enabled: true,
+      qa_open: true,
+    });
+    mockEventRegistrationValidationService.isUserRegistered.mockResolvedValue(true);
   });
 
   it('should be defined', () => {
@@ -77,6 +100,8 @@ describe('QnaGateway', () => {
         mockUser.email,
         'session-123',
         askDto,
+        'session-123', // eventId defaults to sessionId
+        undefined, // orgId from mockUser (not set in mock)
       );
       expect(mockIoServer.to).toHaveBeenCalledWith('session:session-123');
       expect(mockIoServer.to).toHaveBeenCalledWith(
@@ -87,6 +112,41 @@ describe('QnaGateway', () => {
         newQuestion,
       );
       expect(mockIoServer.emit).toHaveBeenCalledTimes(2);
+    });
+
+    it('should deny unregistered users', async () => {
+      mockEventRegistrationValidationService.isUserRegistered.mockResolvedValue(false);
+      const askDto = { text: 'Q?', idempotencyKey: 'k1' };
+
+      const result = await gateway.handleAskQuestion(
+        askDto,
+        mockClientSocket as AuthenticatedSocket,
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: { message: 'You are not registered for this event.', statusCode: 403 },
+      });
+      expect(mockQnaService.askQuestion).not.toHaveBeenCalled();
+    });
+
+    it('should deny when Q&A is closed', async () => {
+      mockSessionSettingsService.getSessionSettings.mockResolvedValue({
+        qa_enabled: true,
+        qa_open: false,
+      });
+      const askDto = { text: 'Q?', idempotencyKey: 'k1' };
+
+      const result = await gateway.handleAskQuestion(
+        askDto,
+        mockClientSocket as AuthenticatedSocket,
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: { message: 'Q&A is currently closed for this session.', statusCode: 403 },
+      });
+      expect(mockQnaService.askQuestion).not.toHaveBeenCalled();
     });
   });
 

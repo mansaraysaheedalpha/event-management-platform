@@ -321,6 +321,27 @@ export class ContentGateway {
   }
 
   /**
+   * Handles download availability toggle from organizers.
+   * Broadcasts to all clients in the session room when download is enabled/disabled.
+   */
+  @OnEvent('presentation-download-events')
+  async handleDownloadToggle(payload: {
+    sessionId: string;
+    downloadEnabled: boolean;
+    filename?: string;
+  }) {
+    const room = `session:${payload.sessionId}`;
+    this.server.to(room).emit('presentation.download.available', {
+      sessionId: payload.sessionId,
+      downloadEnabled: payload.downloadEnabled,
+      filename: payload.filename,
+    });
+    this.logger.log(
+      `Broadcasted download availability to room ${room}: enabled=${payload.downloadEnabled}`,
+    );
+  }
+
+  /**
    * Handles control commands from a presenter (e.g., next slide).
    *
    * @param dto - Data describing the control action.

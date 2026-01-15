@@ -15,6 +15,7 @@ import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
 
 /**
  * Gateway to handle real-time emoji reactions in a session.
@@ -43,10 +44,12 @@ export class ReactionsGateway {
     @Inject(forwardRef(() => ReactionsService))
     private readonly reactionsService: ReactionsService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly eventRegistrationValidationService: EventRegistrationValidationService,
   ) {}
 
   /**
    * Handles incoming reaction from user and schedules broadcasting.
+   * Validates that the user is registered for the event before accepting reactions.
    *
    * @param dto The payload containing the emoji reaction.
    * @param client The authenticated WebSocket client.
@@ -61,6 +64,26 @@ export class ReactionsGateway {
     const userId = user.sub;
 
     if (!sessionId) return;
+
+    // Get eventId from query params (defaults to sessionId if not provided)
+    const eventId = (client.handshake.query.eventId as string) || sessionId;
+
+    // Validate event registration
+    const isRegistered =
+      await this.eventRegistrationValidationService.isUserRegistered(
+        userId,
+        eventId,
+      );
+    if (!isRegistered) {
+      this.logger.warn(
+        `[Reactions] User ${userId} denied - not registered for event ${eventId}`,
+      );
+      client.emit('reaction.error', {
+        message: 'You are not registered for this event.',
+        statusCode: 403,
+      });
+      return;
+    }
 
     await this.reactionsService.addReaction(sessionId, userId, dto.emoji);
 

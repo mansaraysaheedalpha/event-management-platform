@@ -22,10 +22,21 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task
-def process_presentation(session_id: str, s3_key: str, user_id: str):
+def process_presentation(
+    session_id: str,
+    s3_key: str,
+    user_id: str,
+    original_filename: str = "presentation.pdf",
+):
     """
     Celery task to download a PDF, convert it to images, upload them back,
     update the database, and publish a notification to Redis.
+
+    Args:
+        session_id: The session ID this presentation belongs to
+        s3_key: The S3 key where the uploaded PDF is stored
+        user_id: The ID of the user who uploaded the presentation
+        original_filename: The original filename of the uploaded file (for download feature)
     """
     db: Session = SessionLocal()
     redis_client = get_redis_client()
@@ -37,8 +48,14 @@ def process_presentation(session_id: str, s3_key: str, user_id: str):
     slide_urls = []
     final_status = "processing"
 
+    # Create presentation record with original file info for download feature
     presentation = crud_presentation.presentation.create_with_session(
-        db, session_id=session_id, slide_urls=[], status="processing"
+        db,
+        session_id=session_id,
+        slide_urls=[],
+        status="processing",
+        original_file_key=s3_key,
+        original_filename=original_filename,
     )
 
     try:

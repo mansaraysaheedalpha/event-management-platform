@@ -32,6 +32,7 @@ export class SubscriberService implements OnModuleInit {
       await this.subscriber.subscribe(
         'agenda-updates',
         'presentation-events',
+        'presentation-download-events', // Download toggle notifications for attendees
         'audit-events',
         'security-events',
         'monetization-events',

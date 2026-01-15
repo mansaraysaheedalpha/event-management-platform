@@ -41,6 +41,78 @@ enum PointReason {
   WAITLIST_JOINED
 }
 
+// Connection tracking enums
+enum ConnectionType {
+  PROXIMITY_PING
+  DM_INITIATED
+  SESSION_QA
+  MANUAL_EXCHANGE
+}
+
+enum OutcomeType {
+  MEETING_HELD
+  JOB_REFERRAL
+  PARTNERSHIP
+  SALE_DEAL
+  MENTORSHIP
+  OTHER
+}
+
+enum ContextType {
+  SHARED_SESSION
+  SHARED_INTEREST
+  MUTUAL_CONNECTION
+  SAME_COMPANY_SIZE
+  SAME_INDUSTRY
+  QA_INTERACTION
+}
+
+// Connection strength for relationship quality tracking
+enum ConnectionStrength {
+  WEAK          // Single interaction only
+  MODERATE      // Multiple interactions OR follow-up exchanged
+  STRONG        // Multiple follow-ups, meeting scheduled, or outcome reported
+}
+
+// Activity types for connection activity tracking
+enum ConnectionActivityType {
+  INITIAL_CONNECT   // First connection made
+  DM_SENT           // Direct message sent
+  DM_RECEIVED       // Direct message received
+  HUDDLE_TOGETHER   // Attended same huddle
+  FOLLOW_UP_SENT    // Post-event follow-up sent
+  FOLLOW_UP_OPENED  // Follow-up was opened
+  FOLLOW_UP_REPLIED // Follow-up was replied to
+  MEETING_SCHEDULED // Meeting was scheduled
+  MEETING_HELD      // Meeting actually happened
+  OUTCOME_REPORTED  // Business outcome reported
+  LINKEDIN_CONNECTED // Connected on LinkedIn
+}
+
+// Huddle (micro-meetup) enums
+enum HuddleStatus {
+  FORMING       // Invitations sent, waiting for responses
+  CONFIRMED     // Minimum participants reached
+  IN_PROGRESS   // Huddle is happening now
+  COMPLETED     // Huddle finished successfully
+  CANCELLED     // Huddle was cancelled
+}
+
+enum HuddleType {
+  PROBLEM_BASED   // Based on shared problems/challenges
+  SESSION_BASED   // Post-session discussion
+  PROXIMITY_BASED // Impromptu based on location
+  MANUAL          // User-created
+}
+
+enum HuddleParticipantStatus {
+  INVITED   // Invitation sent
+  ACCEPTED  // User accepted
+  DECLINED  // User declined
+  ATTENDED  // User actually showed up
+  NO_SHOW   // Accepted but didn't attend
+}
+
 model SyncLog {
   id        String   @id @default(cuid())
   timestamp DateTime @default(now())
@@ -62,6 +134,15 @@ model UserReference {
   email                     String @unique
   firstName                 String?
   lastName                  String?
+  avatarUrl                 String?
+
+  // LinkedIn integration fields
+  linkedInUrl               String?
+  linkedInId                String?
+  linkedInHeadline          String?
+  linkedInAccessToken       String?
+  linkedInRefreshToken      String?
+  linkedInTokenExpiresAt    DateTime?
 
   messages                  Message[]
   questions                 Question[]
@@ -84,6 +165,8 @@ model UserReference {
   createdTeams              Team[]
   teamMemberships           TeamMembership[]
   contentDrops              ContentDropLog[]
+  connectionsAsUserA        Connection[] @relation("ConnectionUserA")
+  connectionsAsUserB        Connection[] @relation("ConnectionUserB")
   @@map("user_references")
 }
 
@@ -509,14 +592,335 @@ model ContentDropLog {
 
   dropperId String
   dropper   UserReference @relation(fields: [dropperId], references: [id])
-  
+
   sessionId String
   session   ChatSession   @relation(fields: [sessionId], references: [id])
-  
+
   title       String
   description String?
   contentType String // e.g., 'DOCUMENT', 'LINK'
   contentUrl  String
 
   @@map("content_drop_logs")
+}
+
+// Connection tracking models for networking feature
+model Connection {
+  id            String    @id @default(cuid())
+  userAId       String
+  userBId       String
+  eventId       String
+
+  // Connection metadata
+  connectedAt   DateTime  @default(now())
+  connectionType ConnectionType @default(PROXIMITY_PING)
+  initialMessage String?
+
+  // Connection strength (calculated based on activities)
+  strength      ConnectionStrength @default(WEAK)
+  lastInteractionAt DateTime?
+  interactionCount  Int @default(1)
+
+  // Follow-up tracking
+  followUpSentAt    DateTime?
+  followUpOpenedAt  DateTime?
+  followUpRepliedAt DateTime?
+  followUpMessage   String?  @db.Text  // AI-generated follow-up suggestion
+
+  // Outcome tracking
+  meetingScheduled  Boolean @default(false)
+  meetingDate       DateTime?
+  outcomeType       OutcomeType?
+  outcomeNotes      String?
+  outcomeReportedAt DateTime?
+
+  // Relations
+  userA         UserReference @relation("ConnectionUserA", fields: [userAId], references: [id])
+  userB         UserReference @relation("ConnectionUserB", fields: [userBId], references: [id])
+  contexts      ConnectionContext[]
+  activities    ConnectionActivity[]
+
+  @@unique([userAId, userBId, eventId])
+  @@index([userAId])
+  @@index([userBId])
+  @@index([eventId])
+  @@index([strength])
+  @@map("connections")
+}
+
+model ConnectionContext {
+  id            String   @id @default(cuid())
+  connectionId  String
+  contextType   ContextType
+  contextValue  String
+
+  connection    Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@map("connection_contexts")
+}
+
+// Activity log for connection interactions
+model ConnectionActivity {
+  id            String   @id @default(cuid())
+  connectionId  String
+  createdAt     DateTime @default(now())
+
+  // Activity details
+  activityType  ConnectionActivityType
+  description   String?  @db.Text
+  metadata      Json?    // Additional context (e.g., message ID, huddle ID)
+
+  // Who initiated this activity (optional, for directional activities)
+  initiatorId   String?
+
+  connection    Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([createdAt])
+  @@index([activityType])
+  @@map("connection_activities")
+}
+
+// Huddle (micro-meetup) models for facilitated networking
+model Huddle {
+  id               String       @id @default(cuid())
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  // Huddle details
+  topic            String       @db.VarChar(100)
+  problemStatement String?      @db.Text
+  description      String?      @db.Text
+
+  // Event context
+  eventId          String
+  sessionId        String?      // Optional: if huddle is post-session
+
+  // Location and timing
+  locationName     String?      @db.VarChar(255)
+  locationDetails  String?      @db.Text  // Room number, directions, etc.
+  scheduledAt      DateTime
+  duration         Int          @default(15)  // Duration in minutes
+
+  // Status and type
+  status           HuddleStatus @default(FORMING)
+  huddleType       HuddleType   @default(PROBLEM_BASED)
+
+  // Participant limits
+  minParticipants  Int          @default(2)
+  maxParticipants  Int          @default(6)
+
+  // Optimistic locking for race condition handling
+  version          Int          @default(1)
+
+  // Creator (the system or user who initiated)
+  createdById      String?
+
+  // Relations
+  participants     HuddleParticipant[]
+
+  @@index([eventId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("huddles")
+}
+
+model HuddleParticipant {
+  id          String   @id @default(cuid())
+  huddleId    String
+  userId      String
+
+  // Status tracking
+  status      HuddleParticipantStatus @default(INVITED)
+  invitedAt   DateTime @default(now())
+  respondedAt DateTime?
+  attendedAt  DateTime?
+
+  // Match score (why this user was invited)
+  matchScore  Float?
+  matchReason String?  @db.Text  // JSON or text explaining why they were matched
+
+  // Relation
+  huddle      Huddle   @relation(fields: [huddleId], references: [id], onDelete: Cascade)
+
+  @@unique([huddleId, userId])
+  @@index([userId])
+  @@index([huddleId, status])
+  @@map("huddle_participants")
+}
+
+// ==========================
+// AI Matchmaking Models
+// ==========================
+
+// User networking profile for AI matchmaking
+model UserProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+
+  // From registration (required)
+  interests         String[]
+  goals             Goal[]
+
+  // From registration (optional)
+  bio               String?  @db.Text
+  industry          String?
+  companySize       CompanySize?
+  yearsExperience   Int?
+  skillsToOffer     String[]
+  skillsNeeded      String[]
+
+  // From enrichment agent (auto-populated)
+  enrichmentStatus  EnrichmentStatus @default(PENDING)
+  enrichedAt        DateTime?
+
+  // Professional platforms
+  linkedInHeadline  String?
+  linkedInUrl       String?
+  githubUsername    String?
+  githubTopLanguages String[]
+  githubRepoCount   Int?
+  twitterHandle     String?
+  twitterBio        String?
+
+  // Content/Social platforms
+  youtubeChannelUrl String?
+  youtubeChannelName String?
+  youtubeSubscriberRange String?
+  instagramHandle   String?
+  instagramBio      String?
+  facebookProfileUrl String?
+
+  // General
+  personalWebsite   String?
+  extractedSkills   String[]
+  extractedInterests String[]
+  enrichmentSources String[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@map("user_profiles")
+}
+
+// AI-generated matchmaking recommendations
+model Recommendation {
+  id                  String   @id @default(cuid())
+  userId              String
+  eventId             String
+  recommendedUserId   String
+
+  // LLM-generated content
+  matchScore          Int      // 0-100
+  reasons             String[]
+  conversationStarters String[]
+  potentialValue      String?
+
+  // Metadata
+  generatedAt         DateTime @default(now())
+  expiresAt           DateTime
+
+  // Tracking
+  viewed              Boolean  @default(false)
+  viewedAt            DateTime?
+  pinged              Boolean  @default(false)
+  pingedAt            DateTime?
+  connected           Boolean  @default(false)
+  connectedAt         DateTime?
+
+  @@unique([userId, eventId, recommendedUserId])
+  @@index([userId, eventId])
+  @@index([eventId, expiresAt])
+  @@map("recommendations")
+}
+
+// Feedback on connections for ML learning
+model ConnectionFeedback {
+  id              String   @id @default(cuid())
+  connectionId    String
+  userId          String   // Who is giving feedback
+
+  // Rating
+  rating          Int      // 1-5 stars
+
+  // Qualitative
+  wasValuable     Boolean?
+  willFollowUp    Boolean?
+  wouldRecommend  Boolean?
+
+  // What made it good/bad
+  positiveFactors String[]
+  negativeFactors String[]
+
+  // Free text
+  comments        String?  @db.Text
+
+  createdAt       DateTime @default(now())
+
+  @@unique([connectionId, userId])
+  @@index([connectionId])
+  @@map("connection_feedback")
+}
+
+// Feedback on specific recommendations
+model RecommendationFeedback {
+  id                String   @id @default(cuid())
+  recommendationId  String
+  userId            String
+
+  // Did they act on it?
+  action            RecommendationAction
+
+  // If they connected, how was it?
+  connectionRating  Int?     // 1-5
+
+  // Why did they skip?
+  skipReason        String?
+
+  createdAt         DateTime @default(now())
+
+  @@unique([recommendationId, userId])
+  @@index([recommendationId])
+  @@map("recommendation_feedback")
+}
+
+enum Goal {
+  LEARN
+  NETWORK
+  HIRE
+  GET_HIRED
+  FIND_PARTNERS
+  FIND_INVESTORS
+  SELL
+  BUY
+  MENTOR
+  GET_MENTORED
+}
+
+enum CompanySize {
+  SOLO
+  STARTUP_1_10
+  SMALL_11_50
+  MEDIUM_51_200
+  LARGE_201_1000
+  ENTERPRISE_1000_PLUS
+}
+
+enum EnrichmentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  OPTED_OUT
+}
+
+enum RecommendationAction {
+  VIEWED
+  PINGED
+  MESSAGED
+  CONNECTED
+  SKIPPED
+  IGNORED
 }

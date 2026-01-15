@@ -1,22 +1,61 @@
-#requirements.txt
-fastapi
-uvicorn[standard]
-redis
-kafka-python-ng
-pydantic-settings
-strawberry-graphql[fastapi]
-httpx
-pytest
-transformers
-torch
-pytest-mock
+# requirements.txt
+# Core FastAPI
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=3.1.0
+redis>=5.2.0
+aioredis>=2.0.1
+
+# GraphQL
+strawberry-graphql[fastapi]>=0.250.0
+
+# HTTP Client
+httpx>=0.28.0
+
+# Messaging
+kafka-python-ng>=2.2.0
+
+# AI/ML Core
+transformers>=4.47.0
+torch>=2.1.0
 numpy>=1.26.0
 scikit-learn>=1.4.0
 pandas>=2.2.2
-joblib
-sqlalchemy     # <-- ADD THIS
-psycopg2-binary 
-datadog # <-- ADD THIS
-black==24.4.2  # <-- ADD for code formatting
-ruff   # <-- ADD for linting
-PyJWT
+joblib>=1.4.0
+
+# LangGraph / AI Agents
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-anthropic>=0.3.0
+anthropic>=0.40.0
+
+# Web Search & Research
+tavily-python>=0.5.0
+
+# Task Queue
+celery[redis]>=5.4.0
+
+# Circuit Breaker
+aiobreaker>=1.2.0
+
+# Monitoring
+datadog>=0.50.0
+
+# Security
+PyJWT>=2.10.0
+
+# Testing
+pytest>=8.3.0
+pytest-mock>=3.14.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+
+# Code Quality
+black==24.4.2
+ruff>=0.8.0
+mypy>=1.13.0

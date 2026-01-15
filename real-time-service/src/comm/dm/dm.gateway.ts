@@ -8,6 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { DmService } from './dm.service';
@@ -18,6 +19,7 @@ import { EditDmDto } from './dto/edit-dm.dto';
 import { PrismaService } from 'src/prisma.service';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { DeleteDmDto } from './dto/delete-dm.dto';
+import { EventRegistrationValidationService } from 'src/shared/services/event-registration-validation.service';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -30,6 +32,7 @@ export class DmGateway {
   constructor(
     private readonly dmService: DmService,
     private readonly prisma: PrismaService,
+    private readonly eventRegistrationValidationService: EventRegistrationValidationService,
   ) {}
 
   /**
@@ -83,17 +86,59 @@ export class DmGateway {
 
   /**
    * Handles incoming direct message sending requests.
+   * Validates that both sender and recipient are registered for the same event.
    * Sends the message to both sender's and recipient's private rooms.
-   * @param dto - Data transfer object containing DM details.
+   * Rate limited to 60 messages per minute to prevent spam.
+   * @param dto - Data transfer object containing DM details including eventId.
    * @param client - The connected authenticated socket client.
    * @returns An object indicating success and the new message's ID and timestamp.
    */
+  @Throttle({ default: { limit: 60, ttl: 60000 } }) // 60 DMs per minute
   @SubscribeMessage('dm.send')
   async handleSendMessage(
     @MessageBody() dto: SendDmDto,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const sender = getAuthenticatedUser(client);
+
+    // Validate sender is registered for the event
+    const senderRegistered =
+      await this.eventRegistrationValidationService.isUserRegistered(
+        sender.sub,
+        dto.eventId,
+      );
+    if (!senderRegistered) {
+      this.logger.warn(
+        `[DM] User ${sender.sub} denied - not registered for event ${dto.eventId}`,
+      );
+      return {
+        success: false,
+        error: {
+          message: 'You are not registered for this event.',
+          statusCode: 403,
+        },
+      };
+    }
+
+    // Validate recipient is also registered for the same event
+    const recipientRegistered =
+      await this.eventRegistrationValidationService.isUserRegistered(
+        dto.recipientId,
+        dto.eventId,
+      );
+    if (!recipientRegistered) {
+      this.logger.warn(
+        `[DM] Recipient ${dto.recipientId} not registered for event ${dto.eventId}`,
+      );
+      return {
+        success: false,
+        error: {
+          message: 'Recipient is not registered for this event.',
+          statusCode: 403,
+        },
+      };
+    }
+
     try {
       // Extract name from email if not available (e.g., john.doe@email.com -> John)
       const senderName = sender.email?.split('@')[0]?.split('.')[0] || 'User';
