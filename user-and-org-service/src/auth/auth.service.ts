@@ -390,6 +390,14 @@ export class AuthService {
       additionalPermissions.push('presentation:control');
     }
 
+    // Heatmap and analytics access for OWNER and ADMIN
+    if (
+      membership.role.isSystemRole &&
+      ['OWNER', 'ADMIN'].includes(membership.role.name)
+    ) {
+      additionalPermissions.push('heatmap:read', 'sponsor:leads:read');
+    }
+
     const accessTokenPayload: JwtPayload = {
       sub: user.id,
       email: user.email,
