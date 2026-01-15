@@ -208,14 +208,14 @@ export class RecommendationsService {
         // Transform request to oracle's expected format
         const oracleRequest = {
           primary_user: {
-            user_id: request.userProfile.userId,
+            user_id: request.userProfile.id,
             interests: request.userProfile.interests,
           },
           other_users: request.candidates.map((c) => ({
-            user_id: c.userId,
+            user_id: c.id,
             interests: c.interests,
           })),
-          max_matches: request.maxRecommendations,
+          max_matches: request.limit || 10,
         };
 
         // Call matchmaking endpoint
@@ -246,7 +246,7 @@ export class RecommendationsService {
                 this.httpService.post<{ conversation_starters: string[] }>(
                   `${oracleUrl}/oracle/networking/conversation-starters`,
                   {
-                    user1_id: request.userProfile.userId,
+                    user1_id: request.userProfile.id,
                     user2_id: match.user_id,
                     common_interests: match.common_interests,
                   },
