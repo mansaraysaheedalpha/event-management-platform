@@ -60,6 +60,10 @@ model User {
   // Fields for 2FA
   twoFactorSecret           String?
   isTwoFactorEnabled        Boolean                @default(false)
+
+  // Fields for 2FA email backup (when authenticator app unavailable)
+  emailBackupCode           String?                // Hashed 6-digit code
+  emailBackupCodeExpiresAt  DateTime?              // Code expiration (10 min)
   
   // Fields for secure email change
   newEmail                  String?

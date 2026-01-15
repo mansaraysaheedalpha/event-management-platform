@@ -64,6 +64,27 @@ export class Login2FAInput {
 }
 
 @InputType()
+export class Send2FAEmailCodeInput {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+}
+
+@InputType()
+export class Login2FAEmailInput {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @Field()
+  @IsString()
+  @Length(6, 6)
+  code: string;
+}
+
+@InputType()
 export class RequestResetInput {
   @Field()
   @IsEmail()

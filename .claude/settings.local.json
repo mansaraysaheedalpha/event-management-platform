@@ -69,7 +69,9 @@
       "Bash(set \"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/event_lifecycle\")",
       "Bash(npx prisma generate:*)",
       "Bash(npm exec prisma generate:*)",
-      "Bash(pnpm test:*)"
+      "Bash(pnpm test:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm run build)"
     ],
     "deny": [],
     "ask": []

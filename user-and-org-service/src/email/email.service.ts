@@ -399,4 +399,60 @@ export class EmailService {
       html,
     });
   }
+
+  // 2FA Backup Code Email
+  async sendBackupCodeEmail(
+    to: string,
+    firstName: string,
+    code: string,
+    expiryMinutes: number,
+  ): Promise<boolean> {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f5;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+          <div style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <h2 style="color: #18181b; margin: 0 0 24px 0; font-size: 24px;">Your Verification Code</h2>
+            <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${firstName || 'there'},</p>
+            <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
+              You requested a backup verification code for your <strong>GlobalConnect</strong> account because you can't access your authenticator app.
+            </p>
+            <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
+              Here is your one-time verification code:
+            </p>
+            <div style="text-align: center; margin: 32px 0;">
+              <div style="display: inline-block; background-color: #f4f4f5; border: 2px dashed #d4d4d8; border-radius: 12px; padding: 20px 40px;">
+                <span style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #18181b; font-family: 'Courier New', monospace;">${code}</span>
+              </div>
+            </div>
+            <div style="background-color: #fef3c7; border-radius: 8px; padding: 16px; margin: 0 0 24px 0; border-left: 4px solid #f59e0b;">
+              <p style="color: #92400e; font-size: 14px; font-weight: 600; margin: 0 0 4px 0;">Important:</p>
+              <ul style="color: #92400e; font-size: 14px; line-height: 1.6; margin: 0; padding-left: 20px;">
+                <li>This code expires in <strong>${expiryMinutes} minutes</strong></li>
+                <li>This code can only be used once</li>
+                <li>Never share this code with anyone</li>
+              </ul>
+            </div>
+            <p style="color: #71717a; font-size: 14px; line-height: 1.6; margin: 0;">
+              If you didn't request this code, please secure your account immediately by changing your password.
+            </p>
+            <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail({
+      to,
+      subject: 'Your Verification Code - GlobalConnect',
+      html,
+    });
+  }
 }

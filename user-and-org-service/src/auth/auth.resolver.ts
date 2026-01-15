@@ -2,12 +2,14 @@
 import { Resolver, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
-import { AuthPayload, LoginPayload } from './gql_types/auth.types';
+import { AuthPayload, LoginPayload, MessagePayload } from './gql_types/auth.types';
 import {
   LoginInput,
   RegisterUserInput,
   RegisterAttendeeInput,
   Login2FAInput,
+  Login2FAEmailInput,
+  Send2FAEmailCodeInput,
   RequestResetInput,
   PerformResetInput,
 } from './gql_types/auth.inputs';
@@ -22,12 +24,14 @@ import { GqlAuthGuard } from './guards/gql-auth.guard';
 import { CsrfGuard } from '../common/csrf/csrf.guard';
 import { Response } from 'express';
 import { GqlRefreshTokenGuard } from './guards/gql-refresh-token.guard';
+import { TwoFactorService } from '../two-factor/two-factor.service';
 
 @Resolver()
 export class AuthResolver {
   constructor(
     private authService: AuthService,
     private usersService: UsersService,
+    private twoFactorService: TwoFactorService,
   ) {}
 
   @Mutation(() => LoginPayload)
@@ -111,6 +115,52 @@ export class AuthResolver {
     const user = await this.usersService.findOne(userId);
     if (!user) {
       throw new NotFoundException('User not found after 2FA verification.');
+    }
+
+    return { token: tokens.access_token, user };
+  }
+
+  /**
+   * Request an email backup code for 2FA.
+   * Used when user can't access their authenticator app.
+   */
+  @Mutation(() => MessagePayload)
+  @UseGuards(GqlThrottlerGuard)
+  async send2FAEmailBackupCode(
+    @Args('input') input: Send2FAEmailCodeInput,
+  ): Promise<MessagePayload> {
+    const result = await this.twoFactorService.sendEmailBackupCode(input.userId);
+    return result;
+  }
+
+  /**
+   * Login with 2FA using email backup code instead of authenticator app.
+   */
+  @Mutation(() => AuthPayload)
+  @UseGuards(GqlThrottlerGuard)
+  async login2FAWithEmailCode(
+    @Args('input') input: Login2FAEmailInput,
+    @Context() context: { res: Response },
+  ): Promise<AuthPayload> {
+    const { userId, code } = input;
+
+    // Verify the email backup code
+    await this.twoFactorService.verifyEmailBackupCode(userId, code);
+
+    // If verification passes, generate tokens (same as regular 2FA login)
+    const tokens = await this.authService.generateTokensAfter2FA(userId);
+
+    // Set refresh token cookie
+    context.res.cookie('refresh_token', tokens.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const user = await this.usersService.findOne(userId);
+    if (!user) {
+      throw new NotFoundException('User not found after email code verification.');
     }
 
     return { token: tokens.access_token, user };

@@ -12,6 +12,13 @@ export class AuthPayload {
   user: GqlUser;
 }
 
+// Simple message response payload
+@ObjectType()
+export class MessagePayload {
+  @Field()
+  message: string;
+}
+
 // This new payload handles the initial login attempt, which might require a 2FA step
 @ObjectType()
 export class LoginPayload {

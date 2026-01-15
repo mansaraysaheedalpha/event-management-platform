@@ -255,6 +255,50 @@ export class AuthService {
     return this.getTokensForUser(user, defaultMembership);
   }
 
+  /**
+   * Generate tokens after successful 2FA verification (via email backup code).
+   * This is called after the email backup code has been verified separately.
+   */
+  async generateTokensAfter2FA(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        isTwoFactorEnabled: true,
+        preferredLanguage: true,
+        tier: true,
+        sponsorId: true,
+        userType: true,
+        memberships: {
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const defaultMembership = user.memberships[0];
+    if (!defaultMembership) {
+      throw new ForbiddenException('You are not a member of any organization.');
+    }
+
+    await this.auditService.log({
+      action: 'USER_LOGIN_2FA_EMAIL_BACKUP_SUCCESS',
+      actingUserId: user.id,
+      organizationId: defaultMembership.organizationId,
+    });
+
+    return this.getTokensForUser(user, defaultMembership);
+  }
+
   async logout(userId: string) {
     await this.prisma.user.updateMany({
       where: { id: userId, hashedRefreshToken: { not: null } },
