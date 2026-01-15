@@ -26,17 +26,17 @@ class Settings(BaseSettings):
     ORACLE_DB_NAME: str
 
     # Models
-    SENTIMENT_MODEL_NAME: str
+    SENTIMENT_MODEL_NAME: str = "distilbert-base-uncased-finetuned-sst-2-english"
 
-    # GitHub App Credentials
-    GITHUB_APP_ID: str
-    GITHUB_INSTALLATION_ID: str
-    GITHUB_PRIVATE_KEY: str
-    GITHUB_WORKFLOW_DISPATCH_URL: str
+    # GitHub App Credentials (Optional - only needed for CI/CD workflows)
+    GITHUB_APP_ID: Optional[str] = None
+    GITHUB_INSTALLATION_ID: Optional[str] = None
+    GITHUB_PRIVATE_KEY: Optional[str] = None
+    GITHUB_WORKFLOW_DISPATCH_URL: Optional[str] = None
 
-    # Monitoring
-    DATADOG_API_KEY: str
-    DATADOG_APP_KEY: str
+    # Monitoring (Optional - only needed if using Datadog)
+    DATADOG_API_KEY: Optional[str] = None
+    DATADOG_APP_KEY: Optional[str] = None
 
     # ===========================================
     # Profile Enrichment Settings (Sprint 2)
