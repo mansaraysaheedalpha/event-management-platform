@@ -3,8 +3,28 @@ import { Module } from '@nestjs/common';
 import { CirclesModule } from './circles/circles.module';
 import { SuggestionsModule } from './suggestions/suggestions.module';
 import { ProximityModule } from './proximity/proximity.module';
+import { ConnectionsModule } from './connections/connections.module';
+import { MatchingModule } from './matching/matching.module';
+import { FollowUpModule } from './follow-up/follow-up.module';
+import { NetworkingAnalyticsModule } from './analytics/analytics.module';
+import { LinkedInModule } from './linkedin/linkedin.module';
+import { HuddlesModule } from './huddles/huddles.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
+import { RetentionModule } from './retention/retention.module';
 
 @Module({
-  imports: [CirclesModule, SuggestionsModule, ProximityModule],
+  imports: [
+    CirclesModule,
+    SuggestionsModule,
+    ProximityModule,
+    ConnectionsModule,
+    MatchingModule,
+    FollowUpModule,
+    NetworkingAnalyticsModule,
+    LinkedInModule,
+    HuddlesModule,
+    RecommendationsModule,
+    RetentionModule,
+  ],
 })
 export class NetworkingModule {}
