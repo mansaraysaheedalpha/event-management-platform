@@ -82,12 +82,14 @@ export class QnaService {
     await this.findOrCreateUserReference(userId, userEmail);
 
     // Auto-create ChatSession if it doesn't exist (upsert pattern)
+    // Use the sessionName from DTO if provided, otherwise fallback to generic name
+    const displayName = dto.sessionName || `Session ${sessionId}`;
     await this.prisma.chatSession.upsert({
       where: { id: sessionId },
       update: {},
       create: {
         id: sessionId,
-        name: `Session ${sessionId}`,
+        name: displayName,
         eventId: eventId || sessionId,
         organizationId: organizationId || 'default',
         participants: [userId],

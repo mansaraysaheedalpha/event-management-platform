@@ -37,4 +37,13 @@ export class SendMessageDto {
   @IsUUID('4')
   @IsOptional() // A message does not have to be a reply
   replyingToMessageId?: string;
+
+  /**
+   * The display name of the session (e.g., "Keynote Speech").
+   * Used when auto-creating the ChatSession record.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  sessionName?: string;
 }

@@ -24,4 +24,13 @@ export class AskQuestionDto {
 
   @IsUUID('4')
   idempotencyKey: string;
+
+  /**
+   * The display name of the session (e.g., "Keynote Speech").
+   * Used when auto-creating the ChatSession record.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  sessionName?: string;
 }

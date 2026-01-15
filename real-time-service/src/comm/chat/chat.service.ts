@@ -78,6 +78,8 @@ export class ChatService {
     await this.findOrCreateUserReference(authorId, authorEmail);
 
     // Auto-create ChatSession if it doesn't exist (upsert pattern)
+    // Use the sessionName from DTO if provided, otherwise fallback to generic name
+    const displayName = dto.sessionName || `Chat for ${sessionId}`;
     const session = await this.prisma.chatSession.upsert({
       where: { id: sessionId },
       update: {
@@ -88,7 +90,7 @@ export class ChatService {
       },
       create: {
         id: sessionId,
-        name: `Chat for ${sessionId}`,
+        name: displayName,
         eventId: eventId || sessionId,
         organizationId: organizationId || 'default',
         participants: [authorId],
