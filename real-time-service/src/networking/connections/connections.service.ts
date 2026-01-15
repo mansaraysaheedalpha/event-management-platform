@@ -545,7 +545,7 @@ export class ConnectionsService {
           activityType,
           initiatorId,
           description,
-          metadata: metadata ?? Prisma.JsonNull,
+          metadata: metadata ? (metadata as Prisma.InputJsonValue) : Prisma.JsonNull,
         },
       });
 
@@ -838,7 +838,7 @@ export class ConnectionsService {
         data: connectionIds.map((connectionId) => ({
           connectionId,
           activityType,
-          metadata: metadata ?? Prisma.JsonNull,
+          metadata: metadata ? (metadata as Prisma.InputJsonValue) : Prisma.JsonNull,
         })),
       });
 

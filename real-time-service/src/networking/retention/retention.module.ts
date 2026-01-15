@@ -5,7 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { RetentionService } from './retention.service';
 import { RetentionController } from './retention.controller';
 import { PrismaService } from 'src/prisma.service';
-import { SharedServicesModule } from 'src/shared/services/shared-services.module';
+import { KafkaModule } from 'src/shared/kafka/kafka.module';
 import { ConnectionsModule } from '../connections/connections.module';
 import { FollowUpModule } from '../follow-up/follow-up.module';
 
@@ -13,7 +13,7 @@ import { FollowUpModule } from '../follow-up/follow-up.module';
   imports: [
     ConfigModule,
     ScheduleModule.forRoot(),
-    SharedServicesModule,
+    KafkaModule,
     ConnectionsModule,
     FollowUpModule,
   ],

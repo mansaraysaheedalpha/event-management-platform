@@ -296,7 +296,7 @@ export class RetentionService {
       weekAgo.setDate(weekAgo.getDate() - 7);
 
       // Get users with recent connection activity
-      const activeUsers = await this.prisma.user.findMany({
+      const activeUsers = await this.prisma.userReference.findMany({
         where: {
           OR: [
             {
@@ -402,7 +402,7 @@ export class RetentionService {
     });
 
     if (milestones.includes(connectionCount)) {
-      const user = await this.prisma.user.findUnique({
+      const user = await this.prisma.userReference.findUnique({
         where: { id: userId },
         select: {
           id: true,
