@@ -9,17 +9,20 @@ import {
   Max,
   IsBoolean,
 } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 /**
  * DTO for requesting AI-powered recommendations
  */
 export class GetRecommendationsDto {
+  @Type(() => Number)
   @IsNumber()
   @IsOptional()
   @Min(1)
   @Max(50)
   limit?: number = 10;
 
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   @IsOptional()
   refresh?: boolean = false;

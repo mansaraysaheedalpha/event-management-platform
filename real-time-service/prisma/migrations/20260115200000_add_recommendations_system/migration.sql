@@ -1,28 +1,43 @@
+-- CreateEnum
+CREATE TYPE "Goal" AS ENUM ('LEARN', 'NETWORK', 'HIRE', 'GET_HIRED', 'FIND_PARTNERS', 'FIND_INVESTORS', 'SELL', 'BUY', 'MENTOR', 'GET_MENTORED');
+
+-- CreateEnum
+CREATE TYPE "CompanySize" AS ENUM ('SOLO', 'STARTUP_1_10', 'SMALL_11_50', 'MEDIUM_51_200', 'LARGE_201_1000', 'ENTERPRISE_1000_PLUS');
+
+-- CreateEnum
+CREATE TYPE "EnrichmentStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'OPTED_OUT');
+
 -- CreateTable
 CREATE TABLE "user_profiles" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
+    "interests" TEXT[],
+    "goals" "Goal"[],
     "bio" TEXT,
     "industry" TEXT,
-    "goals" TEXT[],
-    "interests" TEXT[],
+    "companySize" "CompanySize",
+    "yearsExperience" INTEGER,
     "skillsToOffer" TEXT[],
     "skillsNeeded" TEXT[],
-    "linkedInUrl" TEXT,
+    "enrichmentStatus" "EnrichmentStatus" NOT NULL DEFAULT 'PENDING',
+    "enrichedAt" TIMESTAMP(3),
     "linkedInHeadline" TEXT,
-    "linkedInSummary" TEXT,
-    "linkedInExperience" JSONB,
-    "linkedInEducation" JSONB,
-    "linkedInSkills" TEXT[],
-    "linkedInLastSync" TIMESTAMP(3),
+    "linkedInUrl" TEXT,
     "githubUsername" TEXT,
-    "githubBio" TEXT,
     "githubTopLanguages" TEXT[],
     "githubRepoCount" INTEGER,
-    "githubLastSync" TIMESTAMP(3),
     "twitterHandle" TEXT,
+    "twitterBio" TEXT,
+    "youtubeChannelUrl" TEXT,
+    "youtubeChannelName" TEXT,
+    "youtubeSubscriberRange" TEXT,
+    "instagramHandle" TEXT,
+    "instagramBio" TEXT,
+    "facebookProfileUrl" TEXT,
+    "personalWebsite" TEXT,
     "extractedSkills" TEXT[],
-    "profileCompleteness" INTEGER NOT NULL DEFAULT 0,
+    "extractedInterests" TEXT[],
+    "enrichmentSources" TEXT[],
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
