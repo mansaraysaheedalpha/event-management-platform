@@ -445,22 +445,12 @@ export class AuthService {
   ): Promise<AttendeeTokenResponse> {
     const refreshTokenId = randomBytes(32).toString('hex');
 
-    // Attendee permissions - basic interaction permissions for event features
-    const attendeePermissions = [
-      'poll:vote',
-      'qna:ask',
-      'qna:upvote',
-      'chat:send',
-      'chat:edit:own',
-      'chat:delete:own',
-      'dm:send',
-    ];
-
-    // Attendee JWT payload - no orgId, no role, but has basic interaction permissions
+    // Attendee JWT payload - no orgId, no role, minimal permissions
+    // Note: Basic actions (send/edit/delete own messages) are allowed by default - no permissions needed
     const accessTokenPayload: Omit<JwtPayload, 'orgId' | 'role' | 'orgRequires2FA'> = {
       sub: user.id,
       email: user.email,
-      permissions: attendeePermissions,
+      permissions: [],
       tier: (user.tier as 'default' | 'vip') || 'default',
       preferredLanguage: user.preferredLanguage || 'en',
       sponsorId: user.sponsorId || undefined,

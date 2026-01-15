@@ -297,10 +297,11 @@ export class ChatService {
     }
 
     const isAuthor = message.authorId === deleterId;
-    const canSelfDelete = permissions.includes('chat:delete:own');
     const canModeratorDelete = permissions.includes('chat:delete:any');
 
-    if (!canModeratorDelete && !(isAuthor && canSelfDelete)) {
+    // Authors can always delete their own messages, no permission needed
+    // Moderators with chat:delete:any can delete anyone's messages
+    if (!isAuthor && !canModeratorDelete) {
       throw new ForbiddenException(
         'You do not have permission to delete this message.',
       );

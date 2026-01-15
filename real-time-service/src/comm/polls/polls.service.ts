@@ -188,6 +188,11 @@ export class PollsService {
 
     // Award gamification points outside the transaction to avoid rollback on failure
     if (pollSessionId) {
+      // --- HEATMAP TRACKING ---
+      void this.publisherService.publish('heatmap-events', {
+        sessionId: pollSessionId,
+      });
+
       try {
         await this.gamificationService.awardPoints(
           userId,
