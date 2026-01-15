@@ -17,16 +17,38 @@ function isSessionMetadata(payload: unknown): payload is SessionMetadata {
   );
 }
 
-// Helper to check if a string looks like a technical ID (not a friendly name)
-function isIdLikeName(name: string | null | undefined): boolean {
-  if (!name || name.trim() === '') return true;
-  // Check if it looks like a UUID (8-4-4-4-12 hex pattern)
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  // Check if it looks like a CUID (starts with 'c' followed by alphanumeric)
-  const cuidPattern = /^c[a-z0-9]{20,}$/i;
-  // Check if it looks like a prefixed ID (e.g., "ses_abc123", "session_xyz")
-  const prefixedIdPattern = /^(ses|session|sess)_[a-z0-9]+$/i;
-  return uuidPattern.test(name) || cuidPattern.test(name) || prefixedIdPattern.test(name);
+// Extract a clean display name from session name, removing ID patterns
+function getCleanSessionName(
+  name: string | null | undefined,
+  index: number,
+): string {
+  if (!name || name.trim() === '') return `Session ${index + 1}`;
+
+  // Check if it starts with "Chat for" - it's a chat session
+  if (name.toLowerCase().startsWith('chat for')) {
+    return `Chat ${index + 1}`;
+  }
+
+  // Check if it starts with "Session" followed by an ID
+  if (/^session\s+[a-z0-9_-]+$/i.test(name)) {
+    return `Q&A ${index + 1}`;
+  }
+
+  // Check if name contains ID patterns (UUIDs, CUIDs, ses_ prefixes)
+  const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+  const cuidPattern = /c[a-z0-9]{20,}/i;
+  const sessionIdPattern = /ses_[a-z0-9]{6,}/i;
+
+  if (
+    uuidPattern.test(name) ||
+    cuidPattern.test(name) ||
+    sessionIdPattern.test(name)
+  ) {
+    return `Session ${index + 1}`;
+  }
+
+  // Name looks like a real title, use it
+  return name;
 }
 
 // Define the types of events that contribute to the heatmap
@@ -131,17 +153,13 @@ export class HeatmapService {
     for (let i = 0; i < sessionIds.length; i++) {
       const sessionId = sessionIds[i];
       const rawName = sessionNames.get(sessionId);
-      // Use a friendly name if the actual name looks like an ID
-      const friendlyName = isIdLikeName(rawName)
-        ? `Session ${i + 1}`
-        : rawName;
 
       heatmapData[sessionId] = {
         heat: parseInt(heatScores[sessionId] || '0', 10),
         uniqueEngagers: uniqueEngagers[sessionId] || 0,
         chatVelocity: chatVelocities[sessionId] || 0,
         qnaVelocity: qnaVelocities[sessionId] || 0,
-        sessionName: friendlyName!,
+        sessionName: getCleanSessionName(rawName, i),
       };
     }
 
