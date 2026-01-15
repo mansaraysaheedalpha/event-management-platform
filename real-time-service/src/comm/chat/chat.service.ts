@@ -162,7 +162,7 @@ export class ChatService {
     // --- HEATMAP TRACKING (uses Pub/Sub, not Streams) ---
     void this.redis.publish(
       'heatmap-events',
-      JSON.stringify({ sessionId }),
+      JSON.stringify({ sessionId, userId: authorId }),
     );
     // --- END HEATMAP LOGIC ---
 

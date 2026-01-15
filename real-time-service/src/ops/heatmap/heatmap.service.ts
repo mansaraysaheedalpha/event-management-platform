@@ -17,6 +17,16 @@ function isSessionMetadata(payload: unknown): payload is SessionMetadata {
   );
 }
 
+// Helper to check if a string looks like a UUID/CUID (not a friendly name)
+function isIdLikeName(name: string | null | undefined): boolean {
+  if (!name || name.trim() === '') return true;
+  // Check if it looks like a UUID (8-4-4-4-12 hex pattern)
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  // Check if it looks like a CUID (starts with 'c' followed by alphanumeric)
+  const cuidPattern = /^c[a-z0-9]{20,}$/i;
+  return uuidPattern.test(name) || cuidPattern.test(name);
+}
+
 // Define the types of events that contribute to the heatmap
 type HeatmapEventType =
   | 'MESSAGE_SENT'
@@ -36,33 +46,45 @@ export class HeatmapService {
 
   /**
    * Listens for any engagement event and tracks it for heatmap calculations.
+   * Tracks both total engagement count AND unique engagers per session.
    */
   @OnEvent('heatmap-events')
   async handleHeatmapEvent(payload: {
     sessionId: string;
-    type: HeatmapEventType;
+    userId?: string;
+    type?: HeatmapEventType;
   }) {
     const metadata = await this._getSessionMetadata(payload.sessionId);
     if (!metadata) return;
 
-    const eventKey = `heatmap:data:${metadata.eventId}`;
-    const velocityKey = `heatmap:ts:${payload.type}:${payload.sessionId}`; // e.g., heatmap:ts:MESSAGE_SENT:session-123
+    const heatKey = `heatmap:data:${metadata.eventId}`;
+    const engagersKey = `heatmap:engagers:${payload.sessionId}`; // Set of unique user IDs
+    const velocityKey = `heatmap:ts:${payload.type || 'UNKNOWN'}:${payload.sessionId}`;
 
-    // Use a transaction to perform both operations atomically
-    await this.redis
-      .multi()
-      // 1. Increment the total heat score for the session
-      .hincrby(eventKey, payload.sessionId, 1)
-      // 2. Add the event to our time-series sorted set
-      .zadd(velocityKey, Date.now(), `${Date.now()}-${Math.random()}`)
-      // Set an expiration on the keys so they auto-delete after the event
-      .expire(eventKey, 3600 * 6) // 6 hours
-      .expire(velocityKey, 3600 * 6)
-      .exec();
+    // Use a transaction to perform all operations atomically
+    const multi = this.redis.multi();
+
+    // 1. Increment the total heat score for the session
+    multi.hincrby(heatKey, payload.sessionId, 1);
+
+    // 2. Track unique engager (if userId provided)
+    if (payload.userId) {
+      multi.sadd(engagersKey, payload.userId);
+      multi.expire(engagersKey, 3600 * 6); // 6 hours
+    }
+
+    // 3. Add the event to our time-series sorted set for velocity
+    multi.zadd(velocityKey, Date.now(), `${Date.now()}-${Math.random()}`);
+
+    // Set expirations
+    multi.expire(heatKey, 3600 * 6);
+    multi.expire(velocityKey, 3600 * 6);
+
+    await multi.exec();
   }
 
   /**
-   * Fetches the complete heatmap data, including velocity, for an event.
+   * Fetches the complete heatmap data, including velocity and unique engagers, for an event.
    */
   async getHeatmapData(eventId: string) {
     const heatmapKey = `heatmap:data:${eventId}`;
@@ -70,13 +92,13 @@ export class HeatmapService {
       this.redis.hgetall(heatmapKey),
       this.prisma.chatSession.findMany({
         where: { eventId },
-        select: { id: true },
+        select: { id: true, name: true },
       }),
     ]);
 
     const sessionIds = sessions.map((s) => s.id);
 
-    // Calculate velocities for each session
+    // Build a pipeline to fetch velocities and unique engager counts
     const chatVelocities = await this._getVelocityForSessions(
       sessionIds,
       'MESSAGE_SENT',
@@ -86,13 +108,38 @@ export class HeatmapService {
       'QUESTION_ASKED',
     );
 
+    // Fetch unique engager counts for each session
+    const uniqueEngagers = await this._getUniqueEngagerCounts(sessionIds);
+
+    // Create a map of session names
+    const sessionNames = new Map(sessions.map((s) => [s.id, s.name]));
+
     // Combine the data
-    const heatmapData = {};
-    for (const sessionId of sessionIds) {
+    const heatmapData: Record<
+      string,
+      {
+        heat: number;
+        uniqueEngagers: number;
+        chatVelocity: number;
+        qnaVelocity: number;
+        sessionName: string;
+      }
+    > = {};
+
+    for (let i = 0; i < sessionIds.length; i++) {
+      const sessionId = sessionIds[i];
+      const rawName = sessionNames.get(sessionId);
+      // Use a friendly name if the actual name looks like an ID
+      const friendlyName = isIdLikeName(rawName)
+        ? `Session ${i + 1}`
+        : rawName;
+
       heatmapData[sessionId] = {
         heat: parseInt(heatScores[sessionId] || '0', 10),
+        uniqueEngagers: uniqueEngagers[sessionId] || 0,
         chatVelocity: chatVelocities[sessionId] || 0,
         qnaVelocity: qnaVelocities[sessionId] || 0,
+        sessionName: friendlyName!,
       };
     }
 
@@ -100,6 +147,36 @@ export class HeatmapService {
       sessionHeat: heatmapData,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Fetches unique engager counts for multiple sessions using Redis SCARD.
+   */
+  private async _getUniqueEngagerCounts(
+    sessionIds: string[],
+  ): Promise<Record<string, number>> {
+    if (sessionIds.length === 0) return {};
+
+    const pipeline = this.redis.multi();
+    for (const sessionId of sessionIds) {
+      pipeline.scard(`heatmap:engagers:${sessionId}`);
+    }
+
+    const results = await pipeline.exec();
+    const counts: Record<string, number> = {};
+
+    if (results) {
+      for (let i = 0; i < sessionIds.length; i++) {
+        const result = results[i];
+        if (result && !result[0] && typeof result[1] === 'number') {
+          counts[sessionIds[i]] = result[1];
+        } else {
+          counts[sessionIds[i]] = 0;
+        }
+      }
+    }
+
+    return counts;
   }
 
   /**

@@ -191,7 +191,7 @@ export class PollsService {
       // --- HEATMAP TRACKING (uses Pub/Sub, not Streams) ---
       void this.redis.publish(
         'heatmap-events',
-        JSON.stringify({ sessionId: pollSessionId }),
+        JSON.stringify({ sessionId: pollSessionId, userId }),
       );
 
       try {
