@@ -41,6 +41,13 @@ from app.models.ad_event import AdEvent
 from app.models.monetization_event import MonetizationEvent
 from app.models.ab_test import ABTest, ABTestEvent
 
+# Sponsor models - order matters for relationships
+from app.models.sponsor_tier import SponsorTier
+from app.models.sponsor import Sponsor
+from app.models.sponsor_user import SponsorUser
+from app.models.sponsor_invitation import SponsorInvitation
+from app.models.sponsor_lead import SponsorLead
+
 __all__ = [
     "Base",
     "Event",
@@ -76,4 +83,9 @@ __all__ = [
     "MonetizationEvent",
     "ABTest",
     "ABTestEvent",
+    "SponsorTier",
+    "Sponsor",
+    "SponsorUser",
+    "SponsorInvitation",
+    "SponsorLead",
 ]

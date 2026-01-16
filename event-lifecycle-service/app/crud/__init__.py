@@ -24,3 +24,12 @@ from .crud_refund import refund
 from .crud_webhook_event import webhook_event
 from .crud_audit_log import audit_log
 from .crud_offer_purchase import offer_purchase
+
+# Sponsor-related CRUD operations
+from .crud_sponsor import (
+    sponsor,
+    sponsor_tier,
+    sponsor_user,
+    sponsor_invitation,
+    sponsor_lead,
+)

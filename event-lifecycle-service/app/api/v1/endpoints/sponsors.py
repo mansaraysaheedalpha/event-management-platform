@@ -1,0 +1,623 @@
+# app/api/v1/endpoints/sponsors.py
+"""
+API endpoints for sponsor management.
+
+These endpoints allow organizers to:
+- Create and manage sponsor tiers
+- Add and manage sponsors for events
+- Invite sponsor representatives
+- View and manage sponsor leads
+
+And allow sponsor representatives to:
+- View their leads
+- Export lead data
+- Manage their booth
+"""
+
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from sqlalchemy.orm import Session
+import logging
+
+from app.api import deps
+from app.db.session import get_db
+from app.main import limiter
+from app.crud.crud_sponsor import (
+    sponsor_tier, sponsor, sponsor_user,
+    sponsor_invitation, sponsor_lead
+)
+from app.schemas.sponsor import (
+    SponsorTierCreate, SponsorTierUpdate, SponsorTierResponse,
+    SponsorCreate, SponsorUpdate, SponsorResponse, SponsorWithTierResponse,
+    SponsorUserCreate, SponsorUserUpdate, SponsorUserResponse,
+    SponsorInvitationCreate, SponsorInvitationResponse, AcceptInvitationRequest,
+    SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
+)
+from app.schemas.token import TokenPayload
+
+router = APIRouter(tags=["Sponsors"])
+logger = logging.getLogger(__name__)
+
+
+# ==================== Sponsor Tier Endpoints ====================
+
+@router.post(
+    "/organizations/{org_id}/events/{event_id}/sponsor-tiers",
+    response_model=SponsorTierResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_sponsor_tier(
+    org_id: str,
+    event_id: str,
+    tier_in: SponsorTierCreate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Create a new sponsor tier for an event."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor_tier.create_tier(
+        db, tier_in=tier_in, event_id=event_id, organization_id=org_id
+    )
+
+
+@router.post(
+    "/organizations/{org_id}/events/{event_id}/sponsor-tiers/defaults",
+    response_model=List[SponsorTierResponse],
+    status_code=status.HTTP_201_CREATED
+)
+def create_default_tiers(
+    org_id: str,
+    event_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Create default sponsor tiers (Platinum, Gold, Silver, Bronze) for an event."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Check if tiers already exist
+    existing = sponsor_tier.get_by_event(db, event_id=event_id, active_only=False)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sponsor tiers already exist for this event"
+        )
+
+    return sponsor_tier.create_default_tiers(db, event_id=event_id, organization_id=org_id)
+
+
+@router.get(
+    "/organizations/{org_id}/events/{event_id}/sponsor-tiers",
+    response_model=List[SponsorTierResponse]
+)
+def list_sponsor_tiers(
+    org_id: str,
+    event_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """List all sponsor tiers for an event."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor_tier.get_by_event(db, event_id=event_id)
+
+
+@router.patch(
+    "/organizations/{org_id}/sponsor-tiers/{tier_id}",
+    response_model=SponsorTierResponse
+)
+def update_sponsor_tier(
+    org_id: str,
+    tier_id: str,
+    tier_update: SponsorTierUpdate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Update a sponsor tier."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    tier = sponsor_tier.get(db, id=tier_id)
+    if not tier or tier.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tier not found")
+
+    return sponsor_tier.update(db, db_obj=tier, obj_in=tier_update)
+
+
+# ==================== Sponsor Endpoints ====================
+
+@router.post(
+    "/organizations/{org_id}/events/{event_id}/sponsors",
+    response_model=SponsorResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_sponsor(
+    org_id: str,
+    event_id: str,
+    sponsor_in: SponsorCreate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Add a new sponsor to an event."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Validate tier if provided
+    if sponsor_in.tier_id:
+        tier = sponsor_tier.get(db, id=sponsor_in.tier_id)
+        if not tier or tier.event_id != event_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid tier for this event"
+            )
+
+    return sponsor.create_sponsor(
+        db, sponsor_in=sponsor_in, event_id=event_id, organization_id=org_id
+    )
+
+
+@router.get(
+    "/organizations/{org_id}/events/{event_id}/sponsors",
+    response_model=List[SponsorWithTierResponse]
+)
+def list_sponsors(
+    org_id: str,
+    event_id: str,
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """List all sponsors for an event."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor.get_by_event(
+        db, event_id=event_id, include_archived=include_archived, include_tier=True
+    )
+
+
+@router.get(
+    "/organizations/{org_id}/sponsors/{sponsor_id}",
+    response_model=SponsorWithTierResponse
+)
+def get_sponsor(
+    org_id: str,
+    sponsor_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Get a specific sponsor."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_obj = sponsor.get_with_tier(db, sponsor_id=sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    return sponsor_obj
+
+
+@router.patch(
+    "/organizations/{org_id}/sponsors/{sponsor_id}",
+    response_model=SponsorResponse
+)
+def update_sponsor(
+    org_id: str,
+    sponsor_id: str,
+    sponsor_update: SponsorUpdate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Update a sponsor."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    return sponsor.update(db, db_obj=sponsor_obj, obj_in=sponsor_update)
+
+
+@router.delete(
+    "/organizations/{org_id}/sponsors/{sponsor_id}",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+def archive_sponsor(
+    org_id: str,
+    sponsor_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Archive (soft delete) a sponsor."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    sponsor.archive(db, id=sponsor_id)
+
+
+# ==================== Sponsor Invitation Endpoints ====================
+
+@router.post(
+    "/organizations/{org_id}/sponsors/{sponsor_id}/invitations",
+    response_model=SponsorInvitationResponse,
+    status_code=status.HTTP_201_CREATED
+)
+@limiter.limit("10/minute")  # Rate limit: 10 invitations per minute per IP
+def invite_sponsor_representative(
+    request: Request,  # Required for rate limiter
+    org_id: str,
+    sponsor_id: str,
+    invitation_in: SponsorInvitationCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Invite a user to be a sponsor representative."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Check for existing pending invitation
+    existing = sponsor_invitation.get_pending_by_email(
+        db, email=invitation_in.email, sponsor_id=sponsor_id
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An invitation is already pending for this email"
+        )
+
+    # Check max representatives limit
+    if sponsor_obj.tier:
+        current_count = sponsor_user.count_by_sponsor(db, sponsor_id=sponsor_id)
+        pending_count = len(sponsor_invitation.get_by_sponsor(db, sponsor_id=sponsor_id, status='pending'))
+        if current_count + pending_count >= sponsor_obj.tier.max_representatives:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Maximum representatives ({sponsor_obj.tier.max_representatives}) reached"
+            )
+
+    invitation = sponsor_invitation.create_invitation(
+        db,
+        invitation_in=invitation_in,
+        sponsor_id=sponsor_id,
+        invited_by_user_id=current_user.sub
+    )
+
+    # TODO: Send invitation email in background
+    # background_tasks.add_task(send_sponsor_invitation_email, invitation, sponsor_obj)
+
+    logger.info(f"Sponsor invitation created: {invitation.id} for {invitation.email}")
+    return invitation
+
+
+@router.get(
+    "/organizations/{org_id}/sponsors/{sponsor_id}/invitations",
+    response_model=List[SponsorInvitationResponse]
+)
+def list_invitations(
+    org_id: str,
+    sponsor_id: str,
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """List all invitations for a sponsor."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor_invitation.get_by_sponsor(db, sponsor_id=sponsor_id, status=status_filter)
+
+
+@router.delete(
+    "/organizations/{org_id}/invitations/{invitation_id}",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+def revoke_invitation(
+    org_id: str,
+    invitation_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Revoke a pending invitation."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    invitation = sponsor_invitation.get(db, id=invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+
+    # Verify organization owns this invitation's sponsor
+    sponsor_obj = sponsor.get(db, id=invitation.sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_invitation.revoke_invitation(db, invitation_id=invitation_id)
+
+
+# ==================== Invitation Acceptance (Public) ====================
+
+@router.post("/sponsor-invitations/accept", response_model=SponsorUserResponse)
+def accept_invitation(
+    request: AcceptInvitationRequest,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Accept a sponsor invitation.
+    The logged-in user becomes a representative for the sponsor.
+    """
+    invitation = sponsor_invitation.get_by_token(db, token=request.token)
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid invitation token")
+
+    if invitation.status != 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invitation is {invitation.status}"
+        )
+
+    from datetime import datetime, timezone
+    if invitation.expires_at < datetime.now(timezone.utc):
+        sponsor_invitation.accept_invitation  # Mark as expired
+        invitation.status = 'expired'
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired")
+
+    # Check if user is already a representative
+    existing = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=invitation.sponsor_id
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You are already a representative for this sponsor"
+        )
+
+    # Create sponsor user relationship
+    sponsor_user_in = SponsorUserCreate(
+        user_id=current_user.sub,
+        role=invitation.role,
+        can_view_leads=invitation.can_view_leads,
+        can_export_leads=invitation.can_export_leads,
+        can_message_attendees=invitation.can_message_attendees,
+        can_manage_booth=invitation.can_manage_booth,
+        can_invite_others=invitation.can_invite_others,
+    )
+
+    new_sponsor_user = sponsor_user.create_sponsor_user(
+        db, user_in=sponsor_user_in, sponsor_id=invitation.sponsor_id
+    )
+
+    # Mark invitation as accepted
+    sponsor_invitation.accept_invitation(db, invitation=invitation, user_id=current_user.sub)
+
+    logger.info(f"User {current_user.sub} accepted sponsor invitation {invitation.id}")
+    return new_sponsor_user
+
+
+# ==================== Sponsor User Endpoints ====================
+
+@router.get(
+    "/organizations/{org_id}/sponsors/{sponsor_id}/users",
+    response_model=List[SponsorUserResponse]
+)
+def list_sponsor_users(
+    org_id: str,
+    sponsor_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """List all representatives for a sponsor."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor_user.get_by_sponsor(db, sponsor_id=sponsor_id)
+
+
+@router.patch(
+    "/organizations/{org_id}/sponsor-users/{sponsor_user_id}",
+    response_model=SponsorUserResponse
+)
+def update_sponsor_user(
+    org_id: str,
+    sponsor_user_id: str,
+    user_update: SponsorUserUpdate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Update a sponsor representative's permissions."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    su = sponsor_user.get(db, id=sponsor_user_id)
+    if not su:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor user not found")
+
+    # Verify organization owns this sponsor
+    sponsor_obj = sponsor.get(db, id=su.sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor_user.update(db, db_obj=su, obj_in=user_update)
+
+
+@router.delete(
+    "/organizations/{org_id}/sponsor-users/{sponsor_user_id}",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+def remove_sponsor_user(
+    org_id: str,
+    sponsor_user_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Remove a representative from a sponsor."""
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    su = sponsor_user.get(db, id=sponsor_user_id)
+    if not su:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor user not found")
+
+    sponsor_obj = sponsor.get(db, id=su.sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    su.is_active = False
+    db.commit()
+
+
+# ==================== Sponsor Lead Endpoints (For Sponsors) ====================
+
+@router.get("/my-sponsors", response_model=List[SponsorResponse])
+def get_my_sponsors(
+    event_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Get all sponsors the current user represents."""
+    return sponsor.get_by_user(db, user_id=current_user.sub, event_id=event_id)
+
+
+@router.get("/sponsors/{sponsor_id}/leads", response_model=List[SponsorLeadResponse])
+def get_sponsor_leads(
+    sponsor_id: str,
+    intent_level: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Get leads for a sponsor (for sponsor representatives)."""
+    # Verify user is a sponsor representative with view permission
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active or not su.can_view_leads:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view leads")
+
+    # Update last active
+    sponsor_user.update_last_active(db, sponsor_user_id=su.id)
+
+    return sponsor_lead.get_by_sponsor(
+        db, sponsor_id=sponsor_id, intent_level=intent_level, skip=skip, limit=limit
+    )
+
+
+@router.get("/sponsors/{sponsor_id}/leads/stats", response_model=SponsorStats)
+def get_sponsor_lead_stats(
+    sponsor_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Get lead statistics for a sponsor."""
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active or not su.can_view_leads:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return sponsor_lead.get_stats(db, sponsor_id=sponsor_id)
+
+
+@router.patch("/sponsors/{sponsor_id}/leads/{lead_id}", response_model=SponsorLeadResponse)
+def update_lead_follow_up(
+    sponsor_id: str,
+    lead_id: str,
+    lead_update: SponsorLeadUpdate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Update a lead's follow-up status."""
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active or not su.can_view_leads:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    lead = sponsor_lead.get(db, id=lead_id)
+    if not lead or lead.sponsor_id != sponsor_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
+
+    if lead_update.follow_up_status:
+        return sponsor_lead.update_follow_up(
+            db,
+            lead_id=lead_id,
+            status=lead_update.follow_up_status,
+            notes=lead_update.follow_up_notes,
+            user_id=current_user.sub
+        )
+
+    return sponsor_lead.update(db, db_obj=lead, obj_in=lead_update)
+
+
+# ==================== Lead Capture Endpoint (For Events Service) ====================
+
+@router.post(
+    "/events/{event_id}/sponsors/{sponsor_id}/capture-lead",
+    response_model=SponsorLeadResponse,
+    status_code=status.HTTP_201_CREATED
+)
+@limiter.limit("30/minute")  # Rate limit: 30 lead captures per minute per IP
+def capture_lead(
+    request: Request,  # Required for rate limiter
+    event_id: str,
+    sponsor_id: str,
+    lead_in: SponsorLeadCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[TokenPayload] = Depends(deps.get_current_user_optional),
+    internal_api_key: Optional[str] = Depends(deps.get_internal_api_key_optional),
+):
+    """
+    Capture a lead for a sponsor.
+    Called when an attendee interacts with a sponsor (booth visit, content download, etc.)
+
+    Security: Requires either user authentication OR internal API key.
+    - If user authenticated: user_id in request must match the authenticated user
+    - If internal API key: trusted service-to-service call
+    """
+    # Security check: require either user auth or internal API key
+    if not current_user and not internal_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+
+    # If user is authenticated, verify they can only capture leads for themselves
+    if current_user and not internal_api_key:
+        if lead_in.user_id != current_user.sub:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot capture leads for other users"
+            )
+
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj or sponsor_obj.event_id != event_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    if not sponsor_obj.lead_capture_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lead capture is disabled for this sponsor"
+        )
+
+    lead = sponsor_lead.capture_lead(
+        db, lead_in=lead_in, sponsor_id=sponsor_id, event_id=event_id
+    )
+
+    # TODO: Emit real-time event for sponsor dashboard
+    # TODO: Send email notification if configured
+
+    return lead

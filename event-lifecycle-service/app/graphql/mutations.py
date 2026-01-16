@@ -70,6 +70,21 @@ from .offer_mutations import (
     OfferUpdateInput,
     OfferPurchaseResponse,
 )
+from .sponsor_mutations import SponsorMutations
+from .sponsor_types import (
+    SponsorTierType,
+    SponsorTierCreateInput,
+    SponsorTierUpdateInput,
+    SponsorType,
+    SponsorCreateInput,
+    SponsorUpdateInput,
+    SponsorInvitationType,
+    SponsorInvitationCreateInput,
+    SponsorInvitationAcceptResponse,
+    SponsorUserType,
+    SponsorLeadType,
+    SponsorLeadUpdateInput,
+)
 
 
 # ==== VIRTUAL EVENT ENUMS FOR INPUT (Phase 1) ====
@@ -1389,3 +1404,140 @@ class Mutation:
         """
         om = OfferMutations()
         return await om.purchase_offer(offerId, quantity, info)
+
+    # --- SPONSOR MUTATIONS ---
+
+    @strawberry.mutation
+    def createSponsorTier(
+        self, eventId: str, input: SponsorTierCreateInput, info: Info
+    ) -> SponsorTierType:
+        """Create a new sponsor tier for an event."""
+        sm = SponsorMutations()
+        return sm.create_sponsor_tier(eventId, input, info)
+
+    @strawberry.mutation
+    def updateSponsorTier(
+        self, tierId: str, input: SponsorTierUpdateInput, info: Info
+    ) -> SponsorTierType:
+        """Update a sponsor tier."""
+        sm = SponsorMutations()
+        return sm.update_sponsor_tier(tierId, input, info)
+
+    @strawberry.mutation
+    def deleteSponsorTier(self, tierId: str, info: Info) -> bool:
+        """Delete a sponsor tier."""
+        sm = SponsorMutations()
+        return sm.delete_sponsor_tier(tierId, info)
+
+    @strawberry.mutation
+    def createSponsor(
+        self, eventId: str, input: SponsorCreateInput, info: Info
+    ) -> SponsorType:
+        """Create a new sponsor for an event."""
+        sm = SponsorMutations()
+        return sm.create_sponsor(eventId, input, info)
+
+    @strawberry.mutation
+    def updateSponsor(
+        self, sponsorId: str, input: SponsorUpdateInput, info: Info
+    ) -> SponsorType:
+        """Update a sponsor."""
+        sm = SponsorMutations()
+        return sm.update_sponsor(sponsorId, input, info)
+
+    @strawberry.mutation
+    def archiveSponsor(self, sponsorId: str, info: Info) -> SponsorType:
+        """Archive a sponsor."""
+        sm = SponsorMutations()
+        return sm.archive_sponsor(sponsorId, info)
+
+    @strawberry.mutation
+    def restoreSponsor(self, sponsorId: str, info: Info) -> SponsorType:
+        """Restore an archived sponsor."""
+        sm = SponsorMutations()
+        return sm.restore_sponsor(sponsorId, info)
+
+    @strawberry.mutation
+    def createSponsorInvitation(
+        self, sponsorId: str, input: SponsorInvitationCreateInput, info: Info
+    ) -> SponsorInvitationType:
+        """Create and send an invitation to join a sponsor team."""
+        sm = SponsorMutations()
+        return sm.create_sponsor_invitation(sponsorId, input, info)
+
+    @strawberry.mutation
+    def resendSponsorInvitation(
+        self, invitationId: str, info: Info
+    ) -> SponsorInvitationType:
+        """Resend a pending invitation."""
+        sm = SponsorMutations()
+        return sm.resend_sponsor_invitation(invitationId, info)
+
+    @strawberry.mutation
+    def revokeSponsorInvitation(self, invitationId: str, info: Info) -> bool:
+        """Revoke a pending invitation."""
+        sm = SponsorMutations()
+        return sm.revoke_sponsor_invitation(invitationId, info)
+
+    @strawberry.mutation
+    def acceptSponsorInvitation(
+        self, token: str, info: Info
+    ) -> SponsorInvitationAcceptResponse:
+        """Accept a sponsor invitation using the token."""
+        sm = SponsorMutations()
+        return sm.accept_sponsor_invitation(token, info)
+
+    @strawberry.mutation
+    def updateSponsorUser(
+        self,
+        sponsorUserId: str,
+        info: Info,
+        role: Optional[str] = None,
+        canViewLeads: Optional[bool] = None,
+        canExportLeads: Optional[bool] = None,
+        canMessageAttendees: Optional[bool] = None,
+        canManageBooth: Optional[bool] = None,
+        canInviteOthers: Optional[bool] = None,
+        isActive: Optional[bool] = None,
+    ) -> SponsorUserType:
+        """Update a sponsor user's permissions."""
+        sm = SponsorMutations()
+        return sm.update_sponsor_user(
+            sponsorUserId,
+            role=role,
+            can_view_leads=canViewLeads,
+            can_export_leads=canExportLeads,
+            can_message_attendees=canMessageAttendees,
+            can_manage_booth=canManageBooth,
+            can_invite_others=canInviteOthers,
+            is_active=isActive,
+            info=info
+        )
+
+    @strawberry.mutation
+    def removeSponsorUser(self, sponsorUserId: str, info: Info) -> bool:
+        """Remove a user from a sponsor team."""
+        sm = SponsorMutations()
+        return sm.remove_sponsor_user(sponsorUserId, info)
+
+    @strawberry.mutation
+    def updateSponsorLead(
+        self, leadId: str, input: SponsorLeadUpdateInput, info: Info
+    ) -> SponsorLeadType:
+        """Update a sponsor lead."""
+        sm = SponsorMutations()
+        return sm.update_sponsor_lead(leadId, input, info)
+
+    @strawberry.mutation
+    def starSponsorLead(
+        self, leadId: str, starred: bool, info: Info
+    ) -> SponsorLeadType:
+        """Star or unstar a lead."""
+        sm = SponsorMutations()
+        return sm.star_sponsor_lead(leadId, starred, info)
+
+    @strawberry.mutation
+    def archiveSponsorLead(self, leadId: str, info: Info) -> SponsorLeadType:
+        """Archive a lead."""
+        sm = SponsorMutations()
+        return sm.archive_sponsor_lead(leadId, info)

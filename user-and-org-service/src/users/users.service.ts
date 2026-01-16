@@ -310,4 +310,63 @@ export class UsersService {
     }
     return user;
   }
+
+  /**
+   * Link a user to a sponsor by setting their sponsorId.
+   * Called when a user accepts a sponsor invitation.
+   * This enables sponsor permissions in their JWT token.
+   */
+  async linkUserToSponsor(userId: string, sponsorId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { sponsorId },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        sponsorId: true,
+      },
+    });
+
+    this.logger.log(`User ${userId} linked to sponsor ${sponsorId}`);
+    return updatedUser;
+  }
+
+  /**
+   * Remove a user's sponsor link.
+   * Called when a user is removed from a sponsor team.
+   */
+  async unlinkUserFromSponsor(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { sponsorId: null },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        sponsorId: true,
+      },
+    });
+
+    this.logger.log(`User ${userId} unlinked from sponsor`);
+    return updatedUser;
+  }
 }

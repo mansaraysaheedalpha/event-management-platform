@@ -74,6 +74,17 @@ from .waitlist_types import (
     EventWaitlistAnalyticsType,
 )
 from .waitlist_queries import WaitlistQuery
+from .sponsor_queries import SponsorQueries
+from .sponsor_types import (
+    SponsorTierType,
+    SponsorType,
+    SponsorWithTierType,
+    SponsorUserType,
+    SponsorInvitationType,
+    SponsorLeadType,
+    SponsorStatsType,
+    SponsorsListResponse,
+)
 
 
 @strawberry.type
@@ -1301,3 +1312,147 @@ class Query:
             totalOrganizations=total_orgs,
             uptimePercentage=uptime_percentage
         )
+
+    # --- SPONSOR QUERIES ---
+
+    @strawberry.field
+    def eventSponsorTiers(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[SponsorTierType]:
+        """Get all sponsor tiers for an event."""
+        sq = SponsorQueries()
+        return sq.event_sponsor_tiers(str(eventId), info)
+
+    @strawberry.field
+    def sponsorTier(
+        self, tierId: strawberry.ID, info: Info
+    ) -> Optional[SponsorTierType]:
+        """Get a single sponsor tier by ID."""
+        sq = SponsorQueries()
+        return sq.sponsor_tier(str(tierId), info)
+
+    @strawberry.field
+    def eventSponsors(
+        self,
+        eventId: strawberry.ID,
+        info: Info,
+        includeArchived: bool = False,
+        tierId: Optional[strawberry.ID] = None
+    ) -> SponsorsListResponse:
+        """Get all sponsors for an event."""
+        sq = SponsorQueries()
+        tier_id_str = str(tierId) if tierId else None
+        return sq.event_sponsors(str(eventId), info, includeArchived, tier_id_str)
+
+    @strawberry.field
+    def sponsor(
+        self, sponsorId: strawberry.ID, info: Info
+    ) -> Optional[SponsorType]:
+        """Get a single sponsor by ID."""
+        sq = SponsorQueries()
+        return sq.sponsor(str(sponsorId), info)
+
+    @strawberry.field
+    def sponsorWithTier(
+        self, sponsorId: strawberry.ID, info: Info
+    ) -> Optional[SponsorWithTierType]:
+        """Get a sponsor with its tier information."""
+        sq = SponsorQueries()
+        return sq.sponsor_with_tier(str(sponsorId), info)
+
+    @strawberry.field
+    def mySponsors(self, info: Info) -> List[SponsorType]:
+        """Get sponsors where the current user is a team member."""
+        sq = SponsorQueries()
+        return sq.my_sponsors(info)
+
+    @strawberry.field
+    def sponsorUsers(
+        self, sponsorId: strawberry.ID, info: Info
+    ) -> List[SponsorUserType]:
+        """Get all users for a sponsor."""
+        sq = SponsorQueries()
+        return sq.sponsor_users(str(sponsorId), info)
+
+    @strawberry.field
+    def mySponsorMembership(
+        self, sponsorId: strawberry.ID, info: Info
+    ) -> Optional[SponsorUserType]:
+        """Get the current user's membership for a sponsor."""
+        sq = SponsorQueries()
+        return sq.my_sponsor_membership(str(sponsorId), info)
+
+    @strawberry.field
+    def sponsorInvitations(
+        self,
+        sponsorId: strawberry.ID,
+        info: Info,
+        status: Optional[str] = None
+    ) -> List[SponsorInvitationType]:
+        """Get all invitations for a sponsor."""
+        sq = SponsorQueries()
+        return sq.sponsor_invitations(str(sponsorId), info, status)
+
+    @strawberry.field
+    def validateSponsorInvitation(
+        self, token: str, info: Info
+    ) -> Optional[SponsorInvitationType]:
+        """Validate an invitation token and return invitation details."""
+        sq = SponsorQueries()
+        return sq.validate_sponsor_invitation(token, info)
+
+    @strawberry.field
+    def sponsorLeads(
+        self,
+        sponsorId: strawberry.ID,
+        info: Info,
+        intentLevel: Optional[str] = None,
+        followUpStatus: Optional[str] = None,
+        isStarred: Optional[bool] = None,
+        includeArchived: bool = False,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[SponsorLeadType]:
+        """Get leads for a sponsor."""
+        sq = SponsorQueries()
+        return sq.sponsor_leads(
+            str(sponsorId), info,
+            intent_level=intentLevel,
+            follow_up_status=followUpStatus,
+            is_starred=isStarred,
+            include_archived=includeArchived,
+            limit=limit,
+            offset=offset
+        )
+
+    @strawberry.field
+    def sponsorLead(
+        self, leadId: strawberry.ID, info: Info
+    ) -> Optional[SponsorLeadType]:
+        """Get a single lead by ID."""
+        sq = SponsorQueries()
+        return sq.sponsor_lead(str(leadId), info)
+
+    @strawberry.field
+    def sponsorStats(
+        self, sponsorId: strawberry.ID, info: Info
+    ) -> SponsorStatsType:
+        """Get statistics for a sponsor's leads."""
+        sq = SponsorQueries()
+        return sq.sponsor_stats(str(sponsorId), info)
+
+    @strawberry.field
+    def publicEventSponsors(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[SponsorType]:
+        """Get public sponsor list for an event (attendee view)."""
+        sq = SponsorQueries()
+        return sq.public_event_sponsors(str(eventId), info)
+
+    @strawberry.field
+    def publicSponsor(
+        self, sponsorId: strawberry.ID, info: Info
+    ) -> Optional[SponsorType]:
+        """Get public sponsor details (attendee view)."""
+        sq = SponsorQueries()
+        return sq.public_sponsor(str(sponsorId), info)

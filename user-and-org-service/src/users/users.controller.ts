@@ -81,4 +81,5 @@ export class UsersController {
   finalizeEmailChange(@Param('token') token: string) {
     return this.usersService.finalizeEmailChange(token);
   }
+
 }

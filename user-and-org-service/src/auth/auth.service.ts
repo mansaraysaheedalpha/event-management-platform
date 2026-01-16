@@ -398,6 +398,12 @@ export class AuthService {
       additionalPermissions.push('heatmap:read', 'sponsor:leads:read');
     }
 
+    // Sponsor lead access for sponsor representatives
+    // Users with a sponsorId are sponsor representatives and can view their leads
+    if (user.sponsorId) {
+      additionalPermissions.push('sponsor:leads:read');
+    }
+
     const accessTokenPayload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -447,10 +453,17 @@ export class AuthService {
 
     // Attendee JWT payload - no orgId, no role, minimal permissions
     // Note: Basic actions (send/edit/delete own messages) are allowed by default - no permissions needed
+    const attendeePermissions: string[] = [];
+
+    // Sponsor representatives (attendees with sponsorId) can view their leads
+    if (user.sponsorId) {
+      attendeePermissions.push('sponsor:leads:read');
+    }
+
     const accessTokenPayload: Omit<JwtPayload, 'orgId' | 'role' | 'orgRequires2FA'> = {
       sub: user.id,
       email: user.email,
-      permissions: [],
+      permissions: attendeePermissions,
       tier: (user.tier as 'default' | 'vip') || 'default',
       preferredLanguage: user.preferredLanguage || 'en',
       sponsorId: user.sponsorId || undefined,
