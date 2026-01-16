@@ -1,7 +1,7 @@
 """Create sponsor management tables
 
 Revision ID: sp001_sponsor_tables
-Revises: v001_virtual_events
+Revises: v001_add_virtual_event_support
 Create Date: 2025-01-16
 
 This migration creates all tables needed for sponsor management:
@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import JSON
 
 # revision identifiers, used by Alembic.
 revision = 'sp001_sponsor_tables'
-down_revision = 'v001_virtual_events'
+down_revision = 'v001_add_virtual_event_support'
 branch_labels = None
 depends_on = None
 
