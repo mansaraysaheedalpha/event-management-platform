@@ -50,7 +50,7 @@ class GitHubProfileFetcher:
         if self._http_client is None or self._http_client.is_closed:
             headers = {
                 "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "GlobalConnect-Profile-Enrichment",
+                "User-Agent": "Event-Dynamics-Profile-Enrichment",
             }
 
             # Add auth token if available (increases rate limit)

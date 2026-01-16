@@ -44,7 +44,7 @@ export class TwoFactorService {
 
     const secret = speakeasy.generateSecret({
       name: user.email,
-      issuer: 'GlobalConnect',
+      issuer: 'Event Dynamics',
     });
 
     const otpAuthUrl = secret.otpauth_url;

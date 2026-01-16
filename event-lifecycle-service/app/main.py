@@ -36,10 +36,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="GlobalConnect Event-Lifecycle Microservice",
+    title="Event Dynamics Event-Lifecycle Microservice",
     version="1.0.0",
     description="""
-        🚀 **GlobalConnect Event Management Service**
+        🚀 **Event Dynamics Event Management Service**
 
         The core orchestrator for intelligent event management.
 

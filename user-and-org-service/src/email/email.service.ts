@@ -64,7 +64,7 @@ export class EmailService {
     for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
       try {
         const { data, error } = await this.resend.emails.send({
-          from: `GlobalConnect <${this.fromEmail}>`,
+          from: `Event Dynamics <${this.fromEmail}>`,
           to: options.to,
           subject: options.subject,
           html: options.html,
@@ -134,7 +134,7 @@ export class EmailService {
             <h2 style="color: #18181b; margin: 0 0 24px 0; font-size: 24px;">Password Reset Request</h2>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${firstName || 'there'},</p>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-              We received a request to reset your password for your <strong>GlobalConnect</strong> account.
+              We received a request to reset your password for your <strong>Event Dynamics</strong> account.
             </p>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
               Click the button below to set a new password:
@@ -149,7 +149,7 @@ export class EmailService {
               If you didn't request a password reset, please ignore this email or contact support.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -158,7 +158,7 @@ export class EmailService {
 
     return this.sendEmail({
       to,
-      subject: 'Reset Your Password - GlobalConnect',
+      subject: 'Reset Your Password - Event Dynamics',
       html,
     });
   }
@@ -193,7 +193,7 @@ export class EmailService {
               This link expires in <strong>15 minutes</strong>. If you didn't request this change, please ignore this email.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -202,7 +202,7 @@ export class EmailService {
 
     return this.sendEmail({
       to,
-      subject: 'Confirm Your Email Change Request - GlobalConnect',
+      subject: 'Confirm Your Email Change Request - Event Dynamics',
       html,
     });
   }
@@ -224,7 +224,7 @@ export class EmailService {
           <div style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
             <h2 style="color: #18181b; margin: 0 0 24px 0; font-size: 24px;">Finalize Your Email Address Change</h2>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-              Please click the button below to make <strong>${to}</strong> your new login email for GlobalConnect.
+              Please click the button below to make <strong>${to}</strong> your new login email for Event Dynamics.
             </p>
             <div style="text-align: center; margin: 32px 0;">
               <a href="${finalUrl}" target="_blank" style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">Finalize Change</a>
@@ -233,7 +233,7 @@ export class EmailService {
               This link expires in <strong>15 minutes</strong>.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -242,7 +242,7 @@ export class EmailService {
 
     return this.sendEmail({
       to,
-      subject: 'Finalize Your Email Address Change - GlobalConnect',
+      subject: 'Finalize Your Email Address Change - Event Dynamics',
       html,
     });
   }
@@ -285,7 +285,7 @@ export class EmailService {
             <h2 style="color: #18181b; margin: 0 0 24px 0; font-size: 24px;">You've Been Invited!</h2>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi there,</p>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-              <strong>${inviterName}</strong> has invited you to join their organization <strong>${organizationName}</strong> on <strong>GlobalConnect</strong>.
+              <strong>${inviterName}</strong> has invited you to join their organization <strong>${organizationName}</strong> on <strong>Event Dynamics</strong>.
             </p>
             ${roleSection}
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
@@ -301,7 +301,7 @@ export class EmailService {
               If you weren't expecting this invitation, you can safely ignore this email.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -310,7 +310,7 @@ export class EmailService {
 
     return this.sendEmail({
       to,
-      subject: `You're Invited to Join ${organizationName} on GlobalConnect`,
+      subject: `You're Invited to Join ${organizationName} on Event Dynamics`,
       html,
     });
   }
@@ -346,7 +346,7 @@ export class EmailService {
               This restore link is valid until the deletion date.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -377,7 +377,7 @@ export class EmailService {
           <div style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
             <h2 style="color: #dc2626; margin: 0 0 24px 0; font-size: 24px;">Organization Permanently Deleted</h2>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-              This is a confirmation that the organization <strong>${orgName}</strong> has been permanently deleted from GlobalConnect.
+              This is a confirmation that the organization <strong>${orgName}</strong> has been permanently deleted from Event Dynamics.
             </p>
             <p style="color: #dc2626; font-size: 14px; line-height: 1.6; margin: 0 0 16px 0; font-weight: 600;">
               This action cannot be undone.
@@ -386,7 +386,7 @@ export class EmailService {
               If you have any questions or believe this was done in error, please contact our support team.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -420,7 +420,7 @@ export class EmailService {
             <h2 style="color: #18181b; margin: 0 0 24px 0; font-size: 24px;">Your Verification Code</h2>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${firstName || 'there'},</p>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-              You requested a backup verification code for your <strong>GlobalConnect</strong> account because you can't access your authenticator app.
+              You requested a backup verification code for your <strong>Event Dynamics</strong> account because you can't access your authenticator app.
             </p>
             <p style="color: #3f3f46; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
               Here is your one-time verification code:
@@ -442,7 +442,7 @@ export class EmailService {
               If you didn't request this code, please secure your account immediately by changing your password.
             </p>
             <hr style="border: none; border-top: 1px solid #e4e4e7; margin: 32px 0;">
-            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The GlobalConnect Team</p>
+            <p style="color: #a1a1aa; font-size: 14px; margin: 0;">— The Event Dynamics Team</p>
           </div>
         </div>
       </body>
@@ -451,7 +451,7 @@ export class EmailService {
 
     return this.sendEmail({
       to,
-      subject: 'Your Verification Code - GlobalConnect',
+      subject: 'Your Verification Code - Event Dynamics',
       html,
     });
   }

@@ -80,7 +80,7 @@ def send_registration_confirmation(
                 <p>Best regards,<br>The Event Team</p>
             </div>
             <div class="footer">
-                <p>This email was sent by GlobalConnect Event Platform</p>
+                <p>This email was sent by Event Dynamics Platform</p>
                 <p>Powered by Infinite Dynamics</p>
             </div>
         </div>
@@ -89,7 +89,7 @@ def send_registration_confirmation(
     """
 
     params = {
-        "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
         "to": [to_email],
         "subject": f"Registration Confirmed: {event_name}",
         "html": html_content,
@@ -234,7 +234,7 @@ def send_giveaway_winner_email(
                 <p>Best regards,<br>The Event Team</p>
             </div>
             <div class="footer">
-                <p>This email was sent by GlobalConnect Event Platform</p>
+                <p>This email was sent by Event Dynamics Platform</p>
                 <p>Powered by Infinite Dynamics</p>
             </div>
         </div>
@@ -245,7 +245,7 @@ def send_giveaway_winner_email(
     subject = f"🎉 You Won! Giveaway Winner at {event_name}"
 
     params = {
-        "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
         "to": [to_email],
         "subject": subject,
         "html": html_content,
@@ -344,7 +344,7 @@ def send_waitlist_offer_email(
                 <p>Best regards,<br>The Event Team</p>
             </div>
             <div class="footer">
-                <p>This email was sent by GlobalConnect Event Platform</p>
+                <p>This email was sent by Event Dynamics Platform</p>
                 <p>Powered by Infinite Dynamics</p>
             </div>
         </div>
@@ -355,7 +355,7 @@ def send_waitlist_offer_email(
     subject = f"🎉 Your Waitlist Spot is Ready: {session_title}"
 
     params = {
-        "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
         "to": [to_email],
         "subject": subject,
         "html": html_content,

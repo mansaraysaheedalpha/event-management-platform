@@ -526,4 +526,4 @@ Expected responses:
 
 ---
 
-*Generated for GlobalConnect Event Management Platform - Oracle AI Service v1.0*
+*Generated for Event Dynamics Platform - Oracle AI Service v1.0*

@@ -2598,7 +2598,7 @@ async onProximityCluster(cluster: ProximityCluster) {
 
 ## Phase 7: Post-Event Value & Retention
 
-> **The Core Problem:** Current event apps are "throwaway" - downloaded before, deleted after. We need to make GlobalConnect valuable BETWEEN events, not just during them.
+> **The Core Problem:** Current event apps are "throwaway" - downloaded before, deleted after. We need to make Event Dynamics valuable BETWEEN events, not just during them.
 
 ### 7.1 The Retention Challenge
 
@@ -3196,7 +3196,7 @@ async function getFirstEventRecommendations(userId: string, eventId: string) {
     sessionSuggestions: await getSuggestedSessionsWithPeers(userId, eventId),
 
     // Explicit messaging for first-timers
-    welcomeMessage: "This is your first GlobalConnect event! Here's how to make the most of it...",
+    welcomeMessage: "This is your first Event Dynamics event! Here's how to make the most of it...",
   };
 }
 ```
@@ -5198,8 +5198,8 @@ async def get_data_processing_info():
     GDPR Article 13/14 - Information about processing.
     """
     return {
-        "data_controller": "GlobalConnect Inc.",
-        "contact": "privacy@globalconnect.example.com",
+        "data_controller": "Event Dynamics Inc.",
+        "contact": "privacy@eventdynamics.example.com",
         "purposes": [
             {
                 "purpose": "Profile enrichment",
@@ -5680,7 +5680,7 @@ Track these to measure effectiveness:
 ```markdown
 # Track A: Backend/AI Services Implementation
 
-You are implementing the AI-powered backend services for GlobalConnect's networking feature. Your track owns `oracle-ai-service` and is responsible for profile enrichment, rate limiting, and analytics.
+You are implementing the AI-powered backend services for Event Dynamics' networking feature. Your track owns `oracle-ai-service` and is responsible for profile enrichment, rate limiting, and analytics.
 
 ## Your Sprints
 - Sprint 2: Profile Enrichment Agent
@@ -5954,7 +5954,7 @@ Begin with Sprint 2, Phase 2 of the specification. Create the enrichment agent f
 ```markdown
 # Track B: Core Features Implementation
 
-You are implementing the core recommendation and frontend features for GlobalConnect's networking system. Your track owns `api-gateway` routes, `globalconnect` frontend, and orchestration logic.
+You are implementing the core recommendation and frontend features for Event Dynamics' networking system. Your track owns `api-gateway` routes, `globalconnect` frontend, and orchestration logic.
 
 ## Your Sprints
 - Sprint 3: LLM Recommendation Engine
@@ -6315,7 +6315,7 @@ Begin with Sprint 3, Phase 3 of the specification. Create the recommendation ser
 ```markdown
 # Track C: Social Features Implementation
 
-You are implementing the real-time social features for GlobalConnect's networking system. Your track owns `real-time-service` WebSocket gateways and social-focused frontend components.
+You are implementing the real-time social features for Event Dynamics' networking system. Your track owns `real-time-service` WebSocket gateways and social-focused frontend components.
 
 ## Your Sprints
 - Sprint 6: Facilitated Huddles

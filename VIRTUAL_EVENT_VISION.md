@@ -1,8 +1,8 @@
-# GlobalConnect Virtual Event Vision Document
+# Event Dynamics Virtual Event Vision Document
 
 ## Executive Summary
 
-This document outlines the strategic vision for transforming GlobalConnect into the premier platform for hosting virtual and hybrid events. By leveraging our existing robust feature set and addressing key gaps, GlobalConnect will deliver immersive, engaging, and seamlessly produced virtual experiences that rival in-person events.
+This document outlines the strategic vision for transforming Event Dynamics into the premier platform for hosting virtual and hybrid events. By leveraging our existing robust feature set and addressing key gaps, Event Dynamics will deliver immersive, engaging, and seamlessly produced virtual experiences that rival in-person events.
 
 ---
 
@@ -10,7 +10,7 @@ This document outlines the strategic vision for transforming GlobalConnect into 
 
 ### Real-Time Service - Existing Features
 
-Based on the current implementation, GlobalConnect already possesses strong foundations for virtual events:
+Based on the current implementation, Event Dynamics already possesses strong foundations for virtual events:
 
 | Feature Category | Current Capabilities |
 |------------------|---------------------|
@@ -745,7 +745,7 @@ Infrastructure:
 
 ### Competitive Differentiation
 
-| Feature | GlobalConnect | Hopin | Zoom Events | Airmeet |
+| Feature | Event Dynamics | Hopin | Zoom Events | Airmeet |
 |---------|--------------|-------|-------------|---------|
 | Native streaming | Planned | Yes | Yes | Yes |
 | Gamification | **Yes** | Limited | No | Limited |
@@ -794,19 +794,19 @@ Infrastructure:
 
 ## Conclusion
 
-GlobalConnect already possesses a robust foundation for virtual events through its real-time engagement features (chat, Q&A, polls, reactions, gamification, networking). The primary gaps are in video streaming infrastructure, virtual-specific UX patterns, and hybrid event support.
+Event Dynamics already possesses a robust foundation for virtual events through its real-time engagement features (chat, Q&A, polls, reactions, gamification, networking). The primary gaps are in video streaming infrastructure, virtual-specific UX patterns, and hybrid event support.
 
-By implementing this roadmap, GlobalConnect will offer:
+By implementing this roadmap, Event Dynamics will offer:
 - **Best-in-class engagement** through existing gamification and interaction features
 - **Professional production quality** through streaming and producer tools
 - **Meaningful networking** through expo halls, breakout rooms, and speed networking
 - **Actionable insights** through deep analytics and AI
 - **True accessibility** making virtual events more inclusive than physical ones
 
-The combination of our unique AI agent capabilities, comprehensive engagement toolkit, and planned virtual features positions GlobalConnect to be the definitive platform for virtual and hybrid events.
+The combination of our unique AI agent capabilities, comprehensive engagement toolkit, and planned virtual features positions Event Dynamics to be the definitive platform for virtual and hybrid events.
 
 ---
 
 *Document Version: 1.0*
 *Last Updated: January 2025*
-*Author: GlobalConnect Product Team*
+*Author: Event Dynamics Product Team*

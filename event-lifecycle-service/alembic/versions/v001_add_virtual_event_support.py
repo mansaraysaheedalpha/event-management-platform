@@ -4,7 +4,7 @@ Revision ID: v001_add_virtual_event_support
 Revises: a006_create_waitlist_analytics
 Create Date: 2026-01-11
 
-This migration adds virtual event support to the GlobalConnect platform:
+This migration adds virtual event support to the Event Dynamics platform:
 - Event type (IN_PERSON, VIRTUAL, HYBRID)
 - Virtual settings JSONB field for events
 - Session type (MAINSTAGE, BREAKOUT, WORKSHOP, NETWORKING, EXPO)

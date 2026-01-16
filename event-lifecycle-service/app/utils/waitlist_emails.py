@@ -144,7 +144,7 @@ def send_waitlist_offer_email(
         <p>Best regards,<br>The {event_name} Team</p>
     </div>
     <div class="footer">
-        <p>GlobalConnect Event Management Platform</p>
+        <p>Event Dynamics Platform</p>
         <p>This email was sent because you joined the waitlist for this session.</p>
     </div>
 </body>
@@ -174,12 +174,12 @@ Best regards,
 The {event_name} Team
 
 ---
-GlobalConnect Event Management Platform
+Event Dynamics Platform
         """
 
         # Send email via Resend
         params = {
-            "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+            "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
             "to": [user_email],
             "subject": f"🎉 Spot Available: {session_title}",
             "html": html_content,
@@ -299,7 +299,7 @@ def send_waitlist_position_update_email(
         <p>Best regards,<br>The {event_name} Team</p>
     </div>
     <div class="footer">
-        <p>GlobalConnect Event Management Platform</p>
+        <p>Event Dynamics Platform</p>
     </div>
 </body>
 </html>
@@ -318,11 +318,11 @@ Best regards,
 The {event_name} Team
 
 ---
-GlobalConnect Event Management Platform
+Event Dynamics Platform
         """
 
         params = {
-            "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+            "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
             "to": [user_email],
             "subject": f"Waitlist Update: You're #{new_position} - {session_title}",
             "html": html_content,
@@ -454,7 +454,7 @@ def send_offer_expiring_soon_email(
         <p>Best regards,<br>The {event_name} Team</p>
     </div>
     <div class="footer">
-        <p>GlobalConnect Event Management Platform</p>
+        <p>Event Dynamics Platform</p>
     </div>
 </body>
 </html>
@@ -478,11 +478,11 @@ Best regards,
 The {event_name} Team
 
 ---
-GlobalConnect Event Management Platform
+Event Dynamics Platform
         """
 
         params = {
-            "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+            "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
             "to": [user_email],
             "subject": f"⏰ URGENT: Your Offer Expires in {minutes_left} Min - {session_title}",
             "html": html_content,

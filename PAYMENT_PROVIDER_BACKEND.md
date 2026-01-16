@@ -1441,7 +1441,7 @@ CRITICAL REQUIREMENTS:
 ### 8.2 PCI-DSS Compliance Requirements
 
 ```yaml
-GlobalConnect Payment Architecture - PCI-DSS Scope Reduction:
+Event Dynamics Payment Architecture - PCI-DSS Scope Reduction:
 
 The system is designed to minimize PCI-DSS scope by:
 
