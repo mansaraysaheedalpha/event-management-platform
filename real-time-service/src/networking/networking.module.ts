@@ -11,6 +11,7 @@ import { LinkedInModule } from './linkedin/linkedin.module';
 import { HuddlesModule } from './huddles/huddles.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { RetentionModule } from './retention/retention.module';
+import { ProfileModule } from './profile/profile.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { RetentionModule } from './retention/retention.module';
     HuddlesModule,
     RecommendationsModule,
     RetentionModule,
+    ProfileModule,
   ],
 })
 export class NetworkingModule {}
