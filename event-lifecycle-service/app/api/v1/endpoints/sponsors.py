@@ -21,7 +21,7 @@ import logging
 
 from app.api import deps
 from app.db.session import get_db
-from app.main import limiter
+from app.core.limiter import limiter
 from app.crud.crud_sponsor import (
     sponsor_tier, sponsor, sponsor_user,
     sponsor_invitation, sponsor_lead

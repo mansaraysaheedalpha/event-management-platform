@@ -1,14 +1,12 @@
 # app/main.py
 from fastapi import FastAPI
-from app.api.v1.api import api_router
 from app.core.config import settings
+from app.core.limiter import limiter  # Import from separate module to avoid circular imports
 from contextlib import asynccontextmanager
 from app.db.base_class import Base
 from app.db.session import engine
-from app.graphql.router import graphql_router
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 
@@ -65,8 +63,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Rate limiter configuration
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiter configuration (imported from app.core.limiter)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -80,6 +77,10 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allow all headers
 )
+
+# Import routers after app is created to avoid circular imports
+from app.api.v1.api import api_router
+from app.graphql.router import graphql_router
 
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(graphql_router, prefix="/graphql")
