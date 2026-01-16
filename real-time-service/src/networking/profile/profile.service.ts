@@ -127,7 +127,17 @@ export class ProfileService {
   /**
    * Calculate profile completeness percentage
    */
-  private calculateCompleteness(data: Partial<CreateProfileDto>): number {
+  private calculateCompleteness(data: {
+    goals?: string[] | null;
+    interests?: string[] | null;
+    bio?: string | null;
+    industry?: string | null;
+    skillsToOffer?: string[] | null;
+    skillsNeeded?: string[] | null;
+    linkedInUrl?: string | null;
+    githubUsername?: string | null;
+    twitterHandle?: string | null;
+  }): number {
     let score = 0;
     const weights = {
       goals: 20, // Most important for matching
@@ -141,14 +151,12 @@ export class ProfileService {
       twitterHandle: 5,
     };
 
-    if (data.goals && data.goals.length > 0) score += weights.goals;
-    if (data.interests && data.interests.length > 0) score += weights.interests;
+    if (data.goals?.length) score += weights.goals;
+    if (data.interests?.length) score += weights.interests;
     if (data.bio) score += weights.bio;
     if (data.industry) score += weights.industry;
-    if (data.skillsToOffer && data.skillsToOffer.length > 0)
-      score += weights.skillsToOffer;
-    if (data.skillsNeeded && data.skillsNeeded.length > 0)
-      score += weights.skillsNeeded;
+    if (data.skillsToOffer?.length) score += weights.skillsToOffer;
+    if (data.skillsNeeded?.length) score += weights.skillsNeeded;
     if (data.linkedInUrl) score += weights.linkedInUrl;
     if (data.githubUsername) score += weights.githubUsername;
     if (data.twitterHandle) score += weights.twitterHandle;
