@@ -206,7 +206,9 @@ export class UsersService {
     });
 
     // D. Send a verification email to the OLD address
-    const verificationUrl = `${this.configService.get('API_BASE_URL')}/users/email-change/verify-old/${rawToken}`;
+    // Handle comma-separated API_BASE_URL (take first one for email links)
+    const apiBaseUrl = (this.configService.get('API_BASE_URL') || '').split(',')[0].trim();
+    const verificationUrl = `${apiBaseUrl}/users/email-change/verify-old/${rawToken}`;
     await this.emailService.sendEmailChangeVerification(
       oldEmail,
       newEmail,
@@ -241,7 +243,9 @@ export class UsersService {
     });
 
     // C. Send the FINAL confirmation email to the NEW address
-    const finalUrl = `${this.configService.get('API_BASE_URL')}/users/email-change/finalize/${finalRawToken}`;
+    // Handle comma-separated API_BASE_URL (take first one for email links)
+    const finalApiBaseUrl = (this.configService.get('API_BASE_URL') || '').split(',')[0].trim();
+    const finalUrl = `${finalApiBaseUrl}/users/email-change/finalize/${finalRawToken}`;
     await this.emailService.sendEmailChangeFinal(user.newEmail, finalUrl);
 
     return {

@@ -528,7 +528,9 @@ export class AuthService {
       },
     });
 
-    const resetUrl = `${this.configService.get('FRONTEND_URL')}/reset-password?token=${rawResetToken}`;
+    // Handle comma-separated FRONTEND_URL (take first one for email links)
+    const frontendUrl = (this.configService.get('FRONTEND_URL') || '').split(',')[0].trim();
+    const resetUrl = `${frontendUrl}/reset-password?token=${rawResetToken}`;
 
     await this.emailService.sendPasswordResetEmail(
       user.email,

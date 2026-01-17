@@ -82,7 +82,9 @@ export class InvitationsService {
     });
 
     const inviterName = `${invitation.invitedBy.first_name} ${invitation.invitedBy.last_name}`;
-    const invitationUrl = `${this.configService.get('FRONTEND_URL')}/accept-invitation?token=${rawToken}`;
+    // Handle comma-separated FRONTEND_URL (take first one for email links)
+    const frontendUrl = (this.configService.get('FRONTEND_URL') || '').split(',')[0].trim();
+    const invitationUrl = `${frontendUrl}/accept-invitation?token=${rawToken}`;
 
     await this.emailService.sendInvitationEmail(
       invitation.email,
