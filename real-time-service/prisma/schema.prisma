@@ -167,6 +167,12 @@ model UserReference {
   contentDrops              ContentDropLog[]
   connectionsAsUserA        Connection[] @relation("ConnectionUserA")
   connectionsAsUserB        Connection[] @relation("ConnectionUserB")
+
+  // Breakout rooms
+  createdBreakoutRooms      BreakoutRoom[]        @relation("BreakoutRoomCreator")
+  facilitatedBreakoutRooms  BreakoutRoom[]        @relation("BreakoutRoomFacilitator")
+  breakoutParticipations    BreakoutParticipant[]
+
   @@map("user_references")
 }
 
@@ -923,4 +929,78 @@ enum RecommendationAction {
   CONNECTED
   SKIPPED
   IGNORED
+}
+
+// ==========================
+// Breakout Room Enums
+// ==========================
+
+enum BreakoutRoomStatus {
+  WAITING    // Room created, waiting to start
+  ACTIVE     // Room is live
+  CLOSING    // Warning sent, about to close
+  CLOSED     // Room ended
+}
+
+enum BreakoutParticipantRole {
+  FACILITATOR
+  PARTICIPANT
+}
+
+// ==========================
+// Breakout Room Models
+// ==========================
+
+model BreakoutRoom {
+  id                String              @id @default(cuid())
+  createdAt         DateTime            @default(now())
+
+  sessionId         String              // Parent session ID (from event-lifecycle-service)
+  eventId           String              // Event ID for easier querying
+
+  name              String              @db.VarChar(100)
+  topic             String?             @db.VarChar(500)
+  maxParticipants   Int                 @default(8)
+  durationMinutes   Int                 @default(15)
+  autoAssign        Boolean             @default(false)
+
+  status            BreakoutRoomStatus  @default(WAITING)
+  startedAt         DateTime?
+  endedAt           DateTime?
+
+  creatorId         String
+  creator           UserReference       @relation("BreakoutRoomCreator", fields: [creatorId], references: [id])
+
+  facilitatorId     String?
+  facilitator       UserReference?      @relation("BreakoutRoomFacilitator", fields: [facilitatorId], references: [id])
+
+  participants      BreakoutParticipant[]
+
+  // Video room integration (external provider like Daily.co, Twilio, etc.)
+  videoRoomId       String?             @db.VarChar(255)
+  videoRoomUrl      String?             @db.VarChar(500)
+
+  @@index([sessionId])
+  @@index([eventId])
+  @@index([status])
+  @@map("breakout_rooms")
+}
+
+model BreakoutParticipant {
+  id                    String                    @id @default(cuid())
+  joinedAt              DateTime                  @default(now())
+  leftAt                DateTime?
+
+  role                  BreakoutParticipantRole   @default(PARTICIPANT)
+  speakingTimeSeconds   Int                       @default(0)
+
+  userId                String
+  user                  UserReference             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roomId                String
+  room                  BreakoutRoom              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+  @@index([roomId])
+  @@map("breakout_participants")
 }

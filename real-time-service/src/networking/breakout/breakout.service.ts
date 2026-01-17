@@ -1,0 +1,375 @@
+// src/networking/breakout/breakout.service.ts
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from 'src/prisma.service';
+import { IdempotencyService } from 'src/shared/services/idempotency.service';
+import { CreateRoomDto } from './dto/create-room.dto';
+import { Prisma, BreakoutRoomStatus } from '@prisma/client';
+
+// Type for room with participant count
+export interface BreakoutRoomWithCount {
+  id: string;
+  name: string;
+  topic: string | null;
+  sessionId: string;
+  eventId: string;
+  maxParticipants: number;
+  durationMinutes: number;
+  autoAssign: boolean;
+  status: BreakoutRoomStatus;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  createdAt: Date;
+  videoRoomId: string | null;
+  videoRoomUrl: string | null;
+  creator: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  facilitator: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null;
+  _count: {
+    participants: number;
+  };
+}
+
+@Injectable()
+export class BreakoutService {
+  private readonly logger = new Logger(BreakoutService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly idempotencyService: IdempotencyService,
+  ) {}
+
+  /**
+   * Creates a new breakout room for a session.
+   */
+  async createRoom(creatorId: string, dto: CreateRoomDto): Promise<BreakoutRoomWithCount> {
+    // Check idempotency if key provided
+    if (dto.idempotencyKey) {
+      const canProceed = await this.idempotencyService.checkAndSet(dto.idempotencyKey);
+      if (!canProceed) {
+        throw new ConflictException('This breakout room has already been created.');
+      }
+    }
+
+    this.logger.log(
+      `User ${creatorId} creating breakout room "${dto.name}" for session ${dto.sessionId}`,
+    );
+
+    const room = await this.prisma.breakoutRoom.create({
+      data: {
+        sessionId: dto.sessionId,
+        eventId: dto.eventId,
+        name: dto.name,
+        topic: dto.topic,
+        maxParticipants: dto.maxParticipants || 8,
+        durationMinutes: dto.durationMinutes || 15,
+        autoAssign: dto.autoAssign || false,
+        creatorId,
+        facilitatorId: dto.facilitatorId || creatorId,
+        status: 'WAITING',
+      },
+      include: {
+        creator: { select: { id: true, firstName: true, lastName: true } },
+        facilitator: { select: { id: true, firstName: true, lastName: true } },
+        _count: { select: { participants: true } },
+      },
+    });
+
+    return room;
+  }
+
+  /**
+   * Gets all active breakout rooms for a session.
+   */
+  async getRoomsForSession(sessionId: string): Promise<BreakoutRoomWithCount[]> {
+    return this.prisma.breakoutRoom.findMany({
+      where: {
+        sessionId,
+        status: { not: 'CLOSED' },
+      },
+      include: {
+        creator: { select: { id: true, firstName: true, lastName: true } },
+        facilitator: { select: { id: true, firstName: true, lastName: true } },
+        _count: { select: { participants: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Gets a single breakout room by ID with participants.
+   */
+  async getRoomWithParticipants(roomId: string) {
+    return this.prisma.breakoutRoom.findUnique({
+      where: { id: roomId },
+      include: {
+        creator: { select: { id: true, firstName: true, lastName: true } },
+        facilitator: { select: { id: true, firstName: true, lastName: true } },
+        participants: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+          orderBy: { joinedAt: 'asc' },
+        },
+        _count: { select: { participants: true } },
+      },
+    });
+  }
+
+  /**
+   * Adds a user to a breakout room.
+   */
+  async joinRoom(userId: string, roomId: string) {
+    const room = await this.prisma.breakoutRoom.findUnique({
+      where: { id: roomId },
+      include: { _count: { select: { participants: true } } },
+    });
+
+    if (!room) {
+      throw new NotFoundException('Breakout room not found');
+    }
+
+    if (room.status === 'CLOSED') {
+      throw new BadRequestException('This breakout room has been closed');
+    }
+
+    if (room._count.participants >= room.maxParticipants) {
+      throw new BadRequestException('This breakout room is full');
+    }
+
+    // Check if user is already in this room
+    const existingParticipation = await this.prisma.breakoutParticipant.findUnique({
+      where: { userId_roomId: { userId, roomId } },
+    });
+
+    if (existingParticipation) {
+      throw new ConflictException('You are already in this breakout room');
+    }
+
+    // Check if user is in another room for the same session
+    const otherRoomParticipation = await this.prisma.breakoutParticipant.findFirst({
+      where: {
+        userId,
+        leftAt: null,
+        room: {
+          sessionId: room.sessionId,
+          status: { not: 'CLOSED' },
+          id: { not: roomId },
+        },
+      },
+      include: { room: true },
+    });
+
+    if (otherRoomParticipation) {
+      throw new BadRequestException(
+        `You are already in breakout room "${otherRoomParticipation.room.name}". Please leave that room first.`,
+      );
+    }
+
+    // Determine role - facilitator if they're the designated facilitator
+    const role = room.facilitatorId === userId ? 'FACILITATOR' : 'PARTICIPANT';
+
+    await this.prisma.breakoutParticipant.create({
+      data: {
+        userId,
+        roomId,
+        role,
+      },
+    });
+
+    this.logger.log(`User ${userId} joined breakout room ${roomId} as ${role}`);
+
+    return this.getRoomWithParticipants(roomId);
+  }
+
+  /**
+   * Removes a user from a breakout room.
+   */
+  async leaveRoom(userId: string, roomId: string) {
+    const participation = await this.prisma.breakoutParticipant.findUnique({
+      where: { userId_roomId: { userId, roomId } },
+    });
+
+    if (!participation) {
+      throw new NotFoundException('You are not in this breakout room');
+    }
+
+    // Update with leftAt timestamp rather than deleting (for analytics)
+    await this.prisma.breakoutParticipant.update({
+      where: { userId_roomId: { userId, roomId } },
+      data: { leftAt: new Date() },
+    });
+
+    this.logger.log(`User ${userId} left breakout room ${roomId}`);
+
+    return this.getRoomWithParticipants(roomId);
+  }
+
+  /**
+   * Starts the timer for a breakout room.
+   */
+  async startRoom(roomId: string, userId: string, userPermissions: string[]) {
+    const room = await this.prisma.breakoutRoom.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      throw new NotFoundException('Breakout room not found');
+    }
+
+    // Check permissions - must be facilitator or have breakout:manage permission
+    const isFacilitator = room.facilitatorId === userId || room.creatorId === userId;
+    const hasManagePermission = userPermissions.includes('breakout:manage');
+
+    if (!isFacilitator && !hasManagePermission) {
+      throw new ForbiddenException('You do not have permission to start this breakout room');
+    }
+
+    if (room.status !== 'WAITING') {
+      throw new BadRequestException('This breakout room has already started or closed');
+    }
+
+    const updatedRoom = await this.prisma.breakoutRoom.update({
+      where: { id: roomId },
+      data: {
+        status: 'ACTIVE',
+        startedAt: new Date(),
+      },
+      include: {
+        creator: { select: { id: true, firstName: true, lastName: true } },
+        facilitator: { select: { id: true, firstName: true, lastName: true } },
+        _count: { select: { participants: true } },
+      },
+    });
+
+    this.logger.log(`Breakout room ${roomId} started by ${userId}`);
+
+    return updatedRoom;
+  }
+
+  /**
+   * Closes a breakout room.
+   */
+  async closeRoom(roomId: string, userId: string, userPermissions: string[]) {
+    const room = await this.prisma.breakoutRoom.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      throw new NotFoundException('Breakout room not found');
+    }
+
+    // Check permissions - must be facilitator, creator, or have breakout:manage permission
+    const isFacilitator = room.facilitatorId === userId || room.creatorId === userId;
+    const hasManagePermission = userPermissions.includes('breakout:manage');
+
+    if (!isFacilitator && !hasManagePermission) {
+      throw new ForbiddenException('You do not have permission to close this breakout room');
+    }
+
+    if (room.status === 'CLOSED') {
+      throw new BadRequestException('This breakout room is already closed');
+    }
+
+    // Update all participants to have leftAt set
+    await this.prisma.breakoutParticipant.updateMany({
+      where: { roomId, leftAt: null },
+      data: { leftAt: new Date() },
+    });
+
+    const closedRoom = await this.prisma.breakoutRoom.update({
+      where: { id: roomId },
+      data: {
+        status: 'CLOSED',
+        endedAt: new Date(),
+      },
+      include: {
+        creator: { select: { id: true, firstName: true, lastName: true } },
+        facilitator: { select: { id: true, firstName: true, lastName: true } },
+        _count: { select: { participants: true } },
+      },
+    });
+
+    this.logger.log(`Breakout room ${roomId} closed by ${userId}`);
+
+    return closedRoom;
+  }
+
+  /**
+   * Sets room status to CLOSING (warning state).
+   */
+  async setRoomClosing(roomId: string) {
+    return this.prisma.breakoutRoom.update({
+      where: { id: roomId },
+      data: { status: 'CLOSING' },
+    });
+  }
+
+  /**
+   * Get all active participants across all rooms in a session.
+   */
+  async getSessionParticipants(sessionId: string) {
+    return this.prisma.breakoutParticipant.findMany({
+      where: {
+        leftAt: null,
+        room: {
+          sessionId,
+          status: { not: 'CLOSED' },
+        },
+      },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true } },
+        room: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Close all rooms for a session (recall all).
+   */
+  async closeAllRooms(sessionId: string, userId: string, userPermissions: string[]) {
+    const hasManagePermission = userPermissions.includes('breakout:manage');
+
+    if (!hasManagePermission) {
+      throw new ForbiddenException('You do not have permission to close all breakout rooms');
+    }
+
+    const rooms = await this.prisma.breakoutRoom.findMany({
+      where: { sessionId, status: { not: 'CLOSED' } },
+    });
+
+    // Close all rooms
+    await this.prisma.$transaction([
+      // Update all participants
+      this.prisma.breakoutParticipant.updateMany({
+        where: {
+          leftAt: null,
+          room: { sessionId, status: { not: 'CLOSED' } },
+        },
+        data: { leftAt: new Date() },
+      }),
+      // Close all rooms
+      this.prisma.breakoutRoom.updateMany({
+        where: { sessionId, status: { not: 'CLOSED' } },
+        data: { status: 'CLOSED', endedAt: new Date() },
+      }),
+    ]);
+
+    this.logger.log(`All breakout rooms for session ${sessionId} closed by ${userId}`);
+
+    return rooms.map((r) => r.id);
+  }
+}

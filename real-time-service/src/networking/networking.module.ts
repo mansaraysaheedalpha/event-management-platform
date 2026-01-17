@@ -12,6 +12,7 @@ import { HuddlesModule } from './huddles/huddles.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { RetentionModule } from './retention/retention.module';
 import { ProfileModule } from './profile/profile.module';
+import { BreakoutModule } from './breakout/breakout.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { ProfileModule } from './profile/profile.module';
     RecommendationsModule,
     RetentionModule,
     ProfileModule,
+    BreakoutModule,
   ],
 })
 export class NetworkingModule {}
