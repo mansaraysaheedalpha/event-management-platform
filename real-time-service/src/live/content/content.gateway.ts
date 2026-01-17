@@ -44,6 +44,15 @@ export interface RequestStateResponse {
   error?: string;
 }
 
+// Green Room presence tracking
+interface GreenRoomUser {
+  userId: string;
+  socketId: string;
+  firstName: string;
+  lastName: string;
+  joinedAt: Date;
+}
+
 interface ContentControlState {
   currentSlide: number;
   totalSlides: number;
@@ -78,6 +87,9 @@ export class ContentGateway {
   @WebSocketServer() server: Server;
   private readonly eventServiceUrl: string;
   private readonly internalApiKey: string;
+
+  // Green Room presence: Map<sessionId, Map<userId, GreenRoomUser>>
+  private greenRoomPresence: Map<string, Map<string, GreenRoomUser>> = new Map();
 
   constructor(
     private readonly contentService: ContentService,
@@ -308,6 +320,102 @@ export class ContentGateway {
       client.leave(room);
       this.logger.log(`Client ${client.id} left room: ${room}`);
     }
+  }
+
+  // --- Green Room Presence Handlers ---
+
+  /**
+   * Handle a user joining the green room for a session.
+   * Broadcasts their presence to all others in the green room.
+   */
+  @SubscribeMessage('greenroom.join')
+  handleGreenRoomJoin(
+    @MessageBody()
+    data: {
+      sessionId: string;
+      eventId: string;
+      userId: string;
+      firstName: string;
+      lastName: string;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): void {
+    const { sessionId, userId, firstName, lastName } = data;
+    if (!sessionId || !userId) return;
+
+    const greenRoomId = `greenroom:${sessionId}`;
+
+    // Initialize session's green room if needed
+    if (!this.greenRoomPresence.has(sessionId)) {
+      this.greenRoomPresence.set(sessionId, new Map());
+    }
+
+    const sessionGreenRoom = this.greenRoomPresence.get(sessionId)!;
+
+    // Add user to green room presence
+    const greenRoomUser: GreenRoomUser = {
+      userId,
+      socketId: client.id,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      joinedAt: new Date(),
+    };
+    sessionGreenRoom.set(userId, greenRoomUser);
+
+    // Join the green room socket room
+    client.join(greenRoomId);
+    this.logger.log(
+      `User ${userId} (${firstName} ${lastName}) joined green room for session ${sessionId}`,
+    );
+
+    // Send current presence list to the joining user
+    const presenceList = Array.from(sessionGreenRoom.values()).map((u) => ({
+      userId: u.userId,
+      firstName: u.firstName,
+      lastName: u.lastName,
+    }));
+    client.emit('greenroom.presence', { users: presenceList });
+
+    // Broadcast to others that this user joined
+    client.to(greenRoomId).emit('greenroom.user.joined', {
+      userId,
+      firstName,
+      lastName,
+    });
+  }
+
+  /**
+   * Handle a user leaving the green room.
+   * Broadcasts their departure to all others in the green room.
+   */
+  @SubscribeMessage('greenroom.leave')
+  handleGreenRoomLeave(
+    @MessageBody() data: { sessionId: string; userId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ): void {
+    const { sessionId, userId } = data;
+    if (!sessionId || !userId) return;
+
+    const greenRoomId = `greenroom:${sessionId}`;
+    const sessionGreenRoom = this.greenRoomPresence.get(sessionId);
+
+    if (sessionGreenRoom) {
+      sessionGreenRoom.delete(userId);
+      this.logger.log(
+        `User ${userId} left green room for session ${sessionId}`,
+      );
+
+      // Clean up empty green rooms
+      if (sessionGreenRoom.size === 0) {
+        this.greenRoomPresence.delete(sessionId);
+      }
+    }
+
+    // Leave the socket room
+    client.leave(greenRoomId);
+
+    // Broadcast to others that this user left
+    this.server.to(greenRoomId).emit('greenroom.user.left', { userId });
   }
 
   @OnEvent('presentation-events')
