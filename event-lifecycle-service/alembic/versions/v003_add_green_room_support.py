@@ -1,7 +1,7 @@
 """Add green room support to sessions
 
 Revision ID: v003_add_green_room_support
-Revises: v002_add_virtual_attendance
+Revises: v002_virtual_attendance
 Create Date: 2026-01-17
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'v003_add_green_room_support'
-down_revision: Union[str, None] = 'v002_add_virtual_attendance'
+down_revision: Union[str, None] = 'v002_virtual_attendance'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
