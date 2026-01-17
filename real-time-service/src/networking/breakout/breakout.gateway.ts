@@ -121,6 +121,49 @@ export class BreakoutGateway {
   }
 
   /**
+   * Get the video room URL for a breakout room.
+   * Returns the Daily.co room URL with a user-specific meeting token.
+   */
+  @SubscribeMessage('breakout.room.getVideoUrl')
+  async handleGetVideoUrl(
+    @MessageBody() data: { roomId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      const userName = user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.email || 'Participant';
+
+      const videoRoom = await this.breakoutService.getVideoRoomUrl(
+        data.roomId,
+        user.sub,
+        userName,
+      );
+
+      if (!videoRoom) {
+        return {
+          success: false,
+          error: 'Video room not available. Make sure the room is active and you have joined it.',
+        };
+      }
+
+      this.logger.log(`Video URL generated for user ${user.sub} in room ${data.roomId}`);
+      return {
+        success: true,
+        videoUrl: videoRoom.url,
+        token: videoRoom.token,
+        // Full URL with token for convenience
+        joinUrl: `${videoRoom.url}?t=${videoRoom.token}`,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get video URL: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
    * Leave a breakout room.
    */
   @SubscribeMessage('breakout.room.leave')
@@ -181,11 +224,13 @@ export class BreakoutGateway {
 
       const breakoutRoom = `breakout:${data.roomId}`;
 
-      // Broadcast that room has started
+      // Broadcast that room has started (include video URL if available)
       this.server.to(breakoutRoom).emit('breakout.room.started', {
         roomId: data.roomId,
         startedAt: room.startedAt,
         durationMinutes: room.durationMinutes,
+        videoRoomUrl: room.videoRoomUrl,
+        hasVideo: !!room.videoRoomUrl,
       });
 
       // Update session room
@@ -193,6 +238,8 @@ export class BreakoutGateway {
         roomId: data.roomId,
         status: 'ACTIVE',
         startedAt: room.startedAt,
+        videoRoomUrl: room.videoRoomUrl,
+        hasVideo: !!room.videoRoomUrl,
       });
 
       // Start the timer

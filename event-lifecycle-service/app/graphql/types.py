@@ -239,6 +239,11 @@ class SessionType:
         """Whether polls are currently open for this session (runtime control)."""
         return root.polls_open
 
+    @strawberry.field
+    def breakoutEnabled(self, root: SessionModel) -> bool:
+        """Whether breakout rooms are enabled for this session."""
+        return getattr(root, "breakout_enabled", False)
+
     # The 'speakers' relationship should also be explicitly resolved for safety
     @strawberry.field
     def speakers(self, root: SessionModel) -> typing.List[SpeakerType]:

@@ -167,6 +167,7 @@ class SessionCreateInput:
     chatEnabled: Optional[bool] = True  # Defaults to enabled
     qaEnabled: Optional[bool] = True  # Defaults to enabled
     pollsEnabled: Optional[bool] = True  # Defaults to enabled
+    breakoutEnabled: Optional[bool] = False  # Defaults to disabled
     # Virtual Session Support (Phase 1)
     sessionType: Optional[SessionTypeInput] = SessionTypeInput.MAINSTAGE
     virtualRoomId: Optional[str] = None
@@ -216,6 +217,7 @@ class SessionUpdateInput:
     chatEnabled: Optional[bool] = None
     qaEnabled: Optional[bool] = None
     pollsEnabled: Optional[bool] = None
+    breakoutEnabled: Optional[bool] = None
     # Virtual Session Support (Phase 1)
     sessionType: Optional[SessionTypeInput] = None
     virtualRoomId: Optional[str] = None
@@ -490,6 +492,7 @@ class Mutation:
             chat_enabled=sessionIn.chatEnabled if sessionIn.chatEnabled is not None else True,
             qa_enabled=sessionIn.qaEnabled if sessionIn.qaEnabled is not None else True,
             polls_enabled=sessionIn.pollsEnabled if sessionIn.pollsEnabled is not None else True,
+            breakout_enabled=sessionIn.breakoutEnabled if sessionIn.breakoutEnabled is not None else False,
             # Virtual Session Support (Phase 1)
             session_type=sessionIn.sessionType.value if sessionIn.sessionType else "MAINSTAGE",
             virtual_room_id=sessionIn.virtualRoomId,
@@ -571,6 +574,8 @@ class Mutation:
             update_data["qa_enabled"] = update_data.pop("qaEnabled")
         if "pollsEnabled" in update_data:
             update_data["polls_enabled"] = update_data.pop("pollsEnabled")
+        if "breakoutEnabled" in update_data:
+            update_data["breakout_enabled"] = update_data.pop("breakoutEnabled")
 
         # Handle virtual session fields (Phase 1)
         if "sessionType" in update_data:

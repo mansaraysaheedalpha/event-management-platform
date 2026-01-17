@@ -41,6 +41,7 @@ class Session(BaseModel):
     chat_enabled: bool = True
     qa_enabled: bool = True
     polls_enabled: bool = True
+    breakout_enabled: bool = False
     chat_open: bool = False
     qa_open: bool = False
     polls_open: bool = False
@@ -77,6 +78,7 @@ class SessionCreate(BaseModel):
     chat_enabled: bool = True
     qa_enabled: bool = True
     polls_enabled: bool = True
+    breakout_enabled: bool = False
     # Virtual Session Support (Phase 1)
     session_type: SessionType = SessionType.MAINSTAGE
     virtual_room_id: Optional[str] = None
@@ -105,6 +107,7 @@ class SessionUpdate(BaseModel):
     chat_enabled: Optional[bool] = None
     qa_enabled: Optional[bool] = None
     polls_enabled: Optional[bool] = None
+    breakout_enabled: Optional[bool] = None
     chat_open: Optional[bool] = None
     qa_open: Optional[bool] = None
     polls_open: Optional[bool] = None

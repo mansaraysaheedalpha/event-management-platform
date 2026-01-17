@@ -32,6 +32,7 @@ class Session(Base):
     chat_enabled = Column(Boolean, nullable=False, server_default=text("true"))
     qa_enabled = Column(Boolean, nullable=False, server_default=text("true"))
     polls_enabled = Column(Boolean, nullable=False, server_default=text("true"))
+    breakout_enabled = Column(Boolean, nullable=False, server_default=text("false"), comment="Enable breakout rooms for this session")
 
     # Runtime state (controlled live by organizer/speaker)
     chat_open = Column(Boolean, nullable=False, server_default=text("false"))

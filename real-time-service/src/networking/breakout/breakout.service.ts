@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
+import { DailyService } from './daily.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { Prisma, BreakoutRoomStatus } from '@prisma/client';
 
@@ -50,6 +51,7 @@ export class BreakoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotencyService: IdempotencyService,
+    private readonly dailyService: DailyService,
   ) {}
 
   /**
@@ -219,7 +221,7 @@ export class BreakoutService {
   }
 
   /**
-   * Starts the timer for a breakout room.
+   * Starts the timer for a breakout room and creates a Daily video room.
    */
   async startRoom(roomId: string, userId: string, userPermissions: string[]) {
     const room = await this.prisma.breakoutRoom.findUnique({
@@ -242,12 +244,27 @@ export class BreakoutService {
       throw new BadRequestException('This breakout room has already started or closed');
     }
 
+    // Create Daily video room
+    const dailyRoom = await this.dailyService.createRoom({
+      name: room.name,
+      maxParticipants: room.maxParticipants,
+      expiryMinutes: room.durationMinutes + 10, // Add buffer time
+    });
+
+    const updateData: Prisma.BreakoutRoomUpdateInput = {
+      status: 'ACTIVE',
+      startedAt: new Date(),
+    };
+
+    // Store video room info if Daily room was created successfully
+    if (dailyRoom) {
+      updateData.videoRoomId = dailyRoom.name;
+      updateData.videoRoomUrl = dailyRoom.url;
+    }
+
     const updatedRoom = await this.prisma.breakoutRoom.update({
       where: { id: roomId },
-      data: {
-        status: 'ACTIVE',
-        startedAt: new Date(),
-      },
+      data: updateData,
       include: {
         creator: { select: { id: true, firstName: true, lastName: true } },
         facilitator: { select: { id: true, firstName: true, lastName: true } },
@@ -255,13 +272,62 @@ export class BreakoutService {
       },
     });
 
-    this.logger.log(`Breakout room ${roomId} started by ${userId}`);
+    this.logger.log(`Breakout room ${roomId} started by ${userId}${dailyRoom ? ` with Daily room ${dailyRoom.name}` : ''}`);
 
     return updatedRoom;
   }
 
   /**
-   * Closes a breakout room.
+   * Gets a video room URL with a meeting token for a user.
+   */
+  async getVideoRoomUrl(
+    roomId: string,
+    userId: string,
+    userName: string,
+  ): Promise<{ url: string; token: string } | null> {
+    const room = await this.prisma.breakoutRoom.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room || !room.videoRoomId || !room.videoRoomUrl) {
+      return null;
+    }
+
+    if (room.status !== 'ACTIVE') {
+      return null;
+    }
+
+    // Check if user is a participant
+    const participation = await this.prisma.breakoutParticipant.findUnique({
+      where: { userId_roomId: { userId, roomId } },
+    });
+
+    if (!participation || participation.leftAt) {
+      return null;
+    }
+
+    // Create meeting token
+    const isOwner = room.facilitatorId === userId || room.creatorId === userId;
+    const token = await this.dailyService.createMeetingToken({
+      roomName: room.videoRoomId,
+      userName,
+      userId,
+      isOwner,
+      expiryMinutes: room.durationMinutes + 10,
+    });
+
+    if (!token) {
+      return null;
+    }
+
+    return {
+      url: room.videoRoomUrl,
+      token,
+    };
+  }
+
+  /**
+   * Closes a breakout room and deletes the Daily video room.
    */
   async closeRoom(roomId: string, userId: string, userPermissions: string[]) {
     const room = await this.prisma.breakoutRoom.findUnique({
@@ -282,6 +348,11 @@ export class BreakoutService {
 
     if (room.status === 'CLOSED') {
       throw new BadRequestException('This breakout room is already closed');
+    }
+
+    // Delete Daily video room if it exists
+    if (room.videoRoomId) {
+      await this.dailyService.deleteRoom(room.videoRoomId);
     }
 
     // Update all participants to have leftAt set
