@@ -773,3 +773,65 @@ class MonetizationAnalyticsType:
     offers: OffersAnalyticsType
     ads: AdsAnalyticsType
     waitlist: WaitlistAnalyticsSummaryType
+
+
+# ==================== Virtual Attendance Types ====================
+
+@strawberry.type
+class VirtualAttendanceType:
+    """
+    Tracks virtual session attendance for analytics.
+    Each record represents a viewing session - when an attendee
+    joins and leaves a virtual session.
+    """
+    id: str
+    userId: str
+    sessionId: str
+    eventId: str
+    joinedAt: datetime
+    leftAt: Optional[datetime]
+    watchDurationSeconds: Optional[int]
+    deviceType: Optional[str]
+
+
+@strawberry.type
+class VirtualAttendanceStatsType:
+    """
+    Aggregate statistics for virtual attendance on a session.
+    """
+    sessionId: str
+    totalViews: int
+    uniqueViewers: int
+    currentViewers: int
+    avgWatchDurationSeconds: float
+    peakViewers: int
+
+
+@strawberry.type
+class EventVirtualAttendanceStatsType:
+    """
+    Aggregate statistics for virtual attendance across an event.
+    """
+    eventId: str
+    totalViews: int
+    uniqueViewers: int
+    currentViewers: int
+    avgWatchDurationSeconds: float
+    sessionStats: typing.List[VirtualAttendanceStatsType]
+
+
+@strawberry.type
+class JoinVirtualSessionResponse:
+    """Response when a user joins a virtual session."""
+    success: bool
+    attendance: Optional[VirtualAttendanceType]
+    message: Optional[str]
+
+
+@strawberry.type
+class LeaveVirtualSessionResponse:
+    """Response when a user leaves a virtual session."""
+    success: bool
+    attendance: Optional[VirtualAttendanceType]
+    watchDurationSeconds: Optional[int]
+    message: Optional[str]

@@ -34,6 +34,10 @@ from .types import (
     DigitalContentType,
     # Platform stats
     PlatformStatsType,
+    # Virtual attendance types
+    VirtualAttendanceType,
+    VirtualAttendanceStatsType,
+    EventVirtualAttendanceStatsType,
     # Monetization analytics types
     MonetizationAnalyticsType,
     RevenueAnalyticsType,
@@ -1456,3 +1460,136 @@ class Query:
         """Get public sponsor details (attendee view)."""
         sq = SponsorQueries()
         return sq.public_sponsor(str(sponsorId), info)
+
+    # --- VIRTUAL ATTENDANCE QUERIES ---
+
+    @strawberry.field
+    def virtualAttendanceStats(
+        self, sessionId: strawberry.ID, info: Info
+    ) -> VirtualAttendanceStatsType:
+        """
+        Get virtual attendance statistics for a session.
+        Available to organizers and registered attendees.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+        user_org_id = user.get("orgId")
+
+        # Get the session
+        session = crud.session.get(db, id=str(sessionId))
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Get the event to verify access
+        event = crud.event.get(db, id=session.event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Check if user is organizer or registered attendee
+        is_organizer = user_org_id and event.organization_id == user_org_id
+        if not is_organizer:
+            # Check if user is registered for the event
+            registration = crud.registration.get_by_user_or_email(
+                db, event_id=session.event_id, user_id=user_id
+            )
+            if not registration:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You must be registered for this event to view attendance stats"
+                )
+
+        # Get stats from CRUD
+        stats = crud.virtual_attendance.get_session_stats(db, session_id=str(sessionId))
+
+        return VirtualAttendanceStatsType(
+            sessionId=str(sessionId),
+            totalViews=stats["total_views"],
+            uniqueViewers=stats["unique_viewers"],
+            currentViewers=stats["current_viewers"],
+            avgWatchDurationSeconds=stats["avg_watch_duration_seconds"],
+            peakViewers=stats.get("peak_viewers", stats["current_viewers"]),
+        )
+
+    @strawberry.field
+    def eventVirtualAttendanceStats(
+        self, eventId: strawberry.ID, info: Info
+    ) -> EventVirtualAttendanceStatsType:
+        """
+        Get virtual attendance statistics for an entire event.
+        Available to organizers only.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        db = info.context.db
+        org_id = user["orgId"]
+
+        # Verify event belongs to org
+        event = crud.event.get(db, id=str(eventId))
+        if not event or event.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Get event-level stats
+        event_stats = crud.virtual_attendance.get_event_stats(db, event_id=str(eventId))
+
+        # Get per-session stats
+        sessions = crud.session.get_multi_by_event(db, event_id=str(eventId))
+        session_stats = []
+        for session in sessions:
+            stats = crud.virtual_attendance.get_session_stats(db, session_id=session.id)
+            session_stats.append(VirtualAttendanceStatsType(
+                sessionId=session.id,
+                totalViews=stats["total_views"],
+                uniqueViewers=stats["unique_viewers"],
+                currentViewers=stats["current_viewers"],
+                avgWatchDurationSeconds=stats["avg_watch_duration_seconds"],
+                peakViewers=stats.get("peak_viewers", stats["current_viewers"]),
+            ))
+
+        return EventVirtualAttendanceStatsType(
+            eventId=str(eventId),
+            totalViews=event_stats["total_views"],
+            uniqueViewers=event_stats["unique_viewers"],
+            currentViewers=event_stats["current_viewers"],
+            avgWatchDurationSeconds=event_stats["avg_watch_duration_seconds"],
+            sessionStats=session_stats,
+        )
+
+    @strawberry.field
+    def myVirtualAttendance(
+        self, eventId: strawberry.ID, info: Info
+    ) -> typing.List[VirtualAttendanceType]:
+        """
+        Get the current user's virtual attendance records for an event.
+        Useful for showing watch history.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        # Get user's attendance records for this event
+        records = crud.virtual_attendance.get_user_event_attendance(
+            db, user_id=user_id, event_id=str(eventId)
+        )
+
+        return [
+            VirtualAttendanceType(
+                id=r.id,
+                userId=r.user_id,
+                sessionId=r.session_id,
+                eventId=r.event_id,
+                joinedAt=r.joined_at,
+                leftAt=r.left_at,
+                watchDurationSeconds=r.watch_duration_seconds,
+                deviceType=r.device_type,
+            )
+            for r in records
+        ]

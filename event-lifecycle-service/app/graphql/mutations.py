@@ -85,6 +85,11 @@ from .sponsor_types import (
     SponsorLeadType,
     SponsorLeadUpdateInput,
 )
+from .types import (
+    VirtualAttendanceType,
+    JoinVirtualSessionResponse,
+    LeaveVirtualSessionResponse,
+)
 
 
 # ==== VIRTUAL EVENT ENUMS FOR INPUT (Phase 1) ====
@@ -1541,3 +1546,136 @@ class Mutation:
         """Archive a lead."""
         sm = SponsorMutations()
         return sm.archive_sponsor_lead(leadId, info)
+
+    # --- VIRTUAL ATTENDANCE MUTATIONS ---
+
+    @strawberry.mutation
+    def joinVirtualSession(
+        self,
+        sessionId: str,
+        info: Info,
+        deviceType: Optional[str] = None,
+        userAgent: Optional[str] = None,
+    ) -> JoinVirtualSessionResponse:
+        """
+        Record that the current user has joined a virtual session.
+        Creates a new attendance record with the join timestamp.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        # Get the session to find the event_id
+        session = crud.session.get(db, id=sessionId)
+        if not session:
+            return JoinVirtualSessionResponse(
+                success=False,
+                attendance=None,
+                message="Session not found"
+            )
+
+        # Verify user is registered for the event
+        registration = crud.registration.get_by_user_or_email(
+            db, event_id=session.event_id, user_id=user_id
+        )
+        if not registration:
+            return JoinVirtualSessionResponse(
+                success=False,
+                attendance=None,
+                message="You must be registered for this event to join"
+            )
+
+        # Check for existing active attendance (no left_at)
+        existing = crud.virtual_attendance.get_active_attendance(
+            db, user_id=user_id, session_id=sessionId
+        )
+        if existing:
+            # User already has an active session - return it
+            return JoinVirtualSessionResponse(
+                success=True,
+                attendance=VirtualAttendanceType(
+                    id=existing.id,
+                    userId=existing.user_id,
+                    sessionId=existing.session_id,
+                    eventId=existing.event_id,
+                    joinedAt=existing.joined_at,
+                    leftAt=existing.left_at,
+                    watchDurationSeconds=existing.watch_duration_seconds,
+                    deviceType=existing.device_type,
+                ),
+                message="Already joined"
+            )
+
+        # Create new attendance record
+        attendance = crud.virtual_attendance.join_session(
+            db,
+            user_id=user_id,
+            session_id=sessionId,
+            event_id=session.event_id,
+            device_type=deviceType,
+            user_agent=userAgent,
+        )
+
+        return JoinVirtualSessionResponse(
+            success=True,
+            attendance=VirtualAttendanceType(
+                id=attendance.id,
+                userId=attendance.user_id,
+                sessionId=attendance.session_id,
+                eventId=attendance.event_id,
+                joinedAt=attendance.joined_at,
+                leftAt=attendance.left_at,
+                watchDurationSeconds=attendance.watch_duration_seconds,
+                deviceType=attendance.device_type,
+            ),
+            message="Joined successfully"
+        )
+
+    @strawberry.mutation
+    def leaveVirtualSession(
+        self,
+        sessionId: str,
+        info: Info,
+    ) -> LeaveVirtualSessionResponse:
+        """
+        Record that the current user has left a virtual session.
+        Updates the attendance record with leave timestamp and duration.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        # Leave the session (updates left_at and calculates duration)
+        attendance = crud.virtual_attendance.leave_session(
+            db, user_id=user_id, session_id=sessionId
+        )
+
+        if not attendance:
+            return LeaveVirtualSessionResponse(
+                success=False,
+                attendance=None,
+                watchDurationSeconds=None,
+                message="No active session found"
+            )
+
+        return LeaveVirtualSessionResponse(
+            success=True,
+            attendance=VirtualAttendanceType(
+                id=attendance.id,
+                userId=attendance.user_id,
+                sessionId=attendance.session_id,
+                eventId=attendance.event_id,
+                joinedAt=attendance.joined_at,
+                leftAt=attendance.left_at,
+                watchDurationSeconds=attendance.watch_duration_seconds,
+                deviceType=attendance.device_type,
+            ),
+            watchDurationSeconds=attendance.watch_duration_seconds,
+            message="Left successfully"
+        )

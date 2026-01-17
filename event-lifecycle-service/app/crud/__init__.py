@@ -33,3 +33,6 @@ from .crud_sponsor import (
     sponsor_invitation,
     sponsor_lead,
 )
+
+# Virtual event CRUD operations
+from .crud_virtual_attendance import virtual_attendance
