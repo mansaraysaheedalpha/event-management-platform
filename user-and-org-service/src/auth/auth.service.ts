@@ -582,6 +582,9 @@ export class AuthService {
       where: { id: validTokenRecord.userId },
       data: {
         password: newHashedPassword,
+        // Reset account lockout when password is reset
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       },
     });
 
