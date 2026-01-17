@@ -73,9 +73,27 @@ async function startServer(): Promise<void> {
   const app = express();
   const httpServer = http.createServer(app);
 
-  // Configure CORS - allow the client URL
+  // Configure CORS - allow multiple client URLs
+  // CLIENT_URL can be comma-separated: "https://example.com,https://www.example.com"
+  const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim());
+
   const corsOptions: cors.CorsOptions = {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      // Check if the origin is in our allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, origin); // Return only the matching origin
+      } else {
+        console.warn(`CORS blocked origin: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   };
 
