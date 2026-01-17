@@ -3,7 +3,7 @@ import strawberry
 import typing
 from typing import Optional
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from ..models.event import Event as EventModel
 from .. import crud
@@ -306,6 +306,34 @@ class SessionType:
     def broadcastOnly(self, root: SessionModel) -> bool:
         """View-only session (no attendee A/V)."""
         return getattr(root, "broadcast_only", True)
+
+    # ==== GREEN ROOM / BACKSTAGE SUPPORT (P1) ====
+
+    @strawberry.field
+    def greenRoomEnabled(self, root: SessionModel) -> bool:
+        """Whether green room is enabled for speakers."""
+        return getattr(root, "green_room_enabled", True)
+
+    @strawberry.field
+    def greenRoomOpensMinutesBefore(self, root: SessionModel) -> int:
+        """Minutes before session that green room opens."""
+        return getattr(root, "green_room_opens_minutes_before", 15)
+
+    @strawberry.field
+    def greenRoomNotes(self, root: SessionModel) -> Optional[str]:
+        """Producer notes visible in green room."""
+        return getattr(root, "green_room_notes", None)
+
+    @strawberry.field
+    def greenRoomOpen(self, root: SessionModel) -> bool:
+        """Computed: Whether green room is currently open based on time."""
+        if not getattr(root, "green_room_enabled", True):
+            return False
+        minutes_before = getattr(root, "green_room_opens_minutes_before", 15)
+        open_time = root.start_time - timedelta(minutes=minutes_before)
+        now = datetime.now(root.start_time.tzinfo)
+        # Green room is open from X minutes before start until session ends
+        return open_time <= now <= root.end_time
 
 
 @strawberry.type

@@ -61,6 +61,11 @@ class Session(BaseModel):
     max_participants: Optional[int] = Field(None, ge=1, le=10000, description="Max participants for interactive sessions")
     broadcast_only: bool = Field(True, description="View-only session (no attendee A/V)")
 
+    # Green Room / Backstage Support (P1)
+    green_room_enabled: bool = Field(True, description="Enable green room for speakers")
+    green_room_opens_minutes_before: int = Field(15, ge=5, le=60, description="Minutes before session green room opens")
+    green_room_notes: Optional[str] = Field(None, max_length=1000, description="Producer notes visible in green room")
+
     model_config = {"from_attributes": True}
 
 
@@ -81,6 +86,10 @@ class SessionCreate(BaseModel):
     requires_microphone: bool = False
     max_participants: Optional[int] = Field(None, ge=1, le=10000)
     broadcast_only: bool = True
+    # Green Room / Backstage Support (P1)
+    green_room_enabled: bool = True
+    green_room_opens_minutes_before: int = Field(15, ge=5, le=60)
+    green_room_notes: Optional[str] = Field(None, max_length=1000)
 
     @field_validator('streaming_url')
     @classmethod
@@ -109,6 +118,10 @@ class SessionUpdate(BaseModel):
     requires_microphone: Optional[bool] = None
     max_participants: Optional[int] = Field(None, ge=1, le=10000)
     broadcast_only: Optional[bool] = None
+    # Green Room / Backstage Support (P1)
+    green_room_enabled: Optional[bool] = None
+    green_room_opens_minutes_before: Optional[int] = Field(None, ge=5, le=60)
+    green_room_notes: Optional[str] = Field(None, max_length=1000)
 
     @field_validator('streaming_url', 'recording_url')
     @classmethod

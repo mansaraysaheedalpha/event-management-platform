@@ -249,6 +249,51 @@ class Query:
         return crud.session.get_multi_by_event(db, event_id=str(eventId))
 
     @strawberry.field
+    def session(self, id: strawberry.ID, info: Info) -> Optional[SessionType]:
+        """
+        Get a single session by ID.
+        Accessible to organizers, speakers assigned to the session, and registered attendees.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+        user_org_id = user.get("orgId")
+
+        session_obj = crud.session.get(db, id=str(id))
+        if not session_obj:
+            return None
+
+        # Get the event to verify access
+        event = crud.event.get(db, id=session_obj.event_id)
+        if not event:
+            return None
+
+        # Check access permissions
+        can_access = False
+
+        # Case 1: User is an organizer in the same organization
+        if user_org_id and event.organization_id == user_org_id:
+            can_access = True
+        # Case 2: User is a speaker for this session
+        elif any(s.user_id == user_id for s in session_obj.speakers):
+            can_access = True
+        # Case 3: User is registered for the event
+        else:
+            registration = crud.registration.get_by_user_or_email(
+                db, event_id=session_obj.event_id, user_id=user_id
+            )
+            if registration:
+                can_access = True
+
+        if not can_access:
+            return None
+
+        return session_obj
+
+    @strawberry.field
     def organizationVenues(self, info: Info) -> List[VenueType]:
         user = info.context.user
         if not user or not user.get("orgId"):

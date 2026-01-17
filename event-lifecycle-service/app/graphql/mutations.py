@@ -176,6 +176,10 @@ class SessionCreateInput:
     requiresMicrophone: Optional[bool] = False
     maxParticipants: Optional[int] = None
     broadcastOnly: Optional[bool] = True
+    # Green Room / Backstage Support (P1)
+    greenRoomEnabled: Optional[bool] = True
+    greenRoomOpensMinutesBefore: Optional[int] = 15
+    greenRoomNotes: Optional[str] = None
 
 
 @strawberry.input
@@ -222,6 +226,10 @@ class SessionUpdateInput:
     requiresMicrophone: Optional[bool] = None
     maxParticipants: Optional[int] = None
     broadcastOnly: Optional[bool] = None
+    # Green Room / Backstage Support (P1)
+    greenRoomEnabled: Optional[bool] = None
+    greenRoomOpensMinutesBefore: Optional[int] = None
+    greenRoomNotes: Optional[str] = None
 
 
 @strawberry.input
@@ -491,6 +499,10 @@ class Mutation:
             requires_microphone=sessionIn.requiresMicrophone if sessionIn.requiresMicrophone is not None else False,
             max_participants=sessionIn.maxParticipants,
             broadcast_only=sessionIn.broadcastOnly if sessionIn.broadcastOnly is not None else True,
+            # Green Room / Backstage Support (P1)
+            green_room_enabled=sessionIn.greenRoomEnabled if sessionIn.greenRoomEnabled is not None else True,
+            green_room_opens_minutes_before=sessionIn.greenRoomOpensMinutesBefore if sessionIn.greenRoomOpensMinutesBefore is not None else 15,
+            green_room_notes=sessionIn.greenRoomNotes,
         )
         return crud.session.create_with_event(
             db, obj_in=session_schema, event_id=sessionIn.eventId, producer=producer
@@ -580,6 +592,14 @@ class Mutation:
             update_data["max_participants"] = update_data.pop("maxParticipants")
         if "broadcastOnly" in update_data:
             update_data["broadcast_only"] = update_data.pop("broadcastOnly")
+
+        # Handle Green Room fields (P1)
+        if "greenRoomEnabled" in update_data:
+            update_data["green_room_enabled"] = update_data.pop("greenRoomEnabled")
+        if "greenRoomOpensMinutesBefore" in update_data:
+            update_data["green_room_opens_minutes_before"] = update_data.pop("greenRoomOpensMinutesBefore")
+        if "greenRoomNotes" in update_data:
+            update_data["green_room_notes"] = update_data.pop("greenRoomNotes")
 
         update_schema = SessionUpdate(**update_data)
         return crud.session.update(db, db_obj=session, obj_in=update_schema)

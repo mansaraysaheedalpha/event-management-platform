@@ -54,6 +54,11 @@ class Session(Base):
     max_participants = Column(Integer, nullable=True, comment="Max participants for interactive sessions")
     broadcast_only = Column(Boolean, nullable=False, server_default=text("true"), comment="View-only sessions")
 
+    # Green Room / Backstage Support (P1)
+    green_room_enabled = Column(Boolean, nullable=False, server_default=text("true"), comment="Enable green room for speakers")
+    green_room_opens_minutes_before = Column(Integer, nullable=False, server_default=text("15"), comment="Minutes before session green room opens")
+    green_room_notes = Column(String, nullable=True, comment="Producer notes visible in green room")
+
     # Relationships
     speakers = relationship(
         "Speaker", secondary=session_speaker_association, back_populates="sessions"
