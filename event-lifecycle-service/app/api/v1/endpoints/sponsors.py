@@ -34,6 +34,11 @@ from app.schemas.sponsor import (
     SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
 )
 from app.schemas.token import TokenPayload
+from app.utils.sponsor_notifications import (
+    send_sponsor_invitation_email,
+    send_lead_notification_email,
+    emit_lead_captured_event,
+)
 
 router = APIRouter(tags=["Sponsors"])
 logger = logging.getLogger(__name__)
@@ -295,8 +300,16 @@ def invite_sponsor_representative(
         invited_by_user_id=current_user.sub
     )
 
-    # TODO: Send invitation email in background
-    # background_tasks.add_task(send_sponsor_invitation_email, invitation, sponsor_obj)
+    # Send invitation email in background
+    background_tasks.add_task(
+        send_sponsor_invitation_email,
+        invitation_email=invitation.email,
+        invitation_token=invitation.token,
+        sponsor_name=sponsor_obj.company_name,
+        inviter_name=current_user.sub,  # TODO: Fetch inviter's actual name
+        role=invitation.role,
+        personal_message=invitation.personal_message
+    )
 
     logger.info(f"Sponsor invitation created: {invitation.id} for {invitation.email}")
     return invitation
@@ -617,7 +630,38 @@ def capture_lead(
         db, lead_in=lead_in, sponsor_id=sponsor_id, event_id=event_id
     )
 
-    # TODO: Emit real-time event for sponsor dashboard
-    # TODO: Send email notification if configured
+    # Emit real-time event for sponsor dashboard
+    emit_lead_captured_event(
+        sponsor_id=sponsor_id,
+        lead_data={
+            "id": lead.id,
+            "user_id": lead.user_id,
+            "user_name": lead.user_name,
+            "user_email": lead.user_email,
+            "user_company": lead.user_company,
+            "user_title": lead.user_title,
+            "intent_score": lead.intent_score,
+            "intent_level": lead.intent_level,
+            "interaction_type": lead_in.interaction_type,
+            "created_at": lead.created_at.isoformat() if lead.created_at else None,
+        }
+    )
+
+    # Send email notification if configured
+    if sponsor_obj.lead_notification_email and lead.intent_level in ['hot', 'warm']:
+        from app.crud import event as crud_event
+        event_obj = crud_event.get(db, id=event_id)
+        event_name = event_obj.name if event_obj else "Event"
+
+        send_lead_notification_email(
+            notification_email=sponsor_obj.lead_notification_email,
+            sponsor_name=sponsor_obj.company_name,
+            lead_name=lead.user_name or "Unknown",
+            lead_company=lead.user_company,
+            lead_title=lead.user_title,
+            intent_level=lead.intent_level,
+            interaction_type=lead_in.interaction_type,
+            event_name=event_name
+        )
 
     return lead
