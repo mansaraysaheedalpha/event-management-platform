@@ -37,6 +37,8 @@ const allPermissions = [
   { name: 'backchannel:send', description: 'Can send messages in the staff backchannel' },
   // Presentation Control
   { name: 'presentation:control', description: 'Can control live presentations (start/stop, navigate slides)' },
+  // Breakout Rooms
+  { name: 'breakout:manage', description: 'Can create, start, and close breakout rooms' },
 ];
 
 /**
@@ -69,6 +71,7 @@ const roles: Record<string, string[]> = {
     'ops:incident:manage',
     'backchannel:join',
     'backchannel:send',
+    'breakout:manage',
   ],
   ADMIN: [
     'poll:create',
@@ -87,6 +90,7 @@ const roles: Record<string, string[]> = {
     'ops:incident:manage',
     'backchannel:join',
     'backchannel:send',
+    'breakout:manage',
   ],
   MODERATOR: [
     'poll:create',
@@ -104,6 +108,7 @@ const roles: Record<string, string[]> = {
     'ops:incident:read',
     'backchannel:join',
     'backchannel:send',
+    'breakout:manage',
   ],
   SPEAKER: [
     'poll:vote',
