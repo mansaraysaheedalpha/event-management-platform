@@ -307,11 +307,13 @@ export class BreakoutService {
 
   /**
    * Gets a video room URL with a meeting token for a user.
+   * Organizers with breakout:manage permission can join without being a participant.
    */
   async getVideoRoomUrl(
     roomId: string,
     userId: string,
     userName: string,
+    userPermissions: string[] = [],
   ): Promise<{ url: string; token: string } | null> {
     const room = await this.prisma.breakoutRoom.findUnique({
       where: { id: roomId },
@@ -325,17 +327,23 @@ export class BreakoutService {
       return null;
     }
 
-    // Check if user is a participant
-    const participation = await this.prisma.breakoutParticipant.findUnique({
-      where: { userId_roomId: { userId, roomId } },
-    });
+    // Check if user is an organizer with manage permission
+    const hasManagePermission = userPermissions.includes('breakout:manage');
+    const isCreatorOrFacilitator = room.facilitatorId === userId || room.creatorId === userId;
 
-    if (!participation || participation.leftAt) {
-      return null;
+    // Check if user is a participant (only required if not an organizer)
+    if (!hasManagePermission && !isCreatorOrFacilitator) {
+      const participation = await this.prisma.breakoutParticipant.findUnique({
+        where: { userId_roomId: { userId, roomId } },
+      });
+
+      if (!participation || participation.leftAt) {
+        return null;
+      }
     }
 
-    // Create meeting token
-    const isOwner = room.facilitatorId === userId || room.creatorId === userId;
+    // Create meeting token - organizers get owner privileges
+    const isOwner = hasManagePermission || isCreatorOrFacilitator;
     const token = await this.dailyService.createMeetingToken({
       roomName: room.videoRoomId,
       userName,

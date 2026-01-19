@@ -140,6 +140,7 @@ export class BreakoutGateway {
         data.roomId,
         user.sub,
         userName,
+        user.permissions || [],
       );
 
       if (!videoRoom) {
