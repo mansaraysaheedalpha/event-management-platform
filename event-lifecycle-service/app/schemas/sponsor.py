@@ -205,6 +205,42 @@ class AcceptInvitationRequest(BaseModel):
     token: str
 
 
+class SponsorInvitationPreviewResponse(BaseModel):
+    """Response for sponsor invitation preview (public endpoint)."""
+    email: str
+    sponsor_name: str
+    sponsor_logo_url: Optional[str] = None
+    inviter_name: str
+    role_name: str
+    user_exists: bool
+    existing_user_first_name: Optional[str] = None
+    expires_at: datetime
+
+
+class AcceptInvitationNewUserRequest(BaseModel):
+    """Request to accept invitation as a new user (no existing account)."""
+    token: str
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class AcceptInvitationExistingUserRequest(BaseModel):
+    """Request to accept invitation as an existing user."""
+    token: str
+    password: str = Field(..., min_length=1)
+
+
+class AcceptInvitationResponse(BaseModel):
+    """Response after successfully accepting a sponsor invitation."""
+    message: str
+    sponsor_id: str
+    sponsor_name: str
+    role: str
+    user: dict
+    access_token: str
+
+
 # ============================================
 # Sponsor Lead Schemas
 # ============================================

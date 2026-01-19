@@ -18,10 +18,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 import logging
+import httpx
 
 from app.api import deps
 from app.db.session import get_db
 from app.core.limiter import limiter
+from app.core.config import settings
 from app.crud.crud_sponsor import (
     sponsor_tier, sponsor, sponsor_user,
     sponsor_invitation, sponsor_lead
@@ -31,6 +33,8 @@ from app.schemas.sponsor import (
     SponsorCreate, SponsorUpdate, SponsorResponse, SponsorWithTierResponse,
     SponsorUserCreate, SponsorUserUpdate, SponsorUserResponse,
     SponsorInvitationCreate, SponsorInvitationResponse, AcceptInvitationRequest,
+    SponsorInvitationPreviewResponse, AcceptInvitationNewUserRequest,
+    AcceptInvitationExistingUserRequest, AcceptInvitationResponse,
     SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
 )
 from app.schemas.token import TokenPayload
@@ -361,6 +365,273 @@ def revoke_invitation(
 
 # ==================== Invitation Acceptance (Public) ====================
 
+def _get_user_org_service_url() -> str:
+    """Get the user-and-org-service internal URL."""
+    return getattr(settings, 'USER_ORG_SERVICE_URL_INTERNAL', 'http://localhost:3000')
+
+
+def _validate_invitation(db: Session, token: str):
+    """
+    Validate an invitation token and return the invitation if valid.
+    Raises HTTPException if invalid.
+    """
+    from datetime import datetime, timezone
+
+    invitation = sponsor_invitation.get_by_token(db, token=token)
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid invitation token")
+
+    if invitation.status != 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invitation is {invitation.status}"
+        )
+
+    if invitation.expires_at < datetime.now(timezone.utc):
+        invitation.status = 'expired'
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired")
+
+    return invitation
+
+
+@router.get(
+    "/sponsor-invitations/{token}/preview",
+    response_model=SponsorInvitationPreviewResponse
+)
+def preview_sponsor_invitation(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Preview a sponsor invitation before acceptance.
+    Returns invitation details and whether the user already has an account.
+    No authentication required - this is a public endpoint.
+    """
+    invitation = _validate_invitation(db, token)
+
+    # Get sponsor details
+    sponsor_obj = sponsor.get(db, id=invitation.sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Check if user exists by calling user-and-org-service
+    user_exists = False
+    existing_user_first_name = None
+
+    try:
+        user_org_url = _get_user_org_service_url()
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{user_org_url}/internal/sponsor-invitations/check-email",
+                params={"email": invitation.email},
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                user_exists = data.get("userExists", False)
+                existing_user_first_name = data.get("existingUserFirstName")
+    except Exception as e:
+        logger.warning(f"Failed to check if user exists: {e}")
+        # Continue without user existence check - frontend will handle
+
+    # Role display names
+    role_names = {
+        "admin": "Admin",
+        "representative": "Representative",
+        "booth_staff": "Booth Staff",
+        "viewer": "Viewer"
+    }
+
+    return SponsorInvitationPreviewResponse(
+        email=invitation.email,
+        sponsor_name=sponsor_obj.company_name,
+        sponsor_logo_url=sponsor_obj.company_logo_url,
+        inviter_name="Event Organizer",  # We don't have inviter details stored
+        role_name=role_names.get(invitation.role, invitation.role.title()),
+        user_exists=user_exists,
+        existing_user_first_name=existing_user_first_name,
+        expires_at=invitation.expires_at,
+    )
+
+
+@router.post(
+    "/sponsor-invitations/{token}/accept/new-user",
+    response_model=AcceptInvitationResponse
+)
+def accept_invitation_new_user(
+    token: str,
+    request: AcceptInvitationNewUserRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Accept a sponsor invitation as a NEW user (no existing account).
+    Creates a new user account and adds them as a sponsor representative.
+    No authentication required - user is created as part of this flow.
+    """
+    if token != request.token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token mismatch")
+
+    invitation = _validate_invitation(db, token)
+
+    # Get sponsor details
+    sponsor_obj = sponsor.get(db, id=invitation.sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Create user in user-and-org-service
+    user_org_url = _get_user_org_service_url()
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(
+                f"{user_org_url}/internal/sponsor-invitations/create-user",
+                json={
+                    "email": invitation.email,
+                    "first_name": request.first_name,
+                    "last_name": request.last_name,
+                    "password": request.password,
+                    "sponsorId": sponsor_obj.id,
+                },
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code != 200 and response.status_code != 201:
+                error_detail = response.json().get("message", "Failed to create user account")
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
+
+            user_data = response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"Failed to create user in user-and-org-service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to create user account. Please try again."
+        )
+
+    # Create sponsor user relationship
+    sponsor_user_in = SponsorUserCreate(
+        user_id=user_data["user"]["id"],
+        role=invitation.role,
+        can_view_leads=invitation.can_view_leads,
+        can_export_leads=invitation.can_export_leads,
+        can_message_attendees=invitation.can_message_attendees,
+        can_manage_booth=invitation.can_manage_booth,
+        can_invite_others=invitation.can_invite_others,
+    )
+
+    sponsor_user.create_sponsor_user(
+        db, user_in=sponsor_user_in, sponsor_id=invitation.sponsor_id
+    )
+
+    # Mark invitation as accepted
+    sponsor_invitation.accept_invitation(db, invitation=invitation, user_id=user_data["user"]["id"])
+
+    logger.info(f"New user {user_data['user']['id']} accepted sponsor invitation {invitation.id}")
+
+    return AcceptInvitationResponse(
+        message=f"Welcome! Your account has been created and you are now a {invitation.role} for {sponsor_obj.company_name}.",
+        sponsor_id=sponsor_obj.id,
+        sponsor_name=sponsor_obj.company_name,
+        role=invitation.role,
+        user=user_data["user"],
+        access_token=user_data["access_token"],
+    )
+
+
+@router.post(
+    "/sponsor-invitations/{token}/accept/existing-user",
+    response_model=AcceptInvitationResponse
+)
+def accept_invitation_existing_user(
+    token: str,
+    request: AcceptInvitationExistingUserRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Accept a sponsor invitation as an EXISTING user.
+    Requires password authentication to verify account ownership.
+    No JWT authentication required - password verification happens here.
+    """
+    if token != request.token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token mismatch")
+
+    invitation = _validate_invitation(db, token)
+
+    # Get sponsor details
+    sponsor_obj = sponsor.get(db, id=invitation.sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Verify user in user-and-org-service
+    user_org_url = _get_user_org_service_url()
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(
+                f"{user_org_url}/internal/sponsor-invitations/verify-user",
+                json={
+                    "email": invitation.email,
+                    "password": request.password,
+                    "sponsorId": sponsor_obj.id,
+                },
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid password. Please enter your existing account password."
+                )
+            elif response.status_code != 200:
+                error_detail = response.json().get("message", "Failed to verify user")
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
+
+            user_data = response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"Failed to verify user in user-and-org-service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to verify account. Please try again."
+        )
+
+    # Check if user is already a representative
+    existing = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=user_data["user"]["id"], sponsor_id=invitation.sponsor_id
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You are already a representative for this sponsor"
+        )
+
+    # Create sponsor user relationship
+    sponsor_user_in = SponsorUserCreate(
+        user_id=user_data["user"]["id"],
+        role=invitation.role,
+        can_view_leads=invitation.can_view_leads,
+        can_export_leads=invitation.can_export_leads,
+        can_message_attendees=invitation.can_message_attendees,
+        can_manage_booth=invitation.can_manage_booth,
+        can_invite_others=invitation.can_invite_others,
+    )
+
+    sponsor_user.create_sponsor_user(
+        db, user_in=sponsor_user_in, sponsor_id=invitation.sponsor_id
+    )
+
+    # Mark invitation as accepted
+    sponsor_invitation.accept_invitation(db, invitation=invitation, user_id=user_data["user"]["id"])
+
+    logger.info(f"Existing user {user_data['user']['id']} accepted sponsor invitation {invitation.id}")
+
+    return AcceptInvitationResponse(
+        message=f"Welcome back! You are now a {invitation.role} for {sponsor_obj.company_name}.",
+        sponsor_id=sponsor_obj.id,
+        sponsor_name=sponsor_obj.company_name,
+        role=invitation.role,
+        user=user_data["user"],
+        access_token=user_data["access_token"],
+    )
+
+
 @router.post("/sponsor-invitations/accept", response_model=SponsorUserResponse)
 def accept_invitation(
     request: AcceptInvitationRequest,
@@ -368,8 +639,11 @@ def accept_invitation(
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
     """
-    Accept a sponsor invitation.
+    Accept a sponsor invitation (legacy endpoint - requires authentication).
     The logged-in user becomes a representative for the sponsor.
+
+    @deprecated Use /sponsor-invitations/{token}/accept/new-user or
+    /sponsor-invitations/{token}/accept/existing-user instead.
     """
     invitation = sponsor_invitation.get_by_token(db, token=request.token)
     if not invitation:
