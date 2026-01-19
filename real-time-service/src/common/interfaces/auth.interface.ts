@@ -14,6 +14,8 @@ export interface JwtPayload {
   tier?: 'default' | 'vip';
   preferredLanguage?: string;
   sponsorId?: string;
+  firstName?: string; // Optional user first name
+  lastName?: string; // Optional user last name
 }
 
 /**
