@@ -306,7 +306,7 @@ def invite_sponsor_representative(
         invitation_email=invitation.email,
         invitation_token=invitation.token,
         sponsor_name=sponsor_obj.company_name,
-        inviter_name=current_user.sub,  # TODO: Fetch inviter's actual name
+        inviter_name=current_user.full_name,
         role=invitation.role,
         personal_message=invitation.personal_message
     )
