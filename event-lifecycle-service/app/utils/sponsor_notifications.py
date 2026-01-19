@@ -154,6 +154,10 @@ def send_sponsor_invitation_email(
 
         # Build the invitation URL
         frontend_url = getattr(settings, 'FRONTEND_URL', 'https://eventdynamics.io')
+        # Sanitize frontend_url: take first URL if comma-separated, strip whitespace
+        if frontend_url and ',' in frontend_url:
+            frontend_url = frontend_url.split(',')[0].strip()
+        frontend_url = frontend_url.rstrip('/') if frontend_url else 'https://eventdynamics.io'
         invitation_url = f"{frontend_url}/sponsor/invitation/accept?token={invitation_token}"
 
         # Role display names
@@ -308,6 +312,10 @@ def send_lead_notification_email(
         intent_emoji = intent_emojis.get(intent_level, "📍")
 
         frontend_url = getattr(settings, 'FRONTEND_URL', 'https://eventdynamics.io')
+        # Sanitize frontend_url: take first URL if comma-separated, strip whitespace
+        if frontend_url and ',' in frontend_url:
+            frontend_url = frontend_url.split(',')[0].strip()
+        frontend_url = frontend_url.rstrip('/') if frontend_url else 'https://eventdynamics.io'
 
         html_content = f"""
         <!DOCTYPE html>
