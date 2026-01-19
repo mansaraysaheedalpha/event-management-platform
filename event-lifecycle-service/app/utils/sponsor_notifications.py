@@ -9,10 +9,16 @@ This module handles:
 """
 import logging
 import httpx
+import resend
 from typing import Optional, Dict, Any
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def init_resend():
+    """Initialize Resend with API key."""
+    resend.api_key = settings.RESEND_API_KEY
 
 
 # ==================== Real-Time Event Emission ====================
@@ -144,55 +150,116 @@ def send_sponsor_invitation_email(
         True if email was sent successfully, False otherwise
     """
     try:
+        init_resend()
+
         # Build the invitation URL
-        frontend_url = getattr(settings, 'FRONTEND_URL', 'https://app.eventdynamics.com')
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'https://eventdynamics.io')
         invitation_url = f"{frontend_url}/sponsor/invitation/accept?token={invitation_token}"
 
-        # Email content
-        subject = f"You've been invited to join {sponsor_name} on Event Dynamics"
+        # Role display names
+        role_names = {
+            "admin": "Admin",
+            "representative": "Representative",
+            "booth_staff": "Booth Staff",
+            "viewer": "Viewer"
+        }
+        role_display = role_names.get(role, role.title())
+
+        personal_message_html = ""
+        if personal_message:
+            personal_message_html = f'''
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #FFD633;">
+                <p style="margin: 0; font-style: italic; color: #555;">"{personal_message}"</p>
+            </div>
+            '''
 
         html_content = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>You're Invited!</h2>
-            <p>Hi there,</p>
-            <p><strong>{inviter_name}</strong> has invited you to join <strong>{sponsor_name}</strong>
-               as a <strong>{role}</strong> on Event Dynamics.</p>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #0D1A3F 0%, #1a2f5f 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 28px; }}
+                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+                .invite-box {{ background: white; border: 2px solid #FFD633; padding: 25px; text-align: center; margin: 25px 0; border-radius: 12px; }}
+                .role-badge {{ display: inline-block; background: #FFD633; color: #0D1A3F; padding: 8px 20px; border-radius: 20px; font-weight: bold; margin: 10px 0; }}
+                .benefits {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .benefits ul {{ margin: 0; padding-left: 20px; }}
+                .benefits li {{ margin: 8px 0; }}
+                .cta-button {{ display: inline-block; background: #FFD633; color: #0D1A3F; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 16px; margin: 20px 0; }}
+                .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+                .expire-note {{ color: #666; font-size: 14px; margin-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>You're Invited!</h1>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9;">Join {sponsor_name} on Event Dynamics</p>
+                </div>
+                <div class="content">
+                    <p>Hi there,</p>
+                    <p><strong>{inviter_name}</strong> has invited you to join <strong>{sponsor_name}</strong> as a sponsor representative on Event Dynamics.</p>
 
-            {f'<p style="background: #f5f5f5; padding: 15px; border-radius: 8px; font-style: italic;">"{personal_message}"</p>' if personal_message else ''}
+                    {personal_message_html}
 
-            <p>As a sponsor representative, you'll be able to:</p>
-            <ul>
-                <li>View and manage leads captured at events</li>
-                <li>Track engagement and intent scores</li>
-                <li>Access real-time notifications</li>
-                <li>Export lead data for your CRM</li>
-            </ul>
+                    <div class="invite-box">
+                        <p style="margin: 0 0 15px 0; color: #666;">Your Role</p>
+                        <div class="role-badge">{role_display}</div>
+                    </div>
 
-            <p style="text-align: center; margin: 30px 0;">
-                <a href="{invitation_url}"
-                   style="background: #4F46E5; color: white; padding: 12px 30px;
-                          text-decoration: none; border-radius: 6px; font-weight: bold;">
-                    Accept Invitation
-                </a>
-            </p>
+                    <div class="benefits">
+                        <h3 style="margin: 0 0 15px 0; color: #0D1A3F;">As a sponsor representative, you'll be able to:</h3>
+                        <ul>
+                            <li>📊 View and manage leads captured at events</li>
+                            <li>🎯 Track engagement and intent scores</li>
+                            <li>🔔 Receive real-time lead notifications</li>
+                            <li>📤 Export lead data for your CRM</li>
+                            <li>🏪 Manage your sponsor booth information</li>
+                        </ul>
+                    </div>
 
-            <p style="color: #666; font-size: 14px;">
-                This invitation expires in 7 days. If you didn't expect this invitation,
-                you can safely ignore this email.
-            </p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{invitation_url}" class="cta-button">Accept Invitation</a>
+                    </div>
 
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #999; font-size: 12px;">
-                Event Dynamics - Where Events Come Alive
-            </p>
-        </div>
+                    <p class="expire-note">
+                        ⏰ This invitation expires in 7 days. If you didn't expect this invitation, you can safely ignore this email.
+                    </p>
+
+                    <p>Best regards,<br>The Event Dynamics Team</p>
+                </div>
+                <div class="footer">
+                    <p>Event Dynamics - Where Events Come Alive</p>
+                    <p style="margin-top: 10px;">
+                        <a href="{invitation_url}" style="color: #0D1A3F; word-break: break-all; font-size: 11px;">{invitation_url}</a>
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
         """
 
-        # Send via email service
-        return _send_email(invitation_email, subject, html_content)
+        subject = f"You've been invited to join {sponsor_name} on Event Dynamics"
+
+        params = {
+            "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+            "to": [invitation_email],
+            "subject": subject,
+            "html": html_content,
+        }
+
+        response = resend.Emails.send(params)
+        logger.info(f"Sponsor invitation email sent to {invitation_email} for {sponsor_name}")
+        print(f"[EMAIL] Sponsor invitation sent to {invitation_email} for sponsor: {sponsor_name}")
+        return True
 
     except Exception as e:
         logger.error(f"Error sending invitation email to {invitation_email}: {e}")
+        print(f"[EMAIL ERROR] Failed to send invitation email to {invitation_email}: {e}")
         return False
 
 
@@ -223,6 +290,8 @@ def send_lead_notification_email(
         True if email was sent successfully, False otherwise
     """
     try:
+        init_resend()
+
         # Intent level styling
         intent_colors = {
             "hot": "#EF4444",
@@ -231,84 +300,96 @@ def send_lead_notification_email(
         }
         intent_color = intent_colors.get(intent_level, "#6B7280")
 
-        subject = f"New {intent_level.upper()} Lead: {lead_name} - {event_name}"
+        intent_emojis = {
+            "hot": "🔥",
+            "warm": "⭐",
+            "cold": "❄️"
+        }
+        intent_emoji = intent_emojis.get(intent_level, "📍")
+
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'https://eventdynamics.io')
 
         html_content = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: {intent_color}; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-                <h2 style="margin: 0;">New {intent_level.upper()} Lead Captured!</h2>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: {intent_color}; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 24px; }}
+                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+                .lead-card {{ background: white; border-radius: 12px; padding: 25px; margin: 20px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
+                .lead-name {{ font-size: 22px; font-weight: bold; margin: 0 0 5px 0; color: #0D1A3F; }}
+                .lead-title {{ color: #666; margin: 0 0 15px 0; }}
+                .intent-badge {{ display: inline-block; background: {intent_color}; color: white; padding: 6px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; }}
+                .detail-row {{ display: flex; padding: 8px 0; border-bottom: 1px solid #eee; }}
+                .detail-label {{ color: #888; width: 100px; }}
+                .detail-value {{ color: #333; font-weight: 500; }}
+                .cta-button {{ display: inline-block; background: #FFD633; color: #0D1A3F; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; margin: 20px 0; }}
+                .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{intent_emoji} New {intent_level.upper()} Lead Captured!</h1>
+                </div>
+                <div class="content">
+                    <p>Great news! A new lead has been captured for <strong>{sponsor_name}</strong> at <strong>{event_name}</strong>.</p>
+
+                    <div class="lead-card">
+                        <p class="lead-name">{lead_name}</p>
+                        <p class="lead-title">{f'{lead_title} at {lead_company}' if lead_title and lead_company else lead_company or lead_title or 'Contact'}</p>
+
+                        <div style="margin: 20px 0;">
+                            <span class="intent-badge">{intent_emoji} {intent_level.upper()} Intent</span>
+                        </div>
+
+                        <div style="margin-top: 20px;">
+                            <div class="detail-row">
+                                <span class="detail-label">Interaction</span>
+                                <span class="detail-value">{interaction_type.replace('_', ' ').title()}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Event</span>
+                                <span class="detail-value">{event_name}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center;">
+                        <a href="{frontend_url}/sponsor/leads" class="cta-button">View All Leads</a>
+                    </div>
+
+                    <p style="color: #888; font-size: 13px; margin-top: 20px;">
+                        You're receiving this because lead notifications are enabled for {sponsor_name}.
+                    </p>
+                </div>
+                <div class="footer">
+                    <p>Event Dynamics - Where Events Come Alive</p>
+                </div>
             </div>
-
-            <div style="border: 1px solid #eee; border-top: none; padding: 20px; border-radius: 0 0 8px 8px;">
-                <h3 style="margin-top: 0;">{lead_name}</h3>
-                {f'<p><strong>Company:</strong> {lead_company}</p>' if lead_company else ''}
-                {f'<p><strong>Title:</strong> {lead_title}</p>' if lead_title else ''}
-                <p><strong>Interaction:</strong> {interaction_type.replace('_', ' ').title()}</p>
-                <p><strong>Event:</strong> {event_name}</p>
-
-                <p style="text-align: center; margin: 25px 0;">
-                    <a href="{getattr(settings, 'FRONTEND_URL', 'https://app.eventdynamics.com')}/sponsor/leads"
-                       style="background: #4F46E5; color: white; padding: 12px 30px;
-                              text-decoration: none; border-radius: 6px; font-weight: bold;">
-                        View All Leads
-                    </a>
-                </p>
-            </div>
-
-            <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
-                You're receiving this because lead notifications are enabled for {sponsor_name}.
-            </p>
-        </div>
+        </body>
+        </html>
         """
 
-        return _send_email(notification_email, subject, html_content)
+        subject = f"{intent_emoji} New {intent_level.upper()} Lead: {lead_name} - {event_name}"
+
+        params = {
+            "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+            "to": [notification_email],
+            "subject": subject,
+            "html": html_content,
+        }
+
+        response = resend.Emails.send(params)
+        logger.info(f"Lead notification email sent to {notification_email}")
+        print(f"[EMAIL] Lead notification sent to {notification_email} for lead: {lead_name}")
+        return True
 
     except Exception as e:
         logger.error(f"Error sending lead notification to {notification_email}: {e}")
-        return False
-
-
-def _send_email(to_email: str, subject: str, html_content: str) -> bool:
-    """
-    Internal function to send an email via the notification service.
-
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        html_content: HTML email content
-
-    Returns:
-        True if sent successfully, False otherwise
-    """
-    try:
-        # Check for email service configuration
-        email_service_url = getattr(settings, 'EMAIL_SERVICE_URL', None)
-
-        if not email_service_url:
-            # Log the email content for development/testing
-            logger.info(f"[EMAIL] To: {to_email}")
-            logger.info(f"[EMAIL] Subject: {subject}")
-            logger.info(f"[EMAIL] (Email service not configured - email logged only)")
-            return True  # Return True in dev mode to not break the flow
-
-        with httpx.Client(timeout=10.0) as client:
-            response = client.post(
-                f"{email_service_url}/send",
-                json={
-                    "to": to_email,
-                    "subject": subject,
-                    "html": html_content
-                },
-                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
-            )
-
-            if response.status_code == 200:
-                logger.info(f"Email sent successfully to {to_email}")
-                return True
-            else:
-                logger.error(f"Failed to send email: HTTP {response.status_code}")
-                return False
-
-    except Exception as e:
-        logger.error(f"Error sending email to {to_email}: {e}")
+        print(f"[EMAIL ERROR] Failed to send lead notification to {notification_email}: {e}")
         return False
