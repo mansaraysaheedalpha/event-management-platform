@@ -98,7 +98,7 @@ export class BreakoutService {
    * Includes active participants (those who haven't left) so frontend can determine user's room.
    */
   async getRoomsForSession(sessionId: string) {
-    return this.prisma.breakoutRoom.findMany({
+    const rooms = await this.prisma.breakoutRoom.findMany({
       where: {
         sessionId,
         status: { not: 'CLOSED' },
@@ -115,30 +115,48 @@ export class BreakoutService {
             leftAt: true,
           },
         },
-        _count: { select: { participants: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    // Transform to include correct active participant count
+    return rooms.map((room) => ({
+      ...room,
+      _count: {
+        participants: room.participants.length, // Count only active participants
+      },
+    }));
   }
 
   /**
    * Gets a single breakout room by ID with participants.
+   * Returns only active participants (those who haven't left).
    */
   async getRoomWithParticipants(roomId: string) {
-    return this.prisma.breakoutRoom.findUnique({
+    const room = await this.prisma.breakoutRoom.findUnique({
       where: { id: roomId },
       include: {
         creator: { select: { id: true, firstName: true, lastName: true } },
         facilitator: { select: { id: true, firstName: true, lastName: true } },
         participants: {
+          where: { leftAt: null }, // Only active participants
           include: {
             user: { select: { id: true, firstName: true, lastName: true } },
           },
           orderBy: { joinedAt: 'asc' },
         },
-        _count: { select: { participants: true } },
       },
     });
+
+    if (!room) return null;
+
+    // Return with correct active participant count
+    return {
+      ...room,
+      _count: {
+        participants: room.participants.length,
+      },
+    };
   }
 
   /**
