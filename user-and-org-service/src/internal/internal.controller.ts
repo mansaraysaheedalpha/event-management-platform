@@ -114,7 +114,7 @@ export class InternalController {
       throw new BadRequestException('Password must be at least 8 characters');
     }
 
-    // Create user with sponsor link
+    // Create user with sponsor link (use ATTENDEE type for sponsor reps)
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await this.prisma.user.create({
       data: {
@@ -123,17 +123,19 @@ export class InternalController {
         last_name,
         password: hashedPassword,
         sponsorId,
-        userType: 'SPONSOR_REP',
+        userType: 'ATTENDEE',
       },
       select: {
         id: true,
         email: true,
         first_name: true,
         last_name: true,
+        imageUrl: true,
         tier: true,
         sponsorId: true,
         preferredLanguage: true,
         isTwoFactorEnabled: true,
+        userType: true,
       },
     });
 
@@ -169,10 +171,12 @@ export class InternalController {
         first_name: true,
         last_name: true,
         password: true,
+        imageUrl: true,
         tier: true,
         sponsorId: true,
         preferredLanguage: true,
         isTwoFactorEnabled: true,
+        userType: true,
       },
     });
 
@@ -199,10 +203,12 @@ export class InternalController {
         email: true,
         first_name: true,
         last_name: true,
+        imageUrl: true,
         tier: true,
         sponsorId: true,
         preferredLanguage: true,
         isTwoFactorEnabled: true,
+        userType: true,
       },
     });
 
