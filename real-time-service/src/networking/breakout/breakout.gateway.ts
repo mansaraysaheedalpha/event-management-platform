@@ -225,17 +225,21 @@ export class BreakoutGateway {
 
       const breakoutRoom = `breakout:${data.roomId}`;
 
-      // Broadcast that room has started (include video URL if available)
-      this.server.to(breakoutRoom).emit('breakout.room.started', {
+      const sessionRoom = `session:${room.sessionId}`;
+      const startedPayload = {
         roomId: data.roomId,
         startedAt: room.startedAt,
         durationMinutes: room.durationMinutes,
         videoRoomUrl: room.videoRoomUrl,
         hasVideo: !!room.videoRoomUrl,
-      });
+      };
 
-      // Update session room
-      this.server.to(`session:${room.sessionId}`).emit('breakout.rooms.updated', {
+      // Broadcast that room has started to both breakout room and session room
+      this.server.to(breakoutRoom).emit('breakout.room.started', startedPayload);
+      this.server.to(sessionRoom).emit('breakout.room.started', startedPayload);
+
+      // Also emit the rooms.updated event for legacy compatibility
+      this.server.to(sessionRoom).emit('breakout.rooms.updated', {
         roomId: data.roomId,
         status: 'ACTIVE',
         startedAt: room.startedAt,
