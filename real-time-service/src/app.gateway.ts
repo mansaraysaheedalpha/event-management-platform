@@ -157,6 +157,43 @@ export class AppGateway
     return { success: true };
   }
 
+  @SubscribeMessage('session.join')
+  async handleJoinSession(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { sessionId: string },
+  ): Promise<{ success: boolean; error?: string }> {
+    const user = getAuthenticatedUser(client);
+
+    if (!data?.sessionId) {
+      this.logger.warn(
+        `Session join failed for user ${user.sub}: Missing sessionId`,
+      );
+      return { success: false, error: 'Session ID is required' };
+    }
+
+    const sessionRoom = `session:${data.sessionId}`;
+    await client.join(sessionRoom);
+    this.logger.log(`✅ User ${user.sub} joined session room: ${sessionRoom}`);
+
+    return { success: true };
+  }
+
+  @SubscribeMessage('session.leave')
+  async handleLeaveSession(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { sessionId: string },
+  ): Promise<{ success: boolean }> {
+    const user = getAuthenticatedUser(client);
+
+    if (data?.sessionId) {
+      const sessionRoom = `session:${data.sessionId}`;
+      await client.leave(sessionRoom);
+      this.logger.log(`User ${user.sub} left session room: ${sessionRoom}`);
+    }
+
+    return { success: true };
+  }
+
   @SubscribeMessage('dashboard.join')
   async handleJoinDashboard(
     @ConnectedSocket() client: AuthenticatedSocket,

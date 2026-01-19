@@ -95,8 +95,9 @@ export class BreakoutService {
 
   /**
    * Gets all active breakout rooms for a session.
+   * Includes active participants (those who haven't left) so frontend can determine user's room.
    */
-  async getRoomsForSession(sessionId: string): Promise<BreakoutRoomWithCount[]> {
+  async getRoomsForSession(sessionId: string) {
     return this.prisma.breakoutRoom.findMany({
       where: {
         sessionId,
@@ -105,6 +106,15 @@ export class BreakoutService {
       include: {
         creator: { select: { id: true, firstName: true, lastName: true } },
         facilitator: { select: { id: true, firstName: true, lastName: true } },
+        participants: {
+          where: { leftAt: null }, // Only include active participants
+          select: {
+            userId: true,
+            role: true,
+            joinedAt: true,
+            leftAt: true,
+          },
+        },
         _count: { select: { participants: true } },
       },
       orderBy: { createdAt: 'asc' },
