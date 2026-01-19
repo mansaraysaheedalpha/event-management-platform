@@ -249,6 +249,18 @@ export class BreakoutService {
   }
 
   /**
+   * Checks if a user is currently an active participant in a breakout room.
+   */
+  async isUserInRoom(roomId: string, userId: string): Promise<boolean> {
+    const participation = await this.prisma.breakoutParticipant.findUnique({
+      where: { userId_roomId: { userId, roomId } },
+    });
+
+    // User is in room if they have a participation record and haven't left
+    return participation !== null && participation.leftAt === null;
+  }
+
+  /**
    * Starts the timer for a breakout room and creates a Daily video room.
    */
   async startRoom(roomId: string, userId: string, userPermissions: string[]) {

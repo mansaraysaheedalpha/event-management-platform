@@ -346,6 +346,11 @@ export class BreakoutGateway {
     }
   }
 
+  // Rate limiting: track last message time per user per room
+  private chatRateLimits: Map<string, number> = new Map();
+  private readonly CHAT_RATE_LIMIT_MS = 500; // Min 500ms between messages
+  private readonly MAX_MESSAGE_LENGTH = 1000; // Max 1000 characters per message
+
   /**
    * Send a chat message in a breakout room.
    */
@@ -356,23 +361,53 @@ export class BreakoutGateway {
   ) {
     const user = getAuthenticatedUser(client);
 
+    // Validate roomId format (UUID)
+    if (!data.roomId || !/^[0-9a-f-]{36}$/i.test(data.roomId)) {
+      return { success: false, error: 'Invalid room ID' };
+    }
+
     if (!data.content?.trim()) {
       return { success: false, error: 'Message cannot be empty' };
     }
 
+    // Check message length
+    const trimmedContent = data.content.trim();
+    if (trimmedContent.length > this.MAX_MESSAGE_LENGTH) {
+      return { success: false, error: `Message too long (max ${this.MAX_MESSAGE_LENGTH} characters)` };
+    }
+
+    // Rate limiting check
+    const rateLimitKey = `${user.sub}:${data.roomId}`;
+    const lastMessageTime = this.chatRateLimits.get(rateLimitKey) || 0;
+    const now = Date.now();
+    if (now - lastMessageTime < this.CHAT_RATE_LIMIT_MS) {
+      return { success: false, error: 'Please wait before sending another message' };
+    }
+
     try {
+      // Verify user is a participant in this room or has manage permission
+      const isParticipant = await this.breakoutService.isUserInRoom(data.roomId, user.sub);
+      const hasPermission = user.permissions?.includes('breakout:manage');
+
+      if (!isParticipant && !hasPermission) {
+        return { success: false, error: 'You must be a participant in this room to send messages' };
+      }
+
       const userName = user.firstName && user.lastName
         ? `${user.firstName} ${user.lastName}`
         : user.email || 'Participant';
 
       const message = {
-        id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         roomId: data.roomId,
         userId: user.sub,
         userName,
-        content: data.content.trim(),
+        content: trimmedContent,
         timestamp: new Date().toISOString(),
       };
+
+      // Update rate limit
+      this.chatRateLimits.set(rateLimitKey, now);
 
       // Store message
       if (!this.chatMessages.has(data.roomId)) {
@@ -404,8 +439,27 @@ export class BreakoutGateway {
     @MessageBody() data: { roomId: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    const user = getAuthenticatedUser(client);
+
+    // Validate roomId format
+    if (!data.roomId || !/^[0-9a-f-]{36}$/i.test(data.roomId)) {
+      return { success: false, error: 'Invalid room ID' };
+    }
+
     try {
+      // Verify user has access to this room
+      const isParticipant = await this.breakoutService.isUserInRoom(data.roomId, user.sub);
+      const hasPermission = user.permissions?.includes('breakout:manage');
+
+      if (!isParticipant && !hasPermission) {
+        return { success: false, error: 'You do not have access to this room' };
+      }
+
       const messages = this.chatMessages.get(data.roomId) || [];
+
+      // Also emit as event for consistency with message handler
+      client.emit('breakout.chat.history', { roomId: data.roomId, messages });
+
       return { success: true, roomId: data.roomId, messages };
     } catch (error) {
       this.logger.error(`Failed to get chat history: ${getErrorMessage(error)}`);
