@@ -28,6 +28,17 @@ export class BreakoutGateway {
   // Track active timers for rooms
   private roomTimers: Map<string, NodeJS.Timeout> = new Map();
 
+  // In-memory chat storage (in production, use Redis or database)
+  private chatMessages: Map<string, Array<{
+    id: string;
+    roomId: string;
+    userId: string;
+    userName: string;
+    content: string;
+    timestamp: string;
+    isSystem?: boolean;
+  }>> = new Map();
+
   constructor(private readonly breakoutService: BreakoutService) {}
 
   /**
@@ -331,6 +342,73 @@ export class BreakoutGateway {
       return { success: true, closedRoomIds };
     } catch (error) {
       this.logger.error(`Failed to recall all breakout rooms: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Send a chat message in a breakout room.
+   */
+  @SubscribeMessage('breakout.chat.send')
+  async handleChatSend(
+    @MessageBody() data: { roomId: string; content: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!data.content?.trim()) {
+      return { success: false, error: 'Message cannot be empty' };
+    }
+
+    try {
+      const userName = user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.email || 'Participant';
+
+      const message = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        roomId: data.roomId,
+        userId: user.sub,
+        userName,
+        content: data.content.trim(),
+        timestamp: new Date().toISOString(),
+      };
+
+      // Store message
+      if (!this.chatMessages.has(data.roomId)) {
+        this.chatMessages.set(data.roomId, []);
+      }
+      const messages = this.chatMessages.get(data.roomId)!;
+      messages.push(message);
+
+      // Keep only last 100 messages per room
+      if (messages.length > 100) {
+        messages.shift();
+      }
+
+      // Broadcast to room
+      this.server.to(`breakout:${data.roomId}`).emit('breakout.chat.message', message);
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Failed to send chat message: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Get chat history for a breakout room.
+   */
+  @SubscribeMessage('breakout.chat.getHistory')
+  async handleChatHistory(
+    @MessageBody() data: { roomId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    try {
+      const messages = this.chatMessages.get(data.roomId) || [];
+      return { success: true, roomId: data.roomId, messages };
+    } catch (error) {
+      this.logger.error(`Failed to get chat history: ${getErrorMessage(error)}`);
       return { success: false, error: getErrorMessage(error) };
     }
   }
