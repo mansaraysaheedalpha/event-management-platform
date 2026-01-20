@@ -12,10 +12,12 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { BreakoutService } from './breakout.service';
+import { SegmentService } from './segment.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
 import { LeaveRoomDto } from './dto/leave-room.dto';
 import { CloseRoomDto } from './dto/close-room.dto';
+import { AssignmentStatus } from '@prisma/client';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -39,7 +41,10 @@ export class BreakoutGateway {
     isSystem?: boolean;
   }>> = new Map();
 
-  constructor(private readonly breakoutService: BreakoutService) {}
+  constructor(
+    private readonly breakoutService: BreakoutService,
+    private readonly segmentService: SegmentService,
+  ) {}
 
   /**
    * Get all breakout rooms for a session.
@@ -466,6 +471,493 @@ export class BreakoutGateway {
       return { success: false, error: getErrorMessage(error) };
     }
   }
+
+  // ==========================================
+  // Segment Management Handlers
+  // ==========================================
+
+  /**
+   * Create a new segment for a session.
+   */
+  @SubscribeMessage('segment.create')
+  async handleCreateSegment(
+    @MessageBody() data: {
+      sessionId: string;
+      eventId: string;
+      name: string;
+      description?: string;
+      color?: string;
+      matchCriteria?: {
+        field: string;
+        operator: 'equals' | 'contains' | 'startsWith' | 'in' | 'notEquals';
+        value: string | string[];
+      };
+      priority?: number;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      const segment = await this.segmentService.createSegment(user.sub, data);
+
+      // Broadcast to session
+      this.server.to(`session:${data.sessionId}`).emit('segment.created', segment);
+
+      this.logger.log(`Segment ${segment.id} created for session ${data.sessionId}`);
+      return { success: true, segment };
+    } catch (error) {
+      this.logger.error(`Failed to create segment: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Update a segment.
+   */
+  @SubscribeMessage('segment.update')
+  async handleUpdateSegment(
+    @MessageBody() data: {
+      segmentId: string;
+      sessionId: string;
+      name?: string;
+      description?: string;
+      color?: string;
+      matchCriteria?: {
+        field: string;
+        operator: 'equals' | 'contains' | 'startsWith' | 'in' | 'notEquals';
+        value: string | string[];
+      };
+      priority?: number;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      const segment = await this.segmentService.updateSegment(data.segmentId, data);
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.updated', segment);
+
+      this.logger.log(`Segment ${data.segmentId} updated`);
+      return { success: true, segment };
+    } catch (error) {
+      this.logger.error(`Failed to update segment: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Delete a segment.
+   */
+  @SubscribeMessage('segment.delete')
+  async handleDeleteSegment(
+    @MessageBody() data: { segmentId: string; sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      await this.segmentService.deleteSegment(data.segmentId);
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.deleted', {
+        segmentId: data.segmentId,
+      });
+
+      this.logger.log(`Segment ${data.segmentId} deleted`);
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Failed to delete segment: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * List all segments for a session.
+   */
+  @SubscribeMessage('segment.list')
+  async handleListSegments(
+    @MessageBody() data: { sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    try {
+      const segments = await this.segmentService.getSegmentsBySession(data.sessionId);
+      return { success: true, segments };
+    } catch (error) {
+      this.logger.error(`Failed to list segments: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Add a member to a segment manually.
+   */
+  @SubscribeMessage('segment.member.add')
+  async handleAddSegmentMember(
+    @MessageBody() data: { segmentId: string; userId: string; sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      const member = await this.segmentService.addMemberToSegment(
+        data.segmentId,
+        data.userId,
+        false, // manually added
+      );
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.member.added', {
+        segmentId: data.segmentId,
+        userId: data.userId,
+      });
+
+      return { success: true, member };
+    } catch (error) {
+      this.logger.error(`Failed to add segment member: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Remove a member from a segment.
+   */
+  @SubscribeMessage('segment.member.remove')
+  async handleRemoveSegmentMember(
+    @MessageBody() data: { segmentId: string; userId: string; sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      await this.segmentService.removeMemberFromSegment(data.segmentId, data.userId);
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.member.removed', {
+        segmentId: data.segmentId,
+        userId: data.userId,
+      });
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Failed to remove segment member: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Create an assignment rule (segment -> room mapping).
+   */
+  @SubscribeMessage('segment.rule.create')
+  async handleCreateSegmentRule(
+    @MessageBody() data: {
+      segmentId: string;
+      roomId: string;
+      sessionId: string;
+      maxFromSegment?: number;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      const rule = await this.segmentService.createAssignmentRule({
+        segmentId: data.segmentId,
+        roomId: data.roomId,
+        maxFromSegment: data.maxFromSegment,
+      });
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.rule.created', rule);
+
+      this.logger.log(`Assignment rule created: segment ${data.segmentId} -> room ${data.roomId}`);
+      return { success: true, rule };
+    } catch (error) {
+      this.logger.error(`Failed to create assignment rule: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Delete an assignment rule.
+   */
+  @SubscribeMessage('segment.rule.delete')
+  async handleDeleteSegmentRule(
+    @MessageBody() data: { segmentId: string; roomId: string; sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      await this.segmentService.deleteAssignmentRule(data.segmentId, data.roomId);
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.rule.deleted', {
+        segmentId: data.segmentId,
+        roomId: data.roomId,
+      });
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Failed to delete assignment rule: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Auto-assign attendees to segments based on their registration data.
+   */
+  @SubscribeMessage('segment.auto-assign')
+  async handleAutoAssignSegments(
+    @MessageBody() data: {
+      sessionId: string;
+      attendees: Array<{
+        userId: string;
+        registrationData?: Record<string, unknown>;
+      }>;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      const assignments = await this.segmentService.autoAssignToSegments(
+        data.sessionId,
+        data.attendees,
+      );
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.auto-assigned', {
+        assignmentCount: assignments.length,
+        assignments,
+      });
+
+      this.logger.log(`Auto-assigned ${assignments.length} attendees to segments`);
+      return { success: true, assignments };
+    } catch (error) {
+      this.logger.error(`Failed to auto-assign segments: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Compute room assignments based on segment rules.
+   */
+  @SubscribeMessage('segment.assignment.compute')
+  async handleComputeAssignments(
+    @MessageBody() data: { sessionId: string; eventId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    try {
+      const result = await this.segmentService.computeRoomAssignments(
+        data.sessionId,
+        data.eventId,
+      );
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.assignments.computed', {
+        created: result.created,
+        errors: result.errors,
+      });
+
+      this.logger.log(`Computed ${result.created} room assignments for session ${data.sessionId}`);
+      return { success: true, ...result };
+    } catch (error) {
+      this.logger.error(`Failed to compute assignments: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Get a user's room assignment for a session.
+   */
+  @SubscribeMessage('segment.assignment.get')
+  async handleGetAssignment(
+    @MessageBody() data: { sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      const assignment = await this.segmentService.getUserAssignment(
+        data.sessionId,
+        user.sub,
+      );
+
+      return { success: true, assignment };
+    } catch (error) {
+      this.logger.error(`Failed to get assignment: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Get all assignments for a session (organizer only).
+   */
+  @SubscribeMessage('segment.assignment.list')
+  async handleListAssignments(
+    @MessageBody() data: { sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to view all assignments' };
+    }
+
+    try {
+      const assignments = await this.segmentService.getSessionAssignments(data.sessionId);
+      return { success: true, assignments };
+    } catch (error) {
+      this.logger.error(`Failed to list assignments: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Notify all attendees about their room assignments.
+   */
+  @SubscribeMessage('segment.assignment.notify')
+  async handleNotifyAssignments(
+    @MessageBody() data: { sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to notify assignments' };
+    }
+
+    try {
+      const result = await this.segmentService.notifyAllAssignments(data.sessionId);
+
+      // Get all assignments to notify users individually
+      const assignments = await this.segmentService.getSessionAssignments(data.sessionId);
+
+      // Emit to session room for organizer UI update
+      this.server.to(`session:${data.sessionId}`).emit('segment.assignments.notified', {
+        count: result.count,
+      });
+
+      // Emit individual assignment notifications to each user's socket
+      for (const assignment of assignments) {
+        // Users join a personal room on connection, e.g., user:userId
+        this.server.to(`user:${assignment.userId}`).emit('breakout.assignment.received', {
+          sessionId: data.sessionId,
+          assignment: {
+            roomId: assignment.roomId,
+            roomName: assignment.room.name,
+            status: assignment.status,
+          },
+        });
+      }
+
+      this.logger.log(`Notified ${result.count} assignments for session ${data.sessionId}`);
+      return { success: true, notified: result.count };
+    } catch (error) {
+      this.logger.error(`Failed to notify assignments: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Clear all assignments for a session (for re-assignment).
+   */
+  @SubscribeMessage('segment.assignment.clear')
+  async handleClearAssignments(
+    @MessageBody() data: { sessionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    if (!user.permissions?.includes('breakout:manage')) {
+      return { success: false, error: 'You do not have permission to clear assignments' };
+    }
+
+    try {
+      const result = await this.segmentService.clearSessionAssignments(data.sessionId);
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.assignments.cleared', {
+        count: result.count,
+      });
+
+      this.logger.log(`Cleared ${result.count} assignments for session ${data.sessionId}`);
+      return { success: true, cleared: result.count };
+    } catch (error) {
+      this.logger.error(`Failed to clear assignments: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Update a user's assignment status (confirm/decline).
+   */
+  @SubscribeMessage('segment.assignment.respond')
+  async handleRespondToAssignment(
+    @MessageBody() data: { sessionId: string; status: 'CONFIRMED' | 'DECLINED' },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      const status = data.status === 'CONFIRMED'
+        ? AssignmentStatus.CONFIRMED
+        : AssignmentStatus.DECLINED;
+
+      const assignment = await this.segmentService.updateAssignmentStatus(
+        data.sessionId,
+        user.sub,
+        status,
+      );
+
+      this.server.to(`session:${data.sessionId}`).emit('segment.assignment.responded', {
+        userId: user.sub,
+        roomId: assignment.roomId,
+        status: assignment.status,
+      });
+
+      return { success: true, assignment };
+    } catch (error) {
+      this.logger.error(`Failed to respond to assignment: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  // ==========================================
+  // Timer Helper Methods
+  // ==========================================
 
   /**
    * Start the countdown timer for a room.
