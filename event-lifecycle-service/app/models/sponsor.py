@@ -72,3 +72,4 @@ class Sponsor(Base):
     users = relationship("SponsorUser", back_populates="sponsor")
     invitations = relationship("SponsorInvitation", back_populates="sponsor")
     leads = relationship("SponsorLead", back_populates="sponsor")
+    expo_booth = relationship("ExpoBooth", back_populates="sponsor", uselist=False)

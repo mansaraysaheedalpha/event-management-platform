@@ -1004,3 +1004,310 @@ model BreakoutParticipant {
   @@index([roomId])
   @@map("breakout_participants")
 }
+
+// ==========================
+// Virtual Expo Hall Enums
+// ==========================
+
+enum ExpoHallLayout {
+  GRID        // Traditional grid layout of booth cards
+  FLOOR_PLAN  // Visual floor plan with positioned booths
+  LIST        // List view with details
+}
+
+enum BoothTier {
+  PLATINUM
+  GOLD
+  SILVER
+  BRONZE
+  STARTUP
+}
+
+enum BoothVisitorStatus {
+  BROWSING      // Viewing booth details
+  IN_CHAT       // Active in booth chat
+  IN_VIDEO      // In video call with staff
+}
+
+enum BoothVideoSessionStatus {
+  REQUESTED     // Attendee requested video
+  ACCEPTED      // Staff accepted, waiting to connect
+  ACTIVE        // Video call in progress
+  COMPLETED     // Call ended normally
+  DECLINED      // Staff declined request
+  CANCELLED     // Attendee cancelled request
+  EXPIRED       // Request timed out
+}
+
+enum StaffPresenceStatus {
+  ONLINE        // Available for interactions
+  AWAY          // Temporarily unavailable
+  BUSY          // In video call or handling multiple chats
+  OFFLINE       // Not currently at booth
+}
+
+// ==========================
+// Virtual Expo Hall Models
+// ==========================
+
+model ExpoHall {
+  id                String          @id @default(cuid())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  eventId           String          // From event-lifecycle-service
+  organizationId    String
+
+  name              String          @db.VarChar(200)
+  description       String?         @db.Text
+  layout            ExpoHallLayout  @default(GRID)
+  categories        String[]        // e.g., ["Technology", "Services", "Startups"]
+
+  // Availability window
+  opensAt           DateTime?
+  closesAt          DateTime?
+  isActive          Boolean         @default(true)
+
+  // Customization
+  bannerUrl         String?         @db.VarChar(500)
+  welcomeMessage    String?         @db.Text
+
+  // Relations
+  booths            ExpoBooth[]
+
+  @@unique([eventId])               // One expo hall per event
+  @@index([eventId])
+  @@index([isActive])
+  @@map("expo_halls")
+}
+
+model ExpoBooth {
+  id                String          @id @default(cuid())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  expoHallId        String
+  expoHall          ExpoHall        @relation(fields: [expoHallId], references: [id], onDelete: Cascade)
+
+  sponsorId         String          // FK to sponsor in event-lifecycle-service
+  organizationId    String          // Sponsor's organization
+
+  // Booth identity
+  boothNumber       String          @db.VarChar(20)
+  tier              BoothTier       @default(BRONZE)
+  name              String          @db.VarChar(200)
+  tagline           String?         @db.VarChar(300)
+  description       String?         @db.Text
+
+  // Media assets
+  logoUrl           String?         @db.VarChar(500)
+  bannerUrl         String?         @db.VarChar(500)
+  videoUrl          String?         @db.VarChar(500)   // Booth video loop
+
+  // Resources - stored as JSONB
+  // Format: [{ id, title, type, url, description, downloadCount }]
+  resources         Json            @default("[]")
+
+  // Call-to-action buttons - stored as JSONB
+  // Format: [{ id, label, url, style, icon, clickCount }]
+  ctaButtons        Json            @default("[]")
+
+  // Staff management - user IDs from event-lifecycle-service
+  staffIds          String[]
+
+  // Features
+  chatEnabled       Boolean         @default(true)
+  videoEnabled      Boolean         @default(true)
+
+  // Floor plan positioning (for FLOOR_PLAN layout)
+  positionX         Int?
+  positionY         Int?
+  width             Int?
+  height            Int?
+
+  // Category for filtering
+  category          String?         @db.VarChar(100)
+
+  // Sorting within tier
+  displayOrder      Int             @default(0)
+
+  // Relations
+  visits            BoothVisit[]
+  chatMessages      BoothChatMessage[]
+  videoSessions     BoothVideoSession[]
+  staffPresence     BoothStaffPresence[]
+
+  @@unique([expoHallId, boothNumber])
+  @@index([expoHallId])
+  @@index([sponsorId])
+  @@index([tier])
+  @@index([category])
+  @@map("expo_booths")
+}
+
+model BoothVisit {
+  id                String              @id @default(cuid())
+  enteredAt         DateTime            @default(now())
+  exitedAt          DateTime?
+
+  boothId           String
+  booth             ExpoBooth           @relation(fields: [boothId], references: [id], onDelete: Cascade)
+
+  userId            String
+  eventId           String              // Denormalized for easier querying
+
+  // Visit tracking
+  status            BoothVisitorStatus  @default(BROWSING)
+  durationSeconds   Int                 @default(0)
+
+  // Engagement tracking - stored as JSONB
+  // Format: [{ action, timestamp, metadata }]
+  // Actions: "resource_download", "cta_click", "video_watch", "chat_message"
+  actions           Json                @default("[]")
+
+  // Lead capture
+  leadCaptured      Boolean             @default(false)
+  leadCapturedAt    DateTime?
+  leadData          Json?               // Captured form data
+
+  // Session info for reconnection
+  socketId          String?             @db.VarChar(100)
+
+  @@index([boothId])
+  @@index([userId])
+  @@index([eventId])
+  @@index([enteredAt])
+  @@index([boothId, userId])            // For checking active visits
+  @@map("booth_visits")
+}
+
+model BoothChatMessage {
+  id                String          @id @default(cuid())
+  createdAt         DateTime        @default(now())
+
+  boothId           String
+  booth             ExpoBooth       @relation(fields: [boothId], references: [id], onDelete: Cascade)
+
+  senderId          String
+  senderName        String          @db.VarChar(200)    // Cached for display
+  senderAvatarUrl   String?         @db.VarChar(500)    // Cached for display
+  isStaff           Boolean         @default(false)
+
+  // Message content
+  text              String          @db.Text
+  metadata          Json?           // For rich content (links, mentions)
+
+  // Soft delete for moderation
+  isDeleted         Boolean         @default(false)
+  deletedAt         DateTime?
+  deletedBy         String?
+
+  @@index([boothId])
+  @@index([createdAt])
+  @@index([boothId, createdAt])         // For paginated history
+  @@map("booth_chat_messages")
+}
+
+model BoothVideoSession {
+  id                String                    @id @default(cuid())
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  boothId           String
+  booth             ExpoBooth                 @relation(fields: [boothId], references: [id], onDelete: Cascade)
+
+  // Participants
+  attendeeId        String
+  attendeeName      String                    @db.VarChar(200)
+  staffId           String?
+  staffName         String?                   @db.VarChar(200)
+
+  // Session status
+  status            BoothVideoSessionStatus   @default(REQUESTED)
+  requestedAt       DateTime                  @default(now())
+  acceptedAt        DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+
+  // Duration tracking
+  durationSeconds   Int                       @default(0)
+
+  // Daily.co integration
+  videoRoomId       String?                   @db.VarChar(255)
+  videoRoomUrl      String?                   @db.VarChar(500)
+  attendeeToken     String?                   @db.VarChar(1000)
+  staffToken        String?                   @db.VarChar(1000)
+
+  // Notes from staff
+  staffNotes        String?                   @db.Text
+
+  @@index([boothId])
+  @@index([attendeeId])
+  @@index([staffId])
+  @@index([status])
+  @@index([boothId, status])              // For finding pending requests
+  @@map("booth_video_sessions")
+}
+
+model BoothStaffPresence {
+  id                String                @id @default(cuid())
+  updatedAt         DateTime              @updatedAt
+
+  boothId           String
+  booth             ExpoBooth             @relation(fields: [boothId], references: [id], onDelete: Cascade)
+
+  staffId           String
+  staffName         String                @db.VarChar(200)
+  staffAvatarUrl    String?               @db.VarChar(500)
+
+  // Presence info
+  status            StaffPresenceStatus   @default(OFFLINE)
+  lastSeenAt        DateTime              @default(now())
+
+  // Socket tracking
+  socketId          String?               @db.VarChar(100)
+
+  @@unique([boothId, staffId])
+  @@index([boothId])
+  @@index([status])
+  @@map("booth_staff_presence")
+}
+
+// Analytics aggregation for booth performance
+model BoothAnalytics {
+  id                String          @id @default(cuid())
+  updatedAt         DateTime        @updatedAt
+
+  boothId           String          @unique
+  eventId           String
+
+  // Visitor metrics
+  totalVisitors     Int             @default(0)
+  uniqueVisitors    Int             @default(0)
+  currentVisitors   Int             @default(0)
+  peakVisitors      Int             @default(0)
+  avgVisitDuration  Int             @default(0)   // In seconds
+
+  // Engagement metrics
+  totalChatMessages Int             @default(0)
+  totalVideoSessions Int            @default(0)
+  completedVideoSessions Int        @default(0)
+  avgVideoDuration  Int             @default(0)   // In seconds
+
+  // Resource metrics - stored as JSONB
+  // Format: { resourceId: downloadCount }
+  resourceDownloads Json            @default("{}")
+  totalDownloads    Int             @default(0)
+
+  // CTA metrics - stored as JSONB
+  // Format: { ctaId: clickCount }
+  ctaClicks         Json            @default("{}")
+  totalCtaClicks    Int             @default(0)
+
+  // Lead metrics
+  totalLeads        Int             @default(0)
+
+  @@index([boothId])
+  @@index([eventId])
+  @@map("booth_analytics")
+}
