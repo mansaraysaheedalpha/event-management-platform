@@ -438,7 +438,9 @@ export class SegmentService {
   // ================================
 
   /**
-   * Compute and store room assignments for a session based on segment rules
+   * Compute and store room assignments for a session based on segment rules.
+   * This function first auto-assigns users to segments based on match criteria,
+   * then assigns segment members to breakout rooms.
    */
   async computeRoomAssignments(sessionId: string, eventId: string): Promise<{
     created: number;
@@ -447,7 +449,77 @@ export class SegmentService {
     const errors: string[] = [];
     let created = 0;
 
-    // Get all segments with their rules and members
+    // Step 1: Get all segments with their match criteria
+    const segmentsForMatching = await this.prisma.breakoutSegment.findMany({
+      where: { sessionId },
+      orderBy: { priority: 'asc' },
+    });
+
+    // Step 2: Auto-assign users to segments based on profile data
+    // Get all user profiles that could be matched
+    const userProfiles = await this.prisma.userProfile.findMany({
+      select: {
+        userId: true,
+        currentRole: true,
+        industry: true,
+        company: true,
+        interests: true,
+        goals: true,
+        experienceLevel: true,
+        linkedinUrl: true,
+        bio: true,
+      },
+    });
+
+    this.logger.log(`Found ${userProfiles.length} user profiles to match against ${segmentsForMatching.length} segments`);
+
+    // For each user, check if they match any segment criteria
+    for (const profile of userProfiles) {
+      // Build registration-like data from profile
+      const profileData: Record<string, unknown> = {
+        jobRole: profile.currentRole,
+        industry: profile.industry,
+        company: profile.company,
+        interests: profile.interests,
+        goals: profile.goals,
+        experienceLevel: profile.experienceLevel,
+        linkedinUrl: profile.linkedinUrl,
+        bio: profile.bio,
+      };
+
+      // Check each segment's criteria
+      for (const segment of segmentsForMatching) {
+        if (!segment.matchCriteria) continue;
+
+        // Check if user is already a member of this segment
+        const existingMember = await this.prisma.breakoutSegmentMember.findUnique({
+          where: {
+            segmentId_userId: { segmentId: segment.id, userId: profile.userId },
+          },
+        });
+
+        if (existingMember) continue;
+
+        const criteria = segment.matchCriteria as unknown as MatchCriteria;
+        if (this.matchesCriteria(criteria, profileData)) {
+          try {
+            await this.prisma.breakoutSegmentMember.create({
+              data: {
+                segmentId: segment.id,
+                userId: profile.userId,
+                autoAssigned: true,
+              },
+            });
+            this.logger.log(`Auto-assigned user ${profile.userId} to segment ${segment.name}`);
+          } catch (e) {
+            // Ignore duplicate errors
+          }
+          break; // Only assign to first matching segment
+        }
+      }
+    }
+
+    // Step 3: Get all segments with their rules and updated members
     const segments = await this.prisma.breakoutSegment.findMany({
       where: { sessionId },
       orderBy: { priority: 'asc' },
