@@ -331,7 +331,7 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       const message = await this.expoService.sendBoothChat(
         user.sub,
         userName,
-        user.avatarUrl || null,
+        null, // avatarUrl not available in JWT
         dto.boothId,
         dto.text.trim(),
         isStaff,
@@ -644,7 +644,7 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       await this.expoService.updateStaffPresence(
         user.sub,
         staffName,
-        user.avatarUrl || null,
+        null, // avatarUrl not available in JWT
         dto.boothId,
         'ONLINE',
         client.id,
@@ -692,7 +692,7 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       await this.expoService.updateStaffPresence(
         user.sub,
         staffName,
-        user.avatarUrl || null,
+        null, // avatarUrl not available in JWT
         dto.boothId,
         dto.status as never,
         client.id,

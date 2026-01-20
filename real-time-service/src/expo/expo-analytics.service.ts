@@ -1,6 +1,7 @@
 // src/expo/expo-analytics.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
+import { Prisma } from '@prisma/client';
 
 interface EngagementAction {
   action: string;
@@ -77,7 +78,7 @@ export class ExpoAnalyticsService {
       data: {
         leadCaptured: true,
         leadCapturedAt: new Date(),
-        leadData: formData,
+        leadData: formData as Prisma.InputJsonValue,
       },
     });
 
@@ -252,12 +253,12 @@ export class ExpoAnalyticsService {
 
     if (!visit) return;
 
-    const actions = (visit.actions as EngagementAction[]) || [];
-    actions.push(action);
+    const existingActions = Array.isArray(visit.actions) ? visit.actions : [];
+    const actions = [...existingActions, action];
 
     await this.prisma.boothVisit.update({
       where: { id: visitId },
-      data: { actions },
+      data: { actions: actions as Prisma.InputJsonValue },
     });
   }
 
