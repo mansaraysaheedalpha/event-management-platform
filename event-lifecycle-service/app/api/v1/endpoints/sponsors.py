@@ -366,8 +366,12 @@ def revoke_invitation(
 # ==================== Invitation Acceptance (Public) ====================
 
 def _get_user_org_service_url() -> str:
-    """Get the user-and-org-service internal URL."""
-    return getattr(settings, 'USER_SERVICE_URL', 'http://localhost:3000')
+    """Get the user-and-org-service internal URL (base URL without /graphql)."""
+    url = getattr(settings, 'USER_SERVICE_URL', 'http://localhost:3000')
+    # Strip /graphql suffix if present (common misconfiguration)
+    if url.endswith('/graphql'):
+        url = url[:-8]  # Remove '/graphql'
+    return url.rstrip('/')
 
 
 def _validate_invitation(db: Session, token: str):
@@ -418,22 +422,36 @@ def preview_sponsor_invitation(
     # Check if user exists by calling user-and-org-service
     user_exists = False
     existing_user_first_name = None
+    check_failed = False
 
     try:
         user_org_url = _get_user_org_service_url()
+        logger.info(f"Checking if user exists: {user_org_url}, email={invitation.email}")
         with httpx.Client(timeout=10.0) as client:
             response = client.get(
                 f"{user_org_url}/internal/sponsor-invitations/check-email",
                 params={"email": invitation.email},
-                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+                headers={"x-internal-api-key": settings.INTERNAL_API_KEY}
             )
+            logger.info(f"Check email response: status={response.status_code}")
             if response.status_code == 200:
                 data = response.json()
                 user_exists = data.get("userExists", False)
                 existing_user_first_name = data.get("existingUserFirstName")
+                logger.info(f"User exists check: exists={user_exists}")
+            else:
+                logger.warning(f"Check email failed: {response.status_code} - {response.text}")
+                check_failed = True
     except Exception as e:
         logger.warning(f"Failed to check if user exists: {e}")
+        check_failed = True
         # Continue without user existence check - frontend will handle
+
+    # If check failed and we can't determine user existence, be safe and assume they might exist
+    # This prevents the confusing "account already exists" error during acceptance
+    if check_failed:
+        logger.warning(f"Could not determine if user exists - defaulting to exists=True for safety")
+        user_exists = True  # Safer to ask for password than to try creating duplicate account
 
     # Role display names
     role_names = {
@@ -481,27 +499,42 @@ def accept_invitation_new_user(
 
     # Create user in user-and-org-service
     user_org_url = _get_user_org_service_url()
+    logger.info(f"Creating user in user-and-org-service: {user_org_url}")
     try:
         with httpx.Client(timeout=15.0) as client:
+            create_url = f"{user_org_url}/internal/sponsor-invitations/create-user"
+            payload = {
+                "email": invitation.email,
+                "first_name": request.first_name,
+                "last_name": request.last_name,
+                "password": request.password,
+                "sponsorId": sponsor_obj.id,
+            }
+            logger.info(f"POST {create_url} with email={invitation.email}")
+
             response = client.post(
-                f"{user_org_url}/internal/sponsor-invitations/create-user",
-                json={
-                    "email": invitation.email,
-                    "first_name": request.first_name,
-                    "last_name": request.last_name,
-                    "password": request.password,
-                    "sponsorId": sponsor_obj.id,
-                },
-                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+                create_url,
+                json=payload,
+                headers={"x-internal-api-key": settings.INTERNAL_API_KEY}
             )
 
+            logger.info(f"User service response: status={response.status_code}")
+
             if response.status_code != 200 and response.status_code != 201:
-                error_detail = response.json().get("message", "Failed to create user account")
+                try:
+                    error_data = response.json()
+                    logger.error(f"User service error response: {error_data}")
+                    # NestJS returns errors with 'message' field
+                    error_detail = error_data.get("message", "Failed to create user account")
+                except Exception:
+                    error_detail = response.text or "Failed to create user account"
+                    logger.error(f"User service error (non-JSON): {error_detail}")
                 raise HTTPException(status_code=response.status_code, detail=error_detail)
 
             user_data = response.json()
+            logger.info(f"User created successfully: user_id={user_data.get('user', {}).get('id')}")
     except httpx.HTTPError as e:
-        logger.error(f"Failed to create user in user-and-org-service: {e}")
+        logger.error(f"HTTP error connecting to user-and-org-service: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to create user account. Please try again."
@@ -563,17 +596,23 @@ def accept_invitation_existing_user(
 
     # Verify user in user-and-org-service
     user_org_url = _get_user_org_service_url()
+    logger.info(f"Verifying user in user-and-org-service: {user_org_url}")
     try:
         with httpx.Client(timeout=15.0) as client:
+            verify_url = f"{user_org_url}/internal/sponsor-invitations/verify-user"
+            logger.info(f"POST {verify_url} with email={invitation.email}")
+
             response = client.post(
-                f"{user_org_url}/internal/sponsor-invitations/verify-user",
+                verify_url,
                 json={
                     "email": invitation.email,
                     "password": request.password,
                     "sponsorId": sponsor_obj.id,
                 },
-                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+                headers={"x-internal-api-key": settings.INTERNAL_API_KEY}
             )
+
+            logger.info(f"Verify user response: status={response.status_code}")
 
             if response.status_code == 401:
                 raise HTTPException(
@@ -581,12 +620,19 @@ def accept_invitation_existing_user(
                     detail="Invalid password. Please enter your existing account password."
                 )
             elif response.status_code != 200:
-                error_detail = response.json().get("message", "Failed to verify user")
+                try:
+                    error_data = response.json()
+                    logger.error(f"Verify user error response: {error_data}")
+                    error_detail = error_data.get("message", "Failed to verify user")
+                except Exception:
+                    error_detail = response.text or "Failed to verify user"
+                    logger.error(f"Verify user error (non-JSON): {error_detail}")
                 raise HTTPException(status_code=response.status_code, detail=error_detail)
 
             user_data = response.json()
+            logger.info(f"User verified successfully: user_id={user_data.get('user', {}).get('id')}")
     except httpx.HTTPError as e:
-        logger.error(f"Failed to verify user in user-and-org-service: {e}")
+        logger.error(f"HTTP error connecting to user-and-org-service: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to verify account. Please try again."

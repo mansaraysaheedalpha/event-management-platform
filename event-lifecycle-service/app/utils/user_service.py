@@ -36,6 +36,10 @@ async def get_user_info_async(user_id: str) -> Optional[Dict]:
     try:
         # Get internal API URL and key from settings
         user_service_url = getattr(settings, 'USER_SERVICE_URL', 'http://user-and-org-service:3000')
+        # Strip /graphql suffix if present (common misconfiguration)
+        if user_service_url.endswith('/graphql'):
+            user_service_url = user_service_url[:-8]
+        user_service_url = user_service_url.rstrip('/')
         internal_api_key = getattr(settings, 'INTERNAL_API_KEY', '')
 
         if not internal_api_key:
