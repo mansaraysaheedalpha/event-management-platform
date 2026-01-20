@@ -466,7 +466,7 @@ export class SegmentService {
         interests: true,
         goals: true,
         experienceLevel: true,
-        linkedinUrl: true,
+        linkedInUrl: true,
         bio: true,
       },
     });
@@ -483,7 +483,7 @@ export class SegmentService {
         interests: profile.interests,
         goals: profile.goals,
         experienceLevel: profile.experienceLevel,
-        linkedinUrl: profile.linkedinUrl,
+        linkedInUrl: profile.linkedInUrl,
         bio: profile.bio,
       };
 
@@ -507,7 +507,7 @@ export class SegmentService {
               data: {
                 segmentId: segment.id,
                 userId: profile.userId,
-                autoAssigned: true,
+                isAutoAssigned: true,
               },
             });
             this.logger.log(`Auto-assigned user ${profile.userId} to segment ${segment.name}`);
