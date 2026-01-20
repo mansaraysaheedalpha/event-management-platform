@@ -3,10 +3,50 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { AssignmentStatus } from '@prisma/client';
 
-interface MatchCriteria {
+// Single condition for matching
+interface MatchCondition {
   field: string;
-  operator: 'equals' | 'contains' | 'startsWith' | 'in' | 'notEquals';
-  value: string | string[];
+  operator:
+    | 'equals'
+    | 'notEquals'
+    | 'contains'
+    | 'notContains'
+    | 'startsWith'
+    | 'endsWith'
+    | 'in'
+    | 'notIn'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'exists'
+    | 'regex';
+  value: string | string[] | number | boolean;
+}
+
+// Compound criteria with AND/OR logic
+interface MatchCriteria {
+  // For backward compatibility: single condition
+  field?: string;
+  operator?:
+    | 'equals'
+    | 'notEquals'
+    | 'contains'
+    | 'notContains'
+    | 'startsWith'
+    | 'endsWith'
+    | 'in'
+    | 'notIn'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'exists'
+    | 'regex';
+  value?: string | string[] | number | boolean;
+  // Compound conditions
+  all?: MatchCondition[]; // AND - all conditions must match
+  any?: MatchCondition[]; // OR - at least one condition must match
 }
 
 interface CreateSegmentDto {
@@ -207,24 +247,71 @@ export class SegmentService {
   // ==============================
 
   /**
-   * Match an attendee's registration data against segment criteria
+   * Get a nested field value using dot notation (e.g., "company.name", "address.city")
    */
-  matchesCriteria(
-    criteria: MatchCriteria,
+  private getNestedValue(
+    obj: Record<string, unknown>,
+    path: string,
+  ): unknown {
+    return path.split('.').reduce((current: unknown, key: string) => {
+      if (current === null || current === undefined) return undefined;
+      if (typeof current !== 'object') return undefined;
+      return (current as Record<string, unknown>)[key];
+    }, obj);
+  }
+
+  /**
+   * Match a single condition against registration data
+   */
+  private matchesCondition(
+    condition: MatchCondition,
     registrationData: Record<string, unknown>,
   ): boolean {
-    const fieldValue = registrationData[criteria.field];
+    const fieldValue = this.getNestedValue(registrationData, condition.field);
 
-    if (fieldValue === undefined || fieldValue === null) {
-      return false;
+    // Handle 'exists' operator separately
+    if (condition.operator === 'exists') {
+      const exists = fieldValue !== undefined && fieldValue !== null;
+      return condition.value === true ? exists : !exists;
     }
 
-    const stringValue = String(fieldValue).toLowerCase();
-    const criteriaValue = Array.isArray(criteria.value)
-      ? criteria.value.map((v) => v.toLowerCase())
-      : criteria.value.toLowerCase();
+    // For all other operators, null/undefined means no match (except notEquals/notIn/notContains)
+    if (fieldValue === undefined || fieldValue === null) {
+      return ['notEquals', 'notIn', 'notContains'].includes(condition.operator);
+    }
 
-    switch (criteria.operator) {
+    const { operator, value } = condition;
+
+    // Numeric comparisons
+    if (['gt', 'gte', 'lt', 'lte'].includes(operator)) {
+      const numFieldValue = Number(fieldValue);
+      const numCriteriaValue = Number(value);
+
+      if (isNaN(numFieldValue) || isNaN(numCriteriaValue)) {
+        return false;
+      }
+
+      switch (operator) {
+        case 'gt':
+          return numFieldValue > numCriteriaValue;
+        case 'gte':
+          return numFieldValue >= numCriteriaValue;
+        case 'lt':
+          return numFieldValue < numCriteriaValue;
+        case 'lte':
+          return numFieldValue <= numCriteriaValue;
+        default:
+          return false;
+      }
+    }
+
+    // String comparisons (case-insensitive)
+    const stringValue = String(fieldValue).toLowerCase();
+    const criteriaValue = Array.isArray(value)
+      ? value.map((v) => String(v).toLowerCase())
+      : String(value).toLowerCase();
+
+    switch (operator) {
       case 'equals':
         return stringValue === criteriaValue;
 
@@ -234,15 +321,84 @@ export class SegmentService {
       case 'contains':
         return stringValue.includes(criteriaValue as string);
 
+      case 'notContains':
+        return !stringValue.includes(criteriaValue as string);
+
       case 'startsWith':
         return stringValue.startsWith(criteriaValue as string);
+
+      case 'endsWith':
+        return stringValue.endsWith(criteriaValue as string);
 
       case 'in':
         return Array.isArray(criteriaValue) && criteriaValue.includes(stringValue);
 
+      case 'notIn':
+        return Array.isArray(criteriaValue) && !criteriaValue.includes(stringValue);
+
+      case 'regex':
+        try {
+          const regex = new RegExp(String(value), 'i');
+          return regex.test(String(fieldValue));
+        } catch {
+          this.logger.warn(`Invalid regex pattern: ${value}`);
+          return false;
+        }
+
       default:
         return false;
     }
+  }
+
+  /**
+   * Match an attendee's registration data against segment criteria
+   * Supports:
+   * - Single condition (backward compatible)
+   * - Compound conditions with 'all' (AND) and 'any' (OR)
+   * - Nested field access via dot notation (e.g., "company.name")
+   * - Operators: equals, notEquals, contains, notContains, startsWith, endsWith,
+   *              in, notIn, gt, gte, lt, lte, exists, regex
+   */
+  matchesCriteria(
+    criteria: MatchCriteria,
+    registrationData: Record<string, unknown>,
+  ): boolean {
+    // Handle compound 'all' conditions (AND)
+    if (criteria.all && criteria.all.length > 0) {
+      const allMatch = criteria.all.every((condition) =>
+        this.matchesCondition(condition, registrationData),
+      );
+      // If there's also an 'any' condition, both must be satisfied
+      if (criteria.any && criteria.any.length > 0) {
+        const anyMatch = criteria.any.some((condition) =>
+          this.matchesCondition(condition, registrationData),
+        );
+        return allMatch && anyMatch;
+      }
+      return allMatch;
+    }
+
+    // Handle compound 'any' conditions (OR)
+    if (criteria.any && criteria.any.length > 0) {
+      return criteria.any.some((condition) =>
+        this.matchesCondition(condition, registrationData),
+      );
+    }
+
+    // Handle single condition (backward compatible)
+    if (criteria.field && criteria.operator) {
+      return this.matchesCondition(
+        {
+          field: criteria.field,
+          operator: criteria.operator,
+          value: criteria.value ?? '',
+        },
+        registrationData,
+      );
+    }
+
+    // No valid criteria
+    return false;
   }
 
   /**
