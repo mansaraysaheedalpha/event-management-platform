@@ -173,6 +173,11 @@ model UserReference {
   facilitatedBreakoutRooms  BreakoutRoom[]        @relation("BreakoutRoomFacilitator")
   breakoutParticipations    BreakoutParticipant[]
 
+  // Segment-based assignment
+  createdSegments           BreakoutSegment[]
+  segmentMemberships        BreakoutSegmentMember[]
+  roomAssignments           BreakoutRoomAssignment[]
+
   @@map("user_references")
 }
 
@@ -980,6 +985,10 @@ model BreakoutRoom {
   videoRoomId       String?             @db.VarChar(255)
   videoRoomUrl      String?             @db.VarChar(500)
 
+  // Segment-based assignment relations
+  segmentRules      BreakoutSegmentRule[]
+  assignments       BreakoutRoomAssignment[]
+
   @@index([sessionId])
   @@index([eventId])
   @@index([status])
@@ -1003,6 +1012,117 @@ model BreakoutParticipant {
   @@unique([userId, roomId])
   @@index([roomId])
   @@map("breakout_participants")
+}
+
+// ==========================
+// Segment-Based Room Assignment
+// ==========================
+
+// Defines segments for organizing attendees (e.g., "Developers", "Marketing", "Enterprise")
+model BreakoutSegment {
+  id                String              @id @default(cuid())
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  sessionId         String              // Parent session for these segments
+  eventId           String              // Event ID for easier querying
+
+  name              String              @db.VarChar(100)  // e.g., "Developers", "Marketing"
+  description       String?             @db.VarChar(500)
+  color             String?             @db.VarChar(7)    // Hex color for UI display
+
+  // Field-based segmentation from registration data
+  // e.g., { "field": "jobRole", "operator": "equals", "value": "Developer" }
+  matchCriteria     Json?
+
+  // Priority for assignment when user matches multiple segments (lower = higher priority)
+  priority          Int                 @default(0)
+
+  creatorId         String
+  creator           UserReference       @relation(fields: [creatorId], references: [id])
+
+  // Relations
+  assignmentRules   BreakoutSegmentRule[]
+  members           BreakoutSegmentMember[]
+
+  @@index([sessionId])
+  @@index([eventId])
+  @@map("breakout_segments")
+}
+
+// Members of a segment (can be auto-assigned via criteria or manually added)
+model BreakoutSegmentMember {
+  id                String              @id @default(cuid())
+  createdAt         DateTime            @default(now())
+
+  segmentId         String
+  segment           BreakoutSegment     @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  userId            String
+  user              UserReference       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Whether this was auto-assigned (from criteria) or manually added
+  isAutoAssigned    Boolean             @default(true)
+
+  @@unique([segmentId, userId])
+  @@index([userId])
+  @@map("breakout_segment_members")
+}
+
+// Rules that assign segments to specific breakout rooms
+model BreakoutSegmentRule {
+  id                String              @id @default(cuid())
+  createdAt         DateTime            @default(now())
+
+  segmentId         String
+  segment           BreakoutSegment     @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  roomId            String
+  room              BreakoutRoom        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Assignment configuration
+  maxFromSegment    Int?                // Max attendees from this segment (null = unlimited up to room capacity)
+
+  @@unique([segmentId, roomId])  // One rule per segment-room pair
+  @@index([roomId])
+  @@map("breakout_segment_rules")
+}
+
+// Pre-computed room assignments for attendees (shown before session starts)
+model BreakoutRoomAssignment {
+  id                String              @id @default(cuid())
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  sessionId         String              // Session these assignments are for
+  eventId           String
+
+  userId            String
+  user              UserReference       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roomId            String
+  room              BreakoutRoom        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Which segment rule triggered this assignment (for transparency)
+  segmentId         String?
+
+  // Status of the assignment
+  status            AssignmentStatus    @default(PENDING)
+  notifiedAt        DateTime?           // When user was notified of assignment
+
+  @@unique([sessionId, userId])  // One assignment per user per session
+  @@index([sessionId])
+  @@index([roomId])
+  @@index([userId])
+  @@map("breakout_room_assignments")
+}
+
+enum AssignmentStatus {
+  PENDING     // Assignment created but not yet shown to user
+  NOTIFIED    // User has been notified of their assignment
+  CONFIRMED   // User has acknowledged/seen the assignment
+  JOINED      // User has joined their assigned room
+  DECLINED    // User declined or was reassigned
 }
 
 // ==========================
