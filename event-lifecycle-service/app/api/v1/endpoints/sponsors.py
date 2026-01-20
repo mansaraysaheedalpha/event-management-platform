@@ -367,7 +367,7 @@ def revoke_invitation(
 
 def _get_user_org_service_url() -> str:
     """Get the user-and-org-service internal URL."""
-    return getattr(settings, 'USER_ORG_SERVICE_URL_INTERNAL', 'http://localhost:3000')
+    return getattr(settings, 'USER_SERVICE_URL', 'http://localhost:3000')
 
 
 def _validate_invitation(db: Session, token: str):
