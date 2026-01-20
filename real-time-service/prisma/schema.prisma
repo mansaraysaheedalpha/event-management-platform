@@ -1,3 +1,5 @@
+// Real-time service database schema
+// Updated: 2026-01-20 - Added segment and expo models
 
 generator client {
   provider = "prisma-client-js"
