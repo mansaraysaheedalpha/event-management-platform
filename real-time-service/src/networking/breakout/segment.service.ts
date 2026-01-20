@@ -682,4 +682,61 @@ export class SegmentService {
       where: { sessionId },
     });
   }
+
+  // ================================
+  // User Profile for Segmentation
+  // ================================
+
+  /**
+   * Update user profile for segmentation matching.
+   * These fields are used to auto-assign users to segments.
+   */
+  async updateUserProfile(
+    userId: string,
+    data: {
+      currentRole?: string;
+      company?: string;
+      industry?: string;
+      experienceLevel?: string;
+      interests?: string[];
+    },
+  ) {
+    return this.prisma.userProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        currentRole: data.currentRole,
+        company: data.company,
+        industry: data.industry,
+        experienceLevel: data.experienceLevel,
+        interests: data.interests || [],
+        goals: [],
+      },
+      update: {
+        currentRole: data.currentRole,
+        company: data.company,
+        industry: data.industry,
+        experienceLevel: data.experienceLevel,
+        interests: data.interests,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Get user profile for segmentation
+   */
+  async getUserProfile(userId: string) {
+    return this.prisma.userProfile.findUnique({
+      where: { userId },
+      select: {
+        userId: true,
+        currentRole: true,
+        company: true,
+        industry: true,
+        experienceLevel: true,
+        interests: true,
+      },
+    });
+  }
 }

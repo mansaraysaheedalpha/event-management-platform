@@ -956,6 +956,56 @@ export class BreakoutGateway {
   }
 
   // ==========================================
+  // User Profile for Segmentation
+  // ==========================================
+
+  /**
+   * Update user profile for segmentation matching.
+   * These optional fields help the system auto-assign users to breakout rooms.
+   */
+  @SubscribeMessage('profile.update')
+  async handleUpdateProfile(
+    @MessageBody() data: {
+      currentRole?: string;
+      company?: string;
+      industry?: string;
+      experienceLevel?: string;
+      interests?: string[];
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      const profile = await this.segmentService.updateUserProfile(user.sub, data);
+
+      this.logger.log(`Profile updated for user ${user.sub}`);
+      return { success: true, profile };
+    } catch (error) {
+      this.logger.error(`Failed to update profile: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Get current user's profile for segmentation
+   */
+  @SubscribeMessage('profile.get')
+  async handleGetProfile(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      const profile = await this.segmentService.getUserProfile(user.sub);
+      return { success: true, profile };
+    } catch (error) {
+      this.logger.error(`Failed to get profile: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  // ==========================================
   // Timer Helper Methods
   // ==========================================
 

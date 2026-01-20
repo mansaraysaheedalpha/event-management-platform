@@ -49,9 +49,34 @@ export class CreateProfileDto {
   @IsOptional()
   bio?: string;
 
+  /**
+   * Current job title/role (e.g., "Software Engineer", "Marketing Manager")
+   * Used for networking matching and breakout room segmentation
+   */
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  currentRole?: string;
+
+  /**
+   * Company name (e.g., "Google", "Startup XYZ")
+   * Used for networking matching and breakout room segmentation
+   */
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  company?: string;
+
   @IsString()
   @IsOptional()
   industry?: string;
+
+  /**
+   * Experience level for networking and segmentation
+   */
+  @IsString()
+  @IsOptional()
+  experienceLevel?: string; // junior, mid, senior, executive
 
   @IsArray()
   @IsString({ each: true })
@@ -113,7 +138,10 @@ export class ProfileResponseDto {
   goals: string[];
   interests: string[];
   bio?: string;
+  currentRole?: string;
+  company?: string;
   industry?: string;
+  experienceLevel?: string;
   skillsToOffer: string[];
   skillsNeeded: string[];
   linkedInUrl?: string;

@@ -778,9 +778,12 @@ model UserProfile {
 
   // From registration (optional)
   bio               String?  @db.Text
+  currentRole       String?  // Job title/role for segmentation
+  company           String?  // Company name for segmentation
   industry          String?
   companySize       CompanySize?
   yearsExperience   Int?
+  experienceLevel   String?  // junior, mid, senior, executive
   skillsToOffer     String[]
   skillsNeeded      String[]
 
