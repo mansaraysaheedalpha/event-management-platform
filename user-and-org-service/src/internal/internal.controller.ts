@@ -11,6 +11,7 @@ import {
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { IsEmail, IsString, MinLength, IsNotEmpty } from 'class-validator';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from 'src/users/users.service';
 import { AuthService } from 'src/auth/auth.service';
@@ -19,16 +20,36 @@ import { InternalApiKeyGuard } from 'src/auth/guards/internal-api-key.guard';
 
 // DTOs for sponsor invitation handling
 class CreateSponsorUserDto {
+  @IsEmail()
   email: string;
+
+  @IsString()
+  @IsNotEmpty()
   first_name: string;
+
+  @IsString()
+  @IsNotEmpty()
   last_name: string;
+
+  @IsString()
+  @MinLength(8)
   password: string;
+
+  @IsString()
+  @IsNotEmpty()
   sponsorId: string;
 }
 
 class VerifySponsorUserDto {
+  @IsEmail()
   email: string;
+
+  @IsString()
+  @IsNotEmpty()
   password: string;
+
+  @IsString()
+  @IsNotEmpty()
   sponsorId: string;
 }
 
@@ -109,10 +130,7 @@ export class InternalController {
       );
     }
 
-    // Validate password strength
-    if (password.length < 8) {
-      throw new BadRequestException('Password must be at least 8 characters');
-    }
+    // Password validation is handled by class-validator @MinLength(8) decorator
 
     // Create user with sponsor link (use ATTENDEE type for sponsor reps)
     const hashedPassword = await bcrypt.hash(password, 10);
