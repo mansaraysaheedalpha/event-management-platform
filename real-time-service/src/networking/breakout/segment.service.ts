@@ -456,7 +456,6 @@ export class SegmentService {
         assignmentRules: {
           include: {
             room: {
-              select: { id: true, maxParticipants: true },
               include: {
                 _count: { select: { assignments: true } },
               },
