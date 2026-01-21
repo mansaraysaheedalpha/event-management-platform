@@ -180,6 +180,59 @@ export class ExpoService {
   }
 
   /**
+   * Creates a booth in an expo hall.
+   */
+  async createBooth(
+    hallId: string,
+    organizationId: string,
+    data: {
+      name: string;
+      tagline?: string;
+      description?: string;
+      tier?: 'PLATINUM' | 'GOLD' | 'SILVER' | 'BRONZE' | 'STARTUP';
+      logoUrl?: string;
+      bannerUrl?: string;
+      videoUrl?: string;
+      category?: string;
+      sponsorId?: string;
+    },
+  ) {
+    // Generate booth number based on existing count
+    const existingCount = await this.prisma.expoBooth.count({
+      where: { expoHallId: hallId },
+    });
+    const boothNumber = `B${String(existingCount + 1).padStart(3, '0')}`;
+
+    const booth = await this.prisma.expoBooth.create({
+      data: {
+        expoHallId: hallId,
+        name: data.name,
+        tagline: data.tagline,
+        description: data.description,
+        tier: data.tier || 'BRONZE',
+        logoUrl: data.logoUrl,
+        bannerUrl: data.bannerUrl,
+        videoUrl: data.videoUrl,
+        category: data.category,
+        sponsorId: data.sponsorId || `test-sponsor-${Date.now()}`,
+        organizationId,
+        boothNumber,
+        resources: [],
+        ctaButtons: [],
+        staffIds: [],
+        chatEnabled: true,
+        videoEnabled: true,
+      },
+      include: {
+        _count: { select: { visits: true } },
+      },
+    });
+
+    this.logger.log(`Created booth ${booth.id} in hall ${hallId}`);
+    return booth;
+  }
+
+  /**
    * Gets a single booth with details.
    */
   async getBooth(boothId: string) {

@@ -270,6 +270,53 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     }
   }
 
+  /**
+   * Create a booth in an expo hall (organizer only)
+   */
+  @SubscribeMessage('expo.booth.create')
+  async handleCreateBooth(
+    @MessageBody() data: {
+      hallId: string;
+      name: string;
+      tagline?: string;
+      description?: string;
+      tier?: string;
+      logoUrl?: string;
+      bannerUrl?: string;
+      videoUrl?: string;
+      category?: string;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    // Check for organizer permission
+    const hasPermission = user.permissions?.includes('expo:manage') ||
+                          user.permissions?.includes('event:manage');
+    if (!hasPermission) {
+      return { success: false, error: 'You do not have permission to create booths' };
+    }
+
+    try {
+      const booth = await this.expoService.createBooth(data.hallId, user.orgId, {
+        name: data.name,
+        tagline: data.tagline,
+        description: data.description,
+        tier: data.tier as 'PLATINUM' | 'GOLD' | 'SILVER' | 'BRONZE' | 'STARTUP' | undefined,
+        logoUrl: data.logoUrl,
+        bannerUrl: data.bannerUrl,
+        videoUrl: data.videoUrl,
+        category: data.category,
+      });
+
+      this.logger.log(`Booth ${booth.id} created by ${user.sub}`);
+      return { success: true, booth };
+    } catch (error) {
+      this.logger.error(`Failed to create booth: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
   // ==========================================
   // BOOTH VISIT EVENTS
   // ==========================================
