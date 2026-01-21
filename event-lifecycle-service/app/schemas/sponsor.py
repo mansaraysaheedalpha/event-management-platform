@@ -236,6 +236,7 @@ class AcceptInvitationResponse(BaseModel):
     message: str
     sponsor_id: str
     sponsor_name: str
+    event_id: str
     role: str
     user: dict
     access_token: str
@@ -335,3 +336,22 @@ class SponsorLeadExport(BaseModel):
     contact_requested: bool
     follow_up_status: str
     tags: str  # Comma-separated
+
+
+# ============================================
+# Internal API Schemas
+# ============================================
+
+class SponsorSummary(BaseModel):
+    """Summary of a sponsor for status checks."""
+    id: str
+    event_id: str
+    company_name: str
+    role: Optional[str] = None  # User's role in this sponsor
+
+
+class UserSponsorStatusResponse(BaseModel):
+    """Response for checking if a user is a sponsor representative."""
+    is_sponsor: bool
+    sponsor_count: int
+    sponsors: List[SponsorSummary]

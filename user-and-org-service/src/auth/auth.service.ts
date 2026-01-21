@@ -56,11 +56,25 @@ type OnboardingResponse = {
   user: UserForLogin;
 };
 
+// Sponsor status response from event-lifecycle-service
+interface SponsorStatusResponse {
+  is_sponsor: boolean;
+  sponsor_count: number;
+  sponsors: Array<{
+    id: string;
+    event_id: string;
+    company_name: string;
+    role: string | null;
+  }>;
+}
+
 // Response type for attendee login (token without orgId)
 type AttendeeTokenResponse = {
   access_token: string;
   refresh_token: string;
   isAttendee: true;
+  isSponsor?: boolean;
+  sponsorCount?: number;
 };
 
 type LoginResponse =
@@ -79,6 +93,43 @@ export class AuthService {
     private twoFactorService: TwoFactorService,
     private auditService: AuditService,
   ) {}
+
+  /**
+   * Check if a user is a sponsor representative by calling the event-lifecycle-service.
+   * Returns sponsor status information.
+   */
+  private async checkSponsorStatus(userId: string): Promise<SponsorStatusResponse | null> {
+    const eventServiceUrl = this.configService.get<string>('EVENT_LIFECYCLE_SERVICE_URL');
+    const internalApiKey = this.configService.get<string>('INTERNAL_API_KEY');
+
+    if (!eventServiceUrl || !internalApiKey) {
+      console.warn('EVENT_LIFECYCLE_SERVICE_URL or INTERNAL_API_KEY not configured');
+      return null;
+    }
+
+    try {
+      const response = await fetch(
+        `${eventServiceUrl}/internal/user/${userId}/sponsor-status`,
+        {
+          method: 'GET',
+          headers: {
+            'x-internal-api-key': internalApiKey,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (!response.ok) {
+        console.warn(`Failed to check sponsor status: ${response.status}`);
+        return null;
+      }
+
+      return await response.json() as SponsorStatusResponse;
+    } catch (error) {
+      console.warn('Error checking sponsor status:', error);
+      return null;
+    }
+  }
 
   private async getOnboardingToken(userId: string): Promise<string> {
     const payload = { sub: userId, scope: 'onboarding' };
@@ -184,7 +235,9 @@ export class AuthService {
         action: 'USER_LOGIN',
         actingUserId: existingUser.id,
       });
-      return this.getTokensForAttendee(existingUser);
+      // Check sponsor status for attendees (sponsors are stored in event-lifecycle-service)
+      const sponsorStatus = await this.checkSponsorStatus(existingUser.id);
+      return this.getTokensForAttendee(existingUser, sponsorStatus);
     }
 
     // User is an ORGANIZER - check if they have an organization
@@ -448,6 +501,7 @@ export class AuthService {
    */
   async getTokensForAttendee(
     user: UserForToken,
+    sponsorStatus?: SponsorStatusResponse | null,
   ): Promise<AttendeeTokenResponse> {
     const refreshTokenId = randomBytes(32).toString('hex');
 
@@ -455,8 +509,10 @@ export class AuthService {
     // Note: Basic actions (send/edit/delete own messages) are allowed by default - no permissions needed
     const attendeePermissions: string[] = [];
 
-    // Sponsor representatives (attendees with sponsorId) can view their leads
-    if (user.sponsorId) {
+    // Sponsor representatives can view their leads
+    // Check both the legacy sponsorId field and the new sponsor status
+    const isSponsor = sponsorStatus?.is_sponsor || !!user.sponsorId;
+    if (isSponsor) {
       attendeePermissions.push('sponsor:leads:read');
     }
 
@@ -497,6 +553,8 @@ export class AuthService {
       access_token: accessToken,
       refresh_token: refreshToken,
       isAttendee: true,
+      isSponsor: sponsorStatus?.is_sponsor ?? false,
+      sponsorCount: sponsorStatus?.sponsor_count ?? 0,
     };
   }
 

@@ -39,4 +39,10 @@ export class LoginPayload {
 
   @Field(() => Boolean, { nullable: true })
   isAttendee?: boolean;
+
+  @Field(() => Boolean, { nullable: true })
+  isSponsor?: boolean;
+
+  @Field(() => Number, { nullable: true })
+  sponsorCount?: number;
 }

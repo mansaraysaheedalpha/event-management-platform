@@ -36,6 +36,7 @@ from app.schemas.sponsor import (
     SponsorInvitationPreviewResponse, AcceptInvitationNewUserRequest,
     AcceptInvitationExistingUserRequest, AcceptInvitationResponse,
     SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
+    UserSponsorStatusResponse, SponsorSummary,
 )
 from app.schemas.token import TokenPayload
 from app.utils.sponsor_notifications import (
@@ -564,6 +565,7 @@ def accept_invitation_new_user(
         message=f"Welcome! Your account has been created and you are now a {invitation.role} for {sponsor_obj.company_name}.",
         sponsor_id=sponsor_obj.id,
         sponsor_name=sponsor_obj.company_name,
+        event_id=sponsor_obj.event_id,
         role=invitation.role,
         user=user_data["user"],
         access_token=user_data["access_token"],
@@ -672,6 +674,7 @@ def accept_invitation_existing_user(
         message=f"Welcome back! You are now a {invitation.role} for {sponsor_obj.company_name}.",
         sponsor_id=sponsor_obj.id,
         sponsor_name=sponsor_obj.company_name,
+        event_id=sponsor_obj.event_id,
         role=invitation.role,
         user=user_data["user"],
         access_token=user_data["access_token"],
@@ -822,6 +825,45 @@ def get_my_sponsors(
 ):
     """Get all sponsors the current user represents."""
     return sponsor.get_by_user(db, user_id=current_user.sub, event_id=event_id)
+
+
+# ==================== Internal API Endpoints ====================
+
+@router.get(
+    "/internal/user/{user_id}/sponsor-status",
+    response_model=UserSponsorStatusResponse
+)
+def get_user_sponsor_status(
+    user_id: str,
+    db: Session = Depends(get_db),
+    internal_api_key: str = Depends(deps.get_internal_api_key),
+):
+    """
+    Check if a user is a sponsor representative.
+    Internal endpoint for user-and-org-service to call during login.
+    """
+    # Get all sponsors for this user
+    user_sponsors = sponsor.get_by_user(db, user_id=user_id)
+
+    # Build sponsor summaries with role info
+    sponsor_summaries = []
+    for s in user_sponsors:
+        # Get the user's role for this sponsor
+        su = sponsor_user.get_by_user_and_sponsor(db, user_id=user_id, sponsor_id=s.id)
+        role = su.role if su else None
+
+        sponsor_summaries.append(SponsorSummary(
+            id=s.id,
+            event_id=s.event_id,
+            company_name=s.company_name,
+            role=role
+        ))
+
+    return UserSponsorStatusResponse(
+        is_sponsor=len(user_sponsors) > 0,
+        sponsor_count=len(user_sponsors),
+        sponsors=sponsor_summaries
+    )
 
 
 @router.get("/sponsors/{sponsor_id}/leads", response_model=List[SponsorLeadResponse])

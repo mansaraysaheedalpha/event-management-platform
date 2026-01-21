@@ -72,6 +72,8 @@ export class AuthResolver {
         user,
         requires2FA: false,
         isAttendee: true,
+        isSponsor: loginResult.isSponsor,
+        sponsorCount: loginResult.sponsorCount,
       };
     }
 
