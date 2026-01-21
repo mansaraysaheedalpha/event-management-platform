@@ -366,8 +366,8 @@ export class BreakoutGateway {
   ) {
     const user = getAuthenticatedUser(client);
 
-    // Validate roomId format (UUID)
-    if (!data.roomId || !/^[0-9a-f-]{36}$/i.test(data.roomId)) {
+    // Validate roomId format (CUID or UUID)
+    if (!data.roomId || !/^[a-z0-9]{20,36}$/i.test(data.roomId.replace(/-/g, ''))) {
       return { success: false, error: 'Invalid room ID' };
     }
 
@@ -446,8 +446,8 @@ export class BreakoutGateway {
   ) {
     const user = getAuthenticatedUser(client);
 
-    // Validate roomId format
-    if (!data.roomId || !/^[0-9a-f-]{36}$/i.test(data.roomId)) {
+    // Validate roomId format (CUID or UUID)
+    if (!data.roomId || !/^[a-z0-9]{20,36}$/i.test(data.roomId.replace(/-/g, ''))) {
       return { success: false, error: 'Invalid room ID' };
     }
 
