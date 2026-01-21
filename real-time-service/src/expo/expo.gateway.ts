@@ -217,7 +217,7 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     }
 
     try {
-      const hall = await this.expoService.createExpoHall(data.eventId, {
+      const hall = await this.expoService.createExpoHall(data.eventId, user.orgId, {
         name: data.name,
         description: data.description,
         categories: data.categories,

@@ -116,6 +116,7 @@ export class ExpoService {
    */
   async createExpoHall(
     eventId: string,
+    organizationId: string,
     data: {
       name: string;
       description?: string;
@@ -135,6 +136,7 @@ export class ExpoService {
     const hall = await this.prisma.expoHall.create({
       data: {
         eventId,
+        organizationId,
         name: data.name,
         description: data.description,
         categories: data.categories || [],
