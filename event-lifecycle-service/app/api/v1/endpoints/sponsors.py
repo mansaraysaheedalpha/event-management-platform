@@ -37,6 +37,7 @@ from app.schemas.sponsor import (
     AcceptInvitationExistingUserRequest, AcceptInvitationResponse,
     SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
     UserSponsorStatusResponse, SponsorSummary, SponsorBoothSettingsUpdate,
+    ManualLeadCaptureCreate,
 )
 from app.schemas.token import TokenPayload
 from app.utils.sponsor_notifications import (
@@ -1058,4 +1059,84 @@ def capture_lead(
             event_name=event_name
         )
 
+    return lead
+
+
+# ==================== Manual Lead Capture (For Sponsor Representatives) ====================
+
+@router.post(
+    "/sponsors/{sponsor_id}/capture-lead-manual",
+    response_model=SponsorLeadResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def capture_lead_manual(
+    sponsor_id: str,
+    lead_in: ManualLeadCaptureCreate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Manually capture a lead for a sponsor.
+    This endpoint allows sponsor representatives to manually enter lead information
+    (e.g., after talking to someone at their booth who didn't have a badge scanned).
+
+    A unique user_id is generated based on the email to prevent duplicates.
+    """
+    import hashlib
+
+    # Verify user is a sponsor representative
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    if not sponsor_obj.lead_capture_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lead capture is disabled for this sponsor"
+        )
+
+    # Generate a deterministic user_id from email to prevent duplicate leads
+    # Format: manual_<hash of email>
+    email_hash = hashlib.sha256(lead_in.user_email.lower().encode()).hexdigest()[:16]
+    generated_user_id = f"manual_{email_hash}"
+
+    # Create lead using the existing CRUD method
+    lead_create = SponsorLeadCreate(
+        user_id=generated_user_id,
+        user_name=lead_in.user_name,
+        user_email=lead_in.user_email,
+        user_company=lead_in.user_company,
+        user_title=lead_in.user_title,
+        interaction_type=lead_in.interaction_type,
+        interaction_metadata={"notes": lead_in.notes, "captured_by": current_user.sub} if lead_in.notes else {"captured_by": current_user.sub},
+    )
+
+    lead = sponsor_lead.capture_lead(
+        db, lead_in=lead_create, sponsor_id=sponsor_id, event_id=sponsor_obj.event_id
+    )
+
+    # Emit real-time event
+    emit_lead_captured_event(
+        sponsor_id=sponsor_id,
+        lead_data={
+            "id": lead.id,
+            "user_id": lead.user_id,
+            "user_name": lead.user_name,
+            "user_email": lead.user_email,
+            "user_company": lead.user_company,
+            "user_title": lead.user_title,
+            "intent_score": lead.intent_score,
+            "intent_level": lead.intent_level,
+            "interaction_type": lead_in.interaction_type,
+            "created_at": lead.created_at.isoformat() if lead.created_at else None,
+        }
+    )
+
+    logger.info(f"Manual lead captured by {current_user.sub} for sponsor {sponsor_id}: {lead.user_email}")
     return lead

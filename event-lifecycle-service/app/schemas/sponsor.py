@@ -276,6 +276,16 @@ class SponsorLeadCreate(BaseModel):
     interaction_metadata: Optional[Dict[str, Any]] = None
 
 
+class ManualLeadCaptureCreate(BaseModel):
+    """Schema for sponsor reps to manually capture leads (no user_id required)."""
+    user_name: str = Field(..., min_length=1, max_length=200)
+    user_email: EmailStr
+    user_company: Optional[str] = Field(None, max_length=200)
+    user_title: Optional[str] = Field(None, max_length=100)
+    interaction_type: str = Field(default="booth_visit")
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
 class SponsorLeadUpdate(BaseModel):
     follow_up_status: Optional[str] = Field(
         None, pattern=r'^(new|contacted|qualified|not_interested|converted)$'
