@@ -39,6 +39,10 @@ const allPermissions = [
   { name: 'presentation:control', description: 'Can control live presentations (start/stop, navigate slides)' },
   // Breakout Rooms
   { name: 'breakout:manage', description: 'Can create, start, and close breakout rooms' },
+  // Event Management
+  { name: 'event:manage', description: 'Can manage event settings, sessions, and configurations' },
+  // Virtual Expo Hall
+  { name: 'expo:manage', description: 'Can create and manage virtual expo halls and booths' },
 ];
 
 /**
@@ -72,6 +76,8 @@ const roles: Record<string, string[]> = {
     'backchannel:join',
     'backchannel:send',
     'breakout:manage',
+    'event:manage',
+    'expo:manage',
   ],
   ADMIN: [
     'poll:create',
@@ -91,6 +97,8 @@ const roles: Record<string, string[]> = {
     'backchannel:join',
     'backchannel:send',
     'breakout:manage',
+    'event:manage',
+    'expo:manage',
   ],
   MODERATOR: [
     'poll:create',
