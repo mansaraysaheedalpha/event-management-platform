@@ -106,6 +106,17 @@ class SponsorUpdate(BaseModel):
     is_featured: Optional[bool] = None
 
 
+class SponsorBoothSettingsUpdate(BaseModel):
+    """Schema for sponsor representatives to update their own booth settings."""
+    company_description: Optional[str] = None
+    company_website: Optional[str] = Field(None, max_length=500)
+    booth_number: Optional[str] = Field(None, max_length=50)
+    booth_description: Optional[str] = None
+    social_links: Optional[Dict[str, str]] = None
+    lead_capture_enabled: Optional[bool] = None
+    lead_notification_email: Optional[EmailStr] = None
+
+
 class SponsorResponse(SponsorBase):
     id: str
     organization_id: str

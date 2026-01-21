@@ -36,7 +36,7 @@ from app.schemas.sponsor import (
     SponsorInvitationPreviewResponse, AcceptInvitationNewUserRequest,
     AcceptInvitationExistingUserRequest, AcceptInvitationResponse,
     SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
-    UserSponsorStatusResponse, SponsorSummary,
+    UserSponsorStatusResponse, SponsorSummary, SponsorBoothSettingsUpdate,
 )
 from app.schemas.token import TokenPayload
 from app.utils.sponsor_notifications import (
@@ -905,6 +905,38 @@ def get_sponsor_lead_stats(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     return sponsor_lead.get_stats(db, sponsor_id=sponsor_id)
+
+
+@router.patch("/sponsors/{sponsor_id}/booth-settings", response_model=SponsorResponse)
+def update_sponsor_booth_settings(
+    sponsor_id: str,
+    settings_update: SponsorBoothSettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Update booth settings for a sponsor.
+
+    This endpoint allows sponsor representatives to update their own
+    booth settings (description, social links, notification email, etc.)
+    without requiring organizer permissions.
+    """
+    # Verify user is a representative for this sponsor
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Get the sponsor
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Update only the allowed fields
+    update_data = settings_update.model_dump(exclude_unset=True)
+
+    return sponsor.update(db, db_obj=sponsor_obj, obj_in=update_data)
 
 
 @router.patch("/sponsors/{sponsor_id}/leads/{lead_id}", response_model=SponsorLeadResponse)
