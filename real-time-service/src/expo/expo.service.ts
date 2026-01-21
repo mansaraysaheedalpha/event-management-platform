@@ -85,6 +85,99 @@ export class ExpoService {
   }
 
   /**
+   * Gets the expo hall for an event, returns null if not found.
+   */
+  async getExpoHallSafe(eventId: string) {
+    return this.prisma.expoHall.findUnique({
+      where: { eventId },
+      include: {
+        booths: {
+          include: {
+            staffPresence: {
+              where: { status: { not: 'OFFLINE' } },
+            },
+            _count: {
+              select: {
+                visits: { where: { exitedAt: null } },
+              },
+            },
+          },
+          orderBy: [{ tier: 'asc' }, { displayOrder: 'asc' }],
+        },
+        _count: {
+          select: { booths: true },
+        },
+      },
+    });
+  }
+
+  /**
+   * Creates an expo hall for an event.
+   */
+  async createExpoHall(
+    eventId: string,
+    data: {
+      name: string;
+      description?: string;
+      categories?: string[];
+      welcomeMessage?: string;
+    },
+  ) {
+    // Check if hall already exists
+    const existing = await this.prisma.expoHall.findUnique({
+      where: { eventId },
+    });
+
+    if (existing) {
+      throw new ConflictException('Expo hall already exists for this event');
+    }
+
+    const hall = await this.prisma.expoHall.create({
+      data: {
+        eventId,
+        name: data.name,
+        description: data.description,
+        categories: data.categories || [],
+        welcomeMessage: data.welcomeMessage,
+        isActive: true,
+      },
+      include: {
+        booths: true,
+        _count: { select: { booths: true } },
+      },
+    });
+
+    this.logger.log(`Created expo hall ${hall.id} for event ${eventId}`);
+    return hall;
+  }
+
+  /**
+   * Updates an expo hall.
+   */
+  async updateExpoHall(
+    hallId: string,
+    data: {
+      name?: string;
+      description?: string;
+      categories?: string[];
+      welcomeMessage?: string;
+      isActive?: boolean;
+    },
+  ) {
+    const hall = await this.prisma.expoHall.update({
+      where: { id: hallId },
+      data,
+      include: {
+        booths: true,
+        _count: { select: { booths: true } },
+      },
+    });
+
+    this.logger.log(`Updated expo hall ${hallId}`);
+    return hall;
+  }
+
+  /**
    * Gets a single booth with details.
    */
   async getBooth(boothId: string) {

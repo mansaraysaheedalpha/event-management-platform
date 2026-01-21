@@ -174,6 +174,103 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
   }
 
   // ==========================================
+  // EXPO HALL MANAGEMENT (ORGANIZERS)
+  // ==========================================
+
+  /**
+   * Get expo hall info (doesn't throw if not found)
+   */
+  @SubscribeMessage('expo.hall.get')
+  async handleGetHall(
+    @MessageBody() data: { eventId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    try {
+      const hall = await this.expoService.getExpoHallSafe(data.eventId);
+      return { success: true, hall };
+    } catch (error) {
+      this.logger.error(`Failed to get expo hall: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Create an expo hall (organizer only)
+   */
+  @SubscribeMessage('expo.hall.create')
+  async handleCreateHall(
+    @MessageBody() data: {
+      eventId: string;
+      name: string;
+      description?: string;
+      categories?: string[];
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    // Check for organizer permission
+    const hasPermission = user.permissions?.includes('expo:manage') ||
+                          user.permissions?.includes('event:manage');
+    if (!hasPermission) {
+      return { success: false, error: 'You do not have permission to create expo halls' };
+    }
+
+    try {
+      const hall = await this.expoService.createExpoHall(data.eventId, {
+        name: data.name,
+        description: data.description,
+        categories: data.categories,
+      });
+
+      this.logger.log(`Expo hall ${hall.id} created by ${user.sub}`);
+      return { success: true, hall };
+    } catch (error) {
+      this.logger.error(`Failed to create expo hall: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Update an expo hall (organizer only)
+   */
+  @SubscribeMessage('expo.hall.update')
+  async handleUpdateHall(
+    @MessageBody() data: {
+      hallId: string;
+      name?: string;
+      description?: string;
+      categories?: string[];
+      isActive?: boolean;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    // Check for organizer permission
+    const hasPermission = user.permissions?.includes('expo:manage') ||
+                          user.permissions?.includes('event:manage');
+    if (!hasPermission) {
+      return { success: false, error: 'You do not have permission to update expo halls' };
+    }
+
+    try {
+      const hall = await this.expoService.updateExpoHall(data.hallId, {
+        name: data.name,
+        description: data.description,
+        categories: data.categories,
+        isActive: data.isActive,
+      });
+
+      this.logger.log(`Expo hall ${hall.id} updated by ${user.sub}`);
+      return { success: true, hall };
+    } catch (error) {
+      this.logger.error(`Failed to update expo hall: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  // ==========================================
   // BOOTH VISIT EVENTS
   // ==========================================
 
