@@ -59,6 +59,13 @@ interface CreateSegmentDto {
   priority?: number;
 }
 
+// Valid operators for match criteria
+const VALID_OPERATORS = [
+  'equals', 'notEquals', 'contains', 'notContains',
+  'startsWith', 'endsWith', 'in', 'notIn',
+  'gt', 'gte', 'lt', 'lte', 'exists', 'regex',
+] as const;
+
 interface CreateSegmentRuleDto {
   segmentId: string;
   roomId: string;
@@ -76,11 +83,121 @@ export class SegmentService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Validate a single match condition
+   */
+  private validateCondition(condition: MatchCondition): { valid: boolean; error?: string } {
+    if (!condition.field || typeof condition.field !== 'string') {
+      return { valid: false, error: 'Condition must have a valid field name' };
+    }
+
+    if (condition.field.length > 100) {
+      return { valid: false, error: 'Field name too long (max 100 characters)' };
+    }
+
+    if (!VALID_OPERATORS.includes(condition.operator as typeof VALID_OPERATORS[number])) {
+      return { valid: false, error: `Invalid operator: ${condition.operator}` };
+    }
+
+    // Validate value based on operator
+    if (condition.operator === 'in' || condition.operator === 'notIn') {
+      if (!Array.isArray(condition.value)) {
+        return { valid: false, error: `Operator ${condition.operator} requires an array value` };
+      }
+      if (condition.value.length > 100) {
+        return { valid: false, error: 'Array value too long (max 100 items)' };
+      }
+    }
+
+    if (condition.operator === 'exists') {
+      if (typeof condition.value !== 'boolean') {
+        return { valid: false, error: 'Operator exists requires a boolean value' };
+      }
+    }
+
+    if (condition.operator === 'regex') {
+      try {
+        new RegExp(String(condition.value));
+      } catch {
+        return { valid: false, error: 'Invalid regex pattern' };
+      }
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Validate match criteria JSON structure
+   */
+  private validateMatchCriteria(criteria: unknown): { valid: boolean; error?: string } {
+    if (!criteria || typeof criteria !== 'object') {
+      return { valid: false, error: 'Match criteria must be an object' };
+    }
+
+    const c = criteria as MatchCriteria;
+
+    // Check for compound conditions
+    if (c.all) {
+      if (!Array.isArray(c.all)) {
+        return { valid: false, error: '"all" must be an array' };
+      }
+      if (c.all.length > 10) {
+        return { valid: false, error: 'Too many conditions in "all" (max 10)' };
+      }
+      for (const condition of c.all) {
+        const result = this.validateCondition(condition);
+        if (!result.valid) return result;
+      }
+    }
+
+    if (c.any) {
+      if (!Array.isArray(c.any)) {
+        return { valid: false, error: '"any" must be an array' };
+      }
+      if (c.any.length > 10) {
+        return { valid: false, error: 'Too many conditions in "any" (max 10)' };
+      }
+      for (const condition of c.any) {
+        const result = this.validateCondition(condition);
+        if (!result.valid) return result;
+      }
+    }
+
+    // Check for single condition (backward compatible)
+    if (c.field && c.operator) {
+      const result = this.validateCondition({
+        field: c.field,
+        operator: c.operator,
+        value: c.value ?? '',
+      });
+      if (!result.valid) return result;
+    }
+
+    // Must have at least one valid criteria
+    const hasConditions = (c.all && c.all.length > 0) ||
+                          (c.any && c.any.length > 0) ||
+                          (c.field && c.operator);
+
+    if (!hasConditions) {
+      return { valid: false, error: 'Match criteria must have at least one condition' };
+    }
+
+    return { valid: true };
+  }
+
   // ==================
   // Segment Management
   // ==================
 
   async createSegment(creatorId: string, data: CreateSegmentDto) {
+    // Validate matchCriteria if provided
+    if (data.matchCriteria) {
+      const validation = this.validateMatchCriteria(data.matchCriteria);
+      if (!validation.valid) {
+        throw new Error(`Invalid match criteria: ${validation.error}`);
+      }
+    }
+
     return this.prisma.breakoutSegment.create({
       data: {
         sessionId: data.sessionId,
@@ -107,6 +224,14 @@ export class SegmentService {
     segmentId: string,
     data: Partial<CreateSegmentDto>,
   ) {
+    // Validate matchCriteria if provided
+    if (data.matchCriteria) {
+      const validation = this.validateMatchCriteria(data.matchCriteria);
+      if (!validation.valid) {
+        throw new Error(`Invalid match criteria: ${validation.error}`);
+      }
+    }
+
     return this.prisma.breakoutSegment.update({
       where: { id: segmentId },
       data: {
@@ -441,6 +566,8 @@ export class SegmentService {
    * Compute and store room assignments for a session based on segment rules.
    * This function first auto-assigns users to segments based on match criteria,
    * then assigns segment members to breakout rooms.
+   *
+   * OPTIMIZED: Uses batch queries instead of N+1 queries for better performance.
    */
   async computeRoomAssignments(sessionId: string, eventId: string): Promise<{
     created: number;
@@ -449,162 +576,223 @@ export class SegmentService {
     const errors: string[] = [];
     let created = 0;
 
-    // Step 1: Get all segments with their match criteria
-    const segmentsForMatching = await this.prisma.breakoutSegment.findMany({
-      where: { sessionId },
-      orderBy: { priority: 'asc' },
-    });
+    // Use a transaction to ensure data consistency
+    return this.prisma.$transaction(async (tx) => {
+      // Step 1: Get all segments with their match criteria
+      const segmentsForMatching = await tx.breakoutSegment.findMany({
+        where: { sessionId },
+        orderBy: { priority: 'asc' },
+      });
 
-    // Step 2: Auto-assign users to segments based on profile data
-    // Get all user profiles that could be matched
-    const userProfiles = await this.prisma.userProfile.findMany({
-      select: {
-        userId: true,
-        currentRole: true,
-        industry: true,
-        company: true,
-        interests: true,
-        goals: true,
-        experienceLevel: true,
-        linkedInUrl: true,
-        bio: true,
-      },
-    });
+      // Step 2: Auto-assign users to segments based on profile data
+      // Get all user profiles that could be matched
+      const userProfiles = await tx.userProfile.findMany({
+        select: {
+          userId: true,
+          currentRole: true,
+          industry: true,
+          company: true,
+          interests: true,
+          goals: true,
+          experienceLevel: true,
+          linkedInUrl: true,
+          bio: true,
+        },
+      });
 
-    this.logger.log(`Found ${userProfiles.length} user profiles to match against ${segmentsForMatching.length} segments`);
+      this.logger.log(`Found ${userProfiles.length} user profiles to match against ${segmentsForMatching.length} segments`);
 
-    // For each user, check if they match any segment criteria
-    for (const profile of userProfiles) {
-      // Build registration-like data from profile
-      const profileData: Record<string, unknown> = {
-        jobRole: profile.currentRole,
-        industry: profile.industry,
-        company: profile.company,
-        interests: profile.interests,
-        goals: profile.goals,
-        experienceLevel: profile.experienceLevel,
-        linkedInUrl: profile.linkedInUrl,
-        bio: profile.bio,
-      };
+      // BATCH: Get all existing segment memberships at once
+      const existingMemberships = await tx.breakoutSegmentMember.findMany({
+        where: {
+          segmentId: { in: segmentsForMatching.map((s) => s.id) },
+        },
+        select: { segmentId: true, userId: true },
+      });
 
-      // Check each segment's criteria
-      for (const segment of segmentsForMatching) {
-        if (!segment.matchCriteria) continue;
+      // Create a Set for O(1) lookup
+      const membershipSet = new Set(
+        existingMemberships.map((m) => `${m.segmentId}:${m.userId}`),
+      );
 
-        // Check if user is already a member of this segment
-        const existingMember = await this.prisma.breakoutSegmentMember.findUnique({
-          where: {
-            segmentId_userId: { segmentId: segment.id, userId: profile.userId },
-          },
-        });
+      // Batch create new segment memberships
+      const newMemberships: { segmentId: string; userId: string; isAutoAssigned: boolean }[] = [];
 
-        if (existingMember) continue;
+      for (const profile of userProfiles) {
+        const profileData: Record<string, unknown> = {
+          jobRole: profile.currentRole,
+          industry: profile.industry,
+          company: profile.company,
+          interests: profile.interests,
+          goals: profile.goals,
+          experienceLevel: profile.experienceLevel,
+          linkedInUrl: profile.linkedInUrl,
+          bio: profile.bio,
+        };
 
-        const criteria = segment.matchCriteria as unknown as MatchCriteria;
-        if (this.matchesCriteria(criteria, profileData)) {
-          try {
-            await this.prisma.breakoutSegmentMember.create({
-              data: {
-                segmentId: segment.id,
-                userId: profile.userId,
-                isAutoAssigned: true,
-              },
+        for (const segment of segmentsForMatching) {
+          if (!segment.matchCriteria) continue;
+
+          const key = `${segment.id}:${profile.userId}`;
+          if (membershipSet.has(key)) continue;
+
+          const criteria = segment.matchCriteria as unknown as MatchCriteria;
+          if (this.matchesCriteria(criteria, profileData)) {
+            newMemberships.push({
+              segmentId: segment.id,
+              userId: profile.userId,
+              isAutoAssigned: true,
             });
-            this.logger.log(`Auto-assigned user ${profile.userId} to segment ${segment.name}`);
-          } catch (e) {
-            // Ignore duplicate errors
+            membershipSet.add(key); // Track to prevent duplicates in batch
+            break; // Only assign to first matching segment
           }
-          break; // Only assign to first matching segment
         }
       }
-    }
 
-    // Step 3: Get all segments with their rules and updated members
-    const segments = await this.prisma.breakoutSegment.findMany({
-      where: { sessionId },
-      orderBy: { priority: 'asc' },
-      include: {
-        members: true,
-        assignmentRules: {
-          include: {
-            room: {
-              include: {
-                _count: { select: { assignments: true } },
+      // Batch insert all new memberships
+      if (newMemberships.length > 0) {
+        await tx.breakoutSegmentMember.createMany({
+          data: newMemberships,
+          skipDuplicates: true,
+        });
+        this.logger.log(`Auto-assigned ${newMemberships.length} users to segments`);
+      }
+
+      // Step 3: Get all segments with their rules and updated members
+      const segments = await tx.breakoutSegment.findMany({
+        where: { sessionId },
+        orderBy: { priority: 'asc' },
+        include: {
+          members: true,
+          assignmentRules: {
+            include: {
+              room: {
+                select: { id: true, maxParticipants: true },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    // Track room capacities
-    const roomCapacities = new Map<string, { max: number; current: number }>();
+      // BATCH: Get all existing room assignments for this session
+      const existingAssignments = await tx.breakoutRoomAssignment.findMany({
+        where: { sessionId },
+        select: { userId: true, roomId: true, segmentId: true },
+      });
 
-    // Process each segment
-    for (const segment of segments) {
-      for (const member of segment.members) {
-        // Check if user already has an assignment for this session
-        const existingAssignment = await this.prisma.breakoutRoomAssignment.findUnique({
-          where: {
-            sessionId_userId: { sessionId, userId: member.userId },
-          },
-        });
+      // Create Sets for O(1) lookup
+      const assignedUserIds = new Set(existingAssignments.map((a) => a.userId));
 
-        if (existingAssignment) continue;
+      // BATCH: Get all room assignment counts at once
+      const roomIds = segments.flatMap((s) => s.assignmentRules.map((r) => r.roomId));
+      const uniqueRoomIds = [...new Set(roomIds)];
 
-        // Find a suitable room from the rules
+      const roomAssignmentCounts = await tx.breakoutRoomAssignment.groupBy({
+        by: ['roomId'],
+        where: { roomId: { in: uniqueRoomIds } },
+        _count: { roomId: true },
+      });
+
+      // BATCH: Get segment assignment counts per room
+      const segmentRoomCounts = await tx.breakoutRoomAssignment.groupBy({
+        by: ['roomId', 'segmentId'],
+        where: {
+          roomId: { in: uniqueRoomIds },
+          segmentId: { not: null },
+        },
+        _count: { roomId: true },
+      });
+
+      // Build lookup maps
+      const roomCapacities = new Map<string, { max: number; current: number }>();
+      for (const segment of segments) {
         for (const rule of segment.assignmentRules) {
-          const roomId = rule.roomId;
-          const room = rule.room;
-
-          // Initialize room capacity tracking
-          if (!roomCapacities.has(roomId)) {
-            const currentAssignments = await this.prisma.breakoutRoomAssignment.count({
-              where: { roomId },
-            });
-            roomCapacities.set(roomId, {
-              max: room.maxParticipants,
-              current: currentAssignments,
+          if (!roomCapacities.has(rule.roomId)) {
+            const countEntry = roomAssignmentCounts.find((c) => c.roomId === rule.roomId);
+            roomCapacities.set(rule.roomId, {
+              max: rule.room.maxParticipants,
+              current: countEntry?._count.roomId ?? 0,
             });
           }
-
-          const capacity = roomCapacities.get(roomId)!;
-
-          // Check room capacity
-          if (capacity.current >= capacity.max) continue;
-
-          // Check segment limit for this room
-          if (rule.maxFromSegment) {
-            const segmentCount = await this.prisma.breakoutRoomAssignment.count({
-              where: { roomId, segmentId: segment.id },
-            });
-            if (segmentCount >= rule.maxFromSegment) continue;
-          }
-
-          // Create the assignment
-          try {
-            await this.prisma.breakoutRoomAssignment.create({
-              data: {
-                sessionId,
-                eventId,
-                userId: member.userId,
-                roomId,
-                segmentId: segment.id,
-                status: AssignmentStatus.PENDING,
-              },
-            });
-            capacity.current++;
-            created++;
-          } catch (error) {
-            errors.push(`Failed to assign user ${member.userId}: ${error}`);
-          }
-          break; // Move to next member after successful assignment
         }
       }
-    }
 
-    this.logger.log(`Created ${created} room assignments for session ${sessionId}`);
-    return { created, errors };
+      const segmentRoomCountMap = new Map<string, number>();
+      for (const entry of segmentRoomCounts) {
+        const key = `${entry.segmentId}:${entry.roomId}`;
+        segmentRoomCountMap.set(key, entry._count.roomId);
+      }
+
+      // Batch create new assignments
+      const newAssignments: {
+        sessionId: string;
+        eventId: string;
+        userId: string;
+        roomId: string;
+        segmentId: string;
+        status: AssignmentStatus;
+      }[] = [];
+
+      // Process each segment
+      for (const segment of segments) {
+        for (const member of segment.members) {
+          // Skip if user already has an assignment
+          if (assignedUserIds.has(member.userId)) continue;
+
+          // Find a suitable room from the rules
+          for (const rule of segment.assignmentRules) {
+            const roomId = rule.roomId;
+            const capacity = roomCapacities.get(roomId)!;
+
+            // Check room capacity
+            if (capacity.current >= capacity.max) continue;
+
+            // Check segment limit for this room
+            if (rule.maxFromSegment) {
+              const segmentKey = `${segment.id}:${roomId}`;
+              const currentSegmentCount = segmentRoomCountMap.get(segmentKey) ?? 0;
+              if (currentSegmentCount >= rule.maxFromSegment) continue;
+              // Update the count for subsequent iterations
+              segmentRoomCountMap.set(segmentKey, currentSegmentCount + 1);
+            }
+
+            // Queue the assignment
+            newAssignments.push({
+              sessionId,
+              eventId,
+              userId: member.userId,
+              roomId,
+              segmentId: segment.id,
+              status: AssignmentStatus.PENDING,
+            });
+
+            // Update tracking
+            capacity.current++;
+            assignedUserIds.add(member.userId);
+            created++;
+            break; // Move to next member after successful assignment
+          }
+        }
+      }
+
+      // Batch insert all assignments
+      if (newAssignments.length > 0) {
+        try {
+          await tx.breakoutRoomAssignment.createMany({
+            data: newAssignments,
+            skipDuplicates: true,
+          });
+        } catch (error) {
+          errors.push(`Batch assignment creation failed: ${error}`);
+          created = 0; // Reset count on failure
+        }
+      }
+
+      this.logger.log(`Created ${created} room assignments for session ${sessionId}`);
+      return { created, errors };
+    }, {
+      timeout: 30000, // 30 second timeout for large operations
+    });
   }
 
   // ================================

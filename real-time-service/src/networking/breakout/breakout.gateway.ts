@@ -19,6 +19,17 @@ import { LeaveRoomDto } from './dto/leave-room.dto';
 import { CloseRoomDto } from './dto/close-room.dto';
 import { AssignmentStatus } from '@prisma/client';
 
+// Rate limiting configuration
+interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+}
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
   namespace: '/events',
@@ -27,8 +38,11 @@ export class BreakoutGateway {
   private readonly logger = new Logger(BreakoutGateway.name);
   @WebSocketServer() server: Server;
 
-  // Track active timers for rooms
-  private roomTimers: Map<string, NodeJS.Timeout> = new Map();
+  // Track active timers for rooms (main timer + warning timers)
+  private roomTimers: Map<string, { main: NodeJS.Timeout; warnings: NodeJS.Timeout[] }> = new Map();
+
+  // Mutex for timer operations to prevent race conditions
+  private timerLocks: Set<string> = new Set();
 
   // In-memory chat storage (in production, use Redis or database)
   private chatMessages: Map<string, Array<{
@@ -40,6 +54,63 @@ export class BreakoutGateway {
     timestamp: string;
     isSystem?: boolean;
   }>> = new Map();
+
+  // Rate limiting maps per operation type
+  private rateLimits: Map<string, RateLimitEntry> = new Map();
+  private readonly RATE_LIMIT_CONFIGS: Record<string, RateLimitConfig> = {
+    'room.create': { windowMs: 60000, maxRequests: 10 },      // 10 rooms/min
+    'room.start': { windowMs: 60000, maxRequests: 20 },       // 20 starts/min
+    'room.close': { windowMs: 60000, maxRequests: 20 },       // 20 closes/min
+    'all.recall': { windowMs: 60000, maxRequests: 5 },        // 5 recalls/min
+    'segment.create': { windowMs: 60000, maxRequests: 20 },   // 20 segments/min
+    'assignment.compute': { windowMs: 60000, maxRequests: 5 }, // 5 computes/min
+    'assignment.notify': { windowMs: 60000, maxRequests: 10 }, // 10 notifies/min
+  };
+
+  /**
+   * Check rate limit for a user and operation
+   * Returns true if allowed, false if rate limited
+   */
+  private checkRateLimit(userId: string, operation: string): boolean {
+    const config = this.RATE_LIMIT_CONFIGS[operation];
+    if (!config) return true; // No limit configured
+
+    const key = `${userId}:${operation}`;
+    const now = Date.now();
+    const entry = this.rateLimits.get(key);
+
+    if (!entry || now >= entry.resetAt) {
+      // New window
+      this.rateLimits.set(key, { count: 1, resetAt: now + config.windowMs });
+      return true;
+    }
+
+    if (entry.count >= config.maxRequests) {
+      return false; // Rate limited
+    }
+
+    entry.count++;
+    return true;
+  }
+
+  /**
+   * Validate ID format (CUID or UUID).
+   * CUID: starts with 'c', 25+ lowercase alphanumeric chars
+   * UUID: 36 chars with dashes in specific positions
+   */
+  private isValidId(id: string): boolean {
+    if (!id || typeof id !== 'string') return false;
+
+    // CUID format: starts with 'c', 25+ lowercase alphanumeric
+    const cuidRegex = /^c[a-z0-9]{24,}$/;
+    if (cuidRegex.test(id)) return true;
+
+    // UUID format: 8-4-4-4-12 with hex chars
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(id)) return true;
+
+    return false;
+  }
 
   constructor(
     private readonly breakoutService: BreakoutService,
@@ -77,6 +148,12 @@ export class BreakoutGateway {
     const hasPermission = user.permissions?.includes('breakout:manage');
     if (!hasPermission) {
       return { success: false, error: 'You do not have permission to create breakout rooms' };
+    }
+
+    // Rate limit check
+    if (!this.checkRateLimit(user.sub, 'room.create')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on room.create`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
     try {
@@ -232,6 +309,12 @@ export class BreakoutGateway {
   ) {
     const user = getAuthenticatedUser(client);
 
+    // Rate limit check
+    if (!this.checkRateLimit(user.sub, 'room.start')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on room.start`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
+    }
+
     try {
       const room = await this.breakoutService.startRoom(
         data.roomId,
@@ -284,6 +367,12 @@ export class BreakoutGateway {
   ) {
     const user = getAuthenticatedUser(client);
 
+    // Rate limit check
+    if (!this.checkRateLimit(user.sub, 'room.close')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on room.close`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
+    }
+
     try {
       const room = await this.breakoutService.closeRoom(
         dto.roomId,
@@ -322,6 +411,12 @@ export class BreakoutGateway {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
+
+    // Rate limit check - this is an expensive operation
+    if (!this.checkRateLimit(user.sub, 'all.recall')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on all.recall`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
+    }
 
     try {
       const closedRoomIds = await this.breakoutService.closeAllRooms(
@@ -367,8 +462,8 @@ export class BreakoutGateway {
     const user = getAuthenticatedUser(client);
 
     // Validate roomId format (CUID or UUID)
-    if (!data.roomId || !/^[a-z0-9]{20,36}$/i.test(data.roomId.replace(/-/g, ''))) {
-      return { success: false, error: 'Invalid room ID' };
+    if (!this.isValidId(data.roomId)) {
+      return { success: false, error: 'Invalid room ID format' };
     }
 
     if (!data.content?.trim()) {
@@ -447,8 +542,8 @@ export class BreakoutGateway {
     const user = getAuthenticatedUser(client);
 
     // Validate roomId format (CUID or UUID)
-    if (!data.roomId || !/^[a-z0-9]{20,36}$/i.test(data.roomId.replace(/-/g, ''))) {
-      return { success: false, error: 'Invalid room ID' };
+    if (!this.isValidId(data.roomId)) {
+      return { success: false, error: 'Invalid room ID format' };
     }
 
     try {
@@ -500,6 +595,12 @@ export class BreakoutGateway {
 
     if (!user.permissions?.includes('breakout:manage')) {
       return { success: false, error: 'You do not have permission to manage segments' };
+    }
+
+    // Rate limit check
+    if (!this.checkRateLimit(user.sub, 'segment.create')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on segment.create`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
     try {
@@ -781,6 +882,12 @@ export class BreakoutGateway {
       return { success: false, error: 'You do not have permission to manage segments' };
     }
 
+    // Rate limit check - this is an expensive operation
+    if (!this.checkRateLimit(user.sub, 'assignment.compute')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on assignment.compute`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
+    }
+
     try {
       const result = await this.segmentService.computeRoomAssignments(
         data.sessionId,
@@ -858,6 +965,12 @@ export class BreakoutGateway {
 
     if (!user.permissions?.includes('breakout:manage')) {
       return { success: false, error: 'You do not have permission to notify assignments' };
+    }
+
+    // Rate limit check
+    if (!this.checkRateLimit(user.sub, 'assignment.notify')) {
+      this.logger.warn(`Rate limit exceeded for user ${user.sub} on assignment.notify`);
+      return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
     try {
@@ -1010,72 +1123,169 @@ export class BreakoutGateway {
   // ==========================================
 
   /**
-   * Start the countdown timer for a room.
+   * Acquire a lock for timer operations to prevent race conditions.
+   * Uses a simple spinlock with immediate return if already locked.
    */
-  private startRoomTimer(roomId: string, sessionId: string, durationMinutes: number) {
-    // Clear any existing timer
-    this.cancelRoomTimer(roomId);
-
-    const durationMs = durationMinutes * 60 * 1000;
-    const warningTimes = [5 * 60 * 1000, 1 * 60 * 1000]; // 5 min and 1 min warnings
-    const breakoutRoom = `breakout:${roomId}`;
-
-    // Set up warning timers
-    warningTimes.forEach((warningMs) => {
-      if (durationMs > warningMs) {
-        const warningTimeout = setTimeout(() => {
-          const minutesRemaining = Math.round(warningMs / 60000);
-          this.server.to(breakoutRoom).emit('breakout.timer.warning', {
-            roomId,
-            minutesRemaining,
-            message: `${minutesRemaining} minute${minutesRemaining > 1 ? 's' : ''} remaining`,
-          });
-
-          // Set CLOSING status at 1 minute warning
-          if (minutesRemaining === 1) {
-            this.breakoutService.setRoomClosing(roomId).catch((err) => {
-              this.logger.error(`Failed to set room closing: ${err.message}`);
-            });
-          }
-        }, durationMs - warningMs);
-
-        // We don't track warning timeouts separately, they'll be cancelled with the main timer
-      }
-    });
-
-    // Set up end timer
-    const endTimeout = setTimeout(async () => {
-      try {
-        // Auto-close the room
-        await this.breakoutService.closeRoom(roomId, 'system', ['breakout:manage']);
-
-        this.server.to(breakoutRoom).emit('breakout.room.closed', {
-          roomId,
-          reason: 'timer',
-        });
-
-        this.server.to(`session:${sessionId}`).emit('breakout.room.closed', {
-          roomId,
-          reason: 'timer',
-        });
-
-        this.logger.log(`Breakout room ${roomId} auto-closed due to timer`);
-      } catch (error) {
-        this.logger.error(`Failed to auto-close room ${roomId}: ${getErrorMessage(error)}`);
-      }
-    }, durationMs);
-
-    this.roomTimers.set(roomId, endTimeout);
+  private acquireTimerLock(roomId: string): boolean {
+    if (this.timerLocks.has(roomId)) {
+      return false;
+    }
+    this.timerLocks.add(roomId);
+    return true;
   }
 
   /**
-   * Cancel the timer for a room.
+   * Release the timer lock for a room.
    */
-  private cancelRoomTimer(roomId: string) {
-    const timer = this.roomTimers.get(roomId);
-    if (timer) {
-      clearTimeout(timer);
+  private releaseTimerLock(roomId: string): void {
+    this.timerLocks.delete(roomId);
+  }
+
+  /**
+   * Start the countdown timer for a room.
+   * Fixed: Tracks all timeouts (main + warnings) to prevent memory leaks.
+   * Fixed: Uses lock to prevent race conditions.
+   */
+  private startRoomTimer(roomId: string, sessionId: string, durationMinutes: number) {
+    // Acquire lock to prevent race conditions
+    if (!this.acquireTimerLock(roomId)) {
+      this.logger.warn(`Timer operation in progress for room ${roomId}, skipping`);
+      return;
+    }
+
+    try {
+      // Clear any existing timers
+      this.cancelRoomTimerInternal(roomId);
+
+      const durationMs = durationMinutes * 60 * 1000;
+      const warningTimes = [5 * 60 * 1000, 1 * 60 * 1000]; // 5 min and 1 min warnings
+      const breakoutRoom = `breakout:${roomId}`;
+      const warningTimeouts: NodeJS.Timeout[] = [];
+
+      // Set up warning timers
+      warningTimes.forEach((warningMs) => {
+        if (durationMs > warningMs) {
+          const warningTimeout = setTimeout(() => {
+            const minutesRemaining = Math.round(warningMs / 60000);
+
+            try {
+              this.server.to(breakoutRoom).emit('breakout.timer.warning', {
+                roomId,
+                minutesRemaining,
+                message: `${minutesRemaining} minute${minutesRemaining > 1 ? 's' : ''} remaining`,
+              });
+
+              // Set CLOSING status at 1 minute warning
+              if (minutesRemaining === 1) {
+                this.breakoutService.setRoomClosing(roomId)
+                  .then(() => {
+                    this.logger.log(`Room ${roomId} status set to CLOSING`);
+                  })
+                  .catch((err) => {
+                    this.logger.error(`Failed to set room ${roomId} to closing: ${err.message}`);
+                    // Emit error to room so users know something went wrong
+                    this.server.to(breakoutRoom).emit('breakout.room.error', {
+                      roomId,
+                      error: 'Failed to update room status',
+                    });
+                  });
+              }
+            } catch (err) {
+              this.logger.error(`Error in warning timer for room ${roomId}: ${getErrorMessage(err)}`);
+            }
+          }, durationMs - warningMs);
+
+          warningTimeouts.push(warningTimeout);
+        }
+      });
+
+      // Set up end timer
+      const endTimeout = setTimeout(() => {
+        // Use a separate async function to handle the close operation
+        this.handleTimerClose(roomId, sessionId, breakoutRoom);
+      }, durationMs);
+
+      // Store all timers (main + warnings) for proper cleanup
+      this.roomTimers.set(roomId, { main: endTimeout, warnings: warningTimeouts });
+
+      this.logger.log(`Timer started for room ${roomId}: ${durationMinutes} minutes`);
+    } finally {
+      this.releaseTimerLock(roomId);
+    }
+  }
+
+  /**
+   * Handle the room closure when timer expires.
+   * Separated from setTimeout callback for better error handling.
+   */
+  private async handleTimerClose(roomId: string, sessionId: string, breakoutRoom: string): Promise<void> {
+    try {
+      // Clean up timer tracking first
       this.roomTimers.delete(roomId);
+
+      // Auto-close the room
+      await this.breakoutService.closeRoom(roomId, 'system', ['breakout:manage']);
+
+      this.server.to(breakoutRoom).emit('breakout.room.closed', {
+        roomId,
+        reason: 'timer',
+      });
+
+      this.server.to(`session:${sessionId}`).emit('breakout.room.closed', {
+        roomId,
+        reason: 'timer',
+      });
+
+      this.logger.log(`Breakout room ${roomId} auto-closed due to timer`);
+    } catch (error) {
+      this.logger.error(`Failed to auto-close room ${roomId}: ${getErrorMessage(error)}`);
+
+      // Notify room participants about the error
+      try {
+        this.server.to(breakoutRoom).emit('breakout.room.error', {
+          roomId,
+          error: 'Timer-based closure failed. Please close the room manually.',
+        });
+      } catch (notifyError) {
+        this.logger.error(`Failed to notify room ${roomId} about close error: ${getErrorMessage(notifyError)}`);
+      }
+    }
+  }
+
+  /**
+   * Cancel the timer for a room (internal - no lock).
+   * Clears both main and warning timers.
+   */
+  private cancelRoomTimerInternal(roomId: string): void {
+    const timers = this.roomTimers.get(roomId);
+    if (timers) {
+      // Clear main timer
+      clearTimeout(timers.main);
+
+      // Clear all warning timers
+      timers.warnings.forEach((timeout) => clearTimeout(timeout));
+
+      this.roomTimers.delete(roomId);
+      this.logger.log(`Timers cancelled for room ${roomId}`);
+    }
+  }
+
+  /**
+   * Cancel the timer for a room (public - with lock).
+   */
+  private cancelRoomTimer(roomId: string): void {
+    // Acquire lock to prevent race conditions
+    if (!this.acquireTimerLock(roomId)) {
+      this.logger.warn(`Timer operation in progress for room ${roomId}, waiting...`);
+      // Retry after a short delay
+      setTimeout(() => this.cancelRoomTimer(roomId), 50);
+      return;
+    }
+
+    try {
+      this.cancelRoomTimerInternal(roomId);
+    } finally {
+      this.releaseTimerLock(roomId);
     }
   }
 }

@@ -997,6 +997,8 @@ model BreakoutRoom {
   @@index([sessionId])
   @@index([eventId])
   @@index([status])
+  @@index([createdAt])           // For analytics queries
+  @@index([startedAt])           // For active room queries
   @@map("breakout_rooms")
 }
 
@@ -1119,6 +1121,9 @@ model BreakoutRoomAssignment {
   @@index([sessionId])
   @@index([roomId])
   @@index([userId])
+  @@index([status])              // For filtering by assignment status
+  @@index([createdAt])           // For analytics queries on date ranges
+  @@index([segmentId])           // For segment-based queries
   @@map("breakout_room_assignments")
 }
 
@@ -1329,6 +1334,7 @@ model BoothChatMessage {
 
   @@index([boothId])
   @@index([createdAt])
+  @@index([senderId])                    // For user activity tracking
   @@index([boothId, createdAt])         // For paginated history
   @@map("booth_chat_messages")
 }

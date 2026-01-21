@@ -32,8 +32,13 @@ import {
   JoinBoothAsStaffDto,
 } from './dto';
 
+// Uses ALLOWED_ORIGINS env var (consistent with main.ts and cors.config.ts)
+const CORS_ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
+  : ['http://localhost:3000', 'http://localhost:3001'];
+
 @WebSocketGateway({
-  cors: { origin: true, credentials: true },
+  cors: { origin: CORS_ALLOWED_ORIGINS, credentials: true },
   namespace: '/events',
 })
 export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModuleDestroy {
