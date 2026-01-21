@@ -661,6 +661,21 @@ export class SegmentService {
         status,
         notifiedAt: status === AssignmentStatus.NOTIFIED ? new Date() : undefined,
       },
+      include: {
+        room: {
+          select: {
+            id: true,
+            name: true,
+            topic: true,
+            status: true,
+            durationMinutes: true,
+            facilitator: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+            _count: { select: { participants: true } },
+          },
+        },
+      },
     });
   }
 
