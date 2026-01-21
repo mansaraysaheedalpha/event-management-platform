@@ -109,11 +109,11 @@ export class AuthService {
 
     try {
       const response = await fetch(
-        `${eventServiceUrl}/internal/user/${userId}/sponsor-status`,
+        `${eventServiceUrl}/sponsors/internal/user/${userId}/sponsor-status`,
         {
           method: 'GET',
           headers: {
-            'x-internal-api-key': internalApiKey,
+            'X-Internal-Api-Key': internalApiKey,
             'Content-Type': 'application/json',
           },
         },
