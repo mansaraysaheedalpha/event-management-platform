@@ -3,10 +3,13 @@ import { Module } from '@nestjs/common';
 import { ExpoGateway } from './expo.gateway';
 import { ExpoService } from './expo.service';
 import { ExpoAnalyticsService } from './expo-analytics.service';
+import { ExpoInternalController } from './expo-internal.controller';
+import { ExpoController } from './expo.controller';
 import { BreakoutModule } from 'src/networking/breakout/breakout.module';
 
 @Module({
   imports: [BreakoutModule], // For DailyService
+  controllers: [ExpoInternalController, ExpoController],
   providers: [ExpoGateway, ExpoService, ExpoAnalyticsService],
   exports: [ExpoService, ExpoAnalyticsService],
 })

@@ -59,7 +59,9 @@ export class ExpoService {
       where: { eventId },
       include: {
         booths: {
-          where: { /* isActive: true */ }, // All booths for now
+          where: {
+            /* isActive: true */
+          }, // All booths for now
           include: {
             staffPresence: {
               where: { status: { not: 'OFFLINE' } },
@@ -90,6 +92,33 @@ export class ExpoService {
   async getExpoHallSafe(eventId: string) {
     return this.prisma.expoHall.findUnique({
       where: { eventId },
+      include: {
+        booths: {
+          include: {
+            staffPresence: {
+              where: { status: { not: 'OFFLINE' } },
+            },
+            _count: {
+              select: {
+                visits: { where: { exitedAt: null } },
+              },
+            },
+          },
+          orderBy: [{ tier: 'asc' }, { displayOrder: 'asc' }],
+        },
+        _count: {
+          select: { booths: true },
+        },
+      },
+    });
+  }
+
+  /**
+   * Gets an expo hall by ID.
+   */
+  async getExpoHallById(hallId: string) {
+    return this.prisma.expoHall.findUnique({
+      where: { id: hallId },
       include: {
         booths: {
           include: {
@@ -257,6 +286,86 @@ export class ExpoService {
   }
 
   /**
+   * Gets a booth by sponsor ID.
+   */
+  async getBoothBySponsorId(sponsorId: string) {
+    return this.prisma.expoBooth.findFirst({
+      where: { sponsorId },
+      include: {
+        staffPresence: true,
+        _count: {
+          select: {
+            visits: { where: { exitedAt: null } },
+            chatMessages: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Updates a booth's details.
+   * Note: Booths don't have an isActive field - use expo hall isActive for that.
+   */
+  async updateBooth(
+    boothId: string,
+    data: {
+      name?: string;
+      tagline?: string;
+      description?: string;
+      tier?: 'PLATINUM' | 'GOLD' | 'SILVER' | 'BRONZE' | 'STARTUP';
+      logoUrl?: string;
+      bannerUrl?: string;
+      videoUrl?: string;
+      category?: string;
+      chatEnabled?: boolean;
+      videoEnabled?: boolean;
+      displayOrder?: number;
+    },
+  ) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const updated = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data,
+      include: {
+        _count: { select: { visits: true } },
+      },
+    });
+
+    this.logger.log(`Updated booth ${boothId}`);
+    return updated;
+  }
+
+  /**
+   * Deletes a booth.
+   * This is used when a sponsor is archived since booths don't have an isActive field.
+   */
+  async deleteBooth(boothId: string) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    // Delete the booth (this will cascade delete related records due to schema relations)
+    await this.prisma.expoBooth.delete({
+      where: { id: boothId },
+    });
+
+    this.logger.log(`Deleted booth ${boothId}`);
+    return { deleted: true, id: boothId };
+  }
+
+  /**
    * Records a user entering the expo hall.
    */
   async enterHall(userId: string, eventId: string) {
@@ -267,7 +376,12 @@ export class ExpoService {
   /**
    * Records a user entering a booth.
    */
-  async enterBooth(userId: string, boothId: string, eventId: string, socketId: string) {
+  async enterBooth(
+    userId: string,
+    boothId: string,
+    eventId: string,
+    socketId: string,
+  ) {
     const booth = await this.prisma.expoBooth.findUnique({
       where: { id: boothId },
     });
@@ -349,7 +463,9 @@ export class ExpoService {
       },
     });
 
-    this.logger.log(`User ${userId} left booth ${boothId} (duration: ${durationSeconds}s)`);
+    this.logger.log(
+      `User ${userId} left booth ${boothId} (duration: ${durationSeconds}s)`,
+    );
 
     return updatedVisit;
   }
@@ -452,7 +568,9 @@ export class ExpoService {
     }
 
     if (!booth.videoEnabled) {
-      throw new BadRequestException('Video calls are not enabled for this booth');
+      throw new BadRequestException(
+        'Video calls are not enabled for this booth',
+      );
     }
 
     if (booth.staffPresence.length === 0) {
@@ -469,7 +587,9 @@ export class ExpoService {
     });
 
     if (existingRequest) {
-      throw new ConflictException('You already have an active or pending video request');
+      throw new ConflictException(
+        'You already have an active or pending video request',
+      );
     }
 
     const session = await this.prisma.boothVideoSession.create({
@@ -489,11 +609,7 @@ export class ExpoService {
   /**
    * Staff accepts a video call request.
    */
-  async acceptVideoCall(
-    staffId: string,
-    staffName: string,
-    sessionId: string,
-  ) {
+  async acceptVideoCall(staffId: string, staffName: string, sessionId: string) {
     const session = await this.prisma.boothVideoSession.findUnique({
       where: { id: sessionId },
       include: { booth: true },
@@ -648,7 +764,9 @@ export class ExpoService {
       },
     });
 
-    this.logger.log(`Video call ${sessionId} ended by ${endedBy} (duration: ${durationSeconds}s)`);
+    this.logger.log(
+      `Video call ${sessionId} ended by ${endedBy} (duration: ${durationSeconds}s)`,
+    );
 
     return updatedSession;
   }
@@ -707,7 +825,9 @@ export class ExpoService {
       },
     });
 
-    this.logger.log(`Staff ${staffId} presence updated to ${status} for booth ${boothId}`);
+    this.logger.log(
+      `Staff ${staffId} presence updated to ${status} for booth ${boothId}`,
+    );
 
     return presence;
   }

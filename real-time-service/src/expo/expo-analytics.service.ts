@@ -39,7 +39,9 @@ export class ExpoAnalyticsService {
       await this.incrementAnalytics(boothId, 'totalDownloads');
       await this.incrementResourceDownload(boothId, resourceId);
 
-      this.logger.log(`Resource ${resourceId} downloaded from booth ${boothId} by ${userId}`);
+      this.logger.log(
+        `Resource ${resourceId} downloaded from booth ${boothId} by ${userId}`,
+      );
     } catch (error) {
       // Log error but don't throw - analytics should never block user actions
       this.logger.error(`Failed to track resource download: ${error}`);
@@ -116,7 +118,11 @@ export class ExpoAnalyticsService {
    * Tracks a video session completion.
    * Gracefully handles errors.
    */
-  async trackVideoSession(boothId: string, durationSeconds: number, completed: boolean) {
+  async trackVideoSession(
+    boothId: string,
+    durationSeconds: number,
+    completed: boolean,
+  ) {
     try {
       await this.incrementAnalytics(boothId, 'totalVideoSessions');
 
@@ -125,7 +131,9 @@ export class ExpoAnalyticsService {
         await this.updateAvgVideoDuration(boothId, durationSeconds);
       }
 
-      this.logger.log(`Video session tracked for booth ${boothId} (${durationSeconds}s, completed: ${completed})`);
+      this.logger.log(
+        `Video session tracked for booth ${boothId} (${durationSeconds}s, completed: ${completed})`,
+      );
     } catch (error) {
       this.logger.error(`Failed to track video session: ${error}`);
     }
@@ -211,7 +219,8 @@ export class ExpoAnalyticsService {
       // This is more numerically stable than (sum / count)
       const newAvg = Math.floor(
         analytics.avgVisitDuration +
-          (durationSeconds - analytics.avgVisitDuration) / analytics.totalVisitors
+          (durationSeconds - analytics.avgVisitDuration) /
+            analytics.totalVisitors,
       );
 
       await this.prisma.boothAnalytics.update({
@@ -302,7 +311,13 @@ export class ExpoAnalyticsService {
 
   private async incrementAnalytics(
     boothId: string,
-    field: 'totalDownloads' | 'totalCtaClicks' | 'totalLeads' | 'totalChatMessages' | 'totalVideoSessions' | 'completedVideoSessions',
+    field:
+      | 'totalDownloads'
+      | 'totalCtaClicks'
+      | 'totalLeads'
+      | 'totalChatMessages'
+      | 'totalVideoSessions'
+      | 'completedVideoSessions',
   ) {
     await this.ensureAnalytics(boothId);
 
@@ -315,7 +330,8 @@ export class ExpoAnalyticsService {
   private async incrementResourceDownload(boothId: string, resourceId: string) {
     const analytics = await this.ensureAnalytics(boothId);
 
-    const downloads = (analytics.resourceDownloads as Record<string, number>) || {};
+    const downloads =
+      (analytics.resourceDownloads as Record<string, number>) || {};
     downloads[resourceId] = (downloads[resourceId] || 0) + 1;
 
     await this.prisma.boothAnalytics.update({
@@ -336,7 +352,10 @@ export class ExpoAnalyticsService {
     });
   }
 
-  private async updateAvgVideoDuration(boothId: string, durationSeconds: number) {
+  private async updateAvgVideoDuration(
+    boothId: string,
+    durationSeconds: number,
+  ) {
     const analytics = await this.ensureAnalytics(boothId);
 
     // Handle edge cases to avoid division by zero
@@ -351,7 +370,8 @@ export class ExpoAnalyticsService {
     // Calculate running average: new_avg = old_avg + (new_value - old_avg) / count
     const newAvg = Math.floor(
       analytics.avgVideoDuration +
-        (durationSeconds - analytics.avgVideoDuration) / analytics.completedVideoSessions
+        (durationSeconds - analytics.avgVideoDuration) /
+          analytics.completedVideoSessions,
     );
 
     await this.prisma.boothAnalytics.update({

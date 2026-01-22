@@ -41,7 +41,9 @@ const CORS_ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   cors: { origin: CORS_ALLOWED_ORIGINS, credentials: true },
   namespace: '/events',
 })
-export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModuleDestroy {
+export class ExpoGateway
+  implements OnGatewayDisconnect, OnGatewayInit, OnModuleDestroy
+{
   private readonly logger = new Logger(ExpoGateway.name);
   @WebSocketServer() server: Server;
 
@@ -54,8 +56,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
   private rateLimitCleanupInterval: NodeJS.Timeout | null = null;
 
   // Track user visits for cleanup on disconnect
-  private userVisits: Map<string, { boothId: string; visitId: string }> = new Map();
-  private staffSockets: Map<string, { boothId: string; staffId: string }> = new Map();
+  private userVisits: Map<string, { boothId: string; visitId: string }> =
+    new Map();
+  private staffSockets: Map<string, { boothId: string; staffId: string }> =
+    new Map();
 
   constructor(
     private readonly expoService: ExpoService,
@@ -146,7 +150,9 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       // Join expo hall room for updates
       await client.join(`expo:${dto.eventId}`);
 
-      this.logger.log(`User ${user.sub} entered expo hall for event ${dto.eventId}`);
+      this.logger.log(
+        `User ${user.sub} entered expo hall for event ${dto.eventId}`,
+      );
       return { success: true, hall };
     } catch (error) {
       this.logger.error(`Failed to enter expo hall: ${getErrorMessage(error)}`);
@@ -166,7 +172,9 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
 
     try {
       await client.leave(`expo:${data.eventId}`);
-      this.logger.log(`User ${user.sub} left expo hall for event ${data.eventId}`);
+      this.logger.log(
+        `User ${user.sub} left expo hall for event ${data.eventId}`,
+      );
       return { success: true };
     } catch (error) {
       return { success: false, error: getErrorMessage(error) };
@@ -199,7 +207,8 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
    */
   @SubscribeMessage('expo.hall.create')
   async handleCreateHall(
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       eventId: string;
       name: string;
       description?: string;
@@ -210,23 +219,33 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     // Check for organizer permission
-    const hasPermission = user.permissions?.includes('expo:manage') ||
-                          user.permissions?.includes('event:manage');
+    const hasPermission =
+      user.permissions?.includes('expo:manage') ||
+      user.permissions?.includes('event:manage');
     if (!hasPermission) {
-      return { success: false, error: 'You do not have permission to create expo halls' };
+      return {
+        success: false,
+        error: 'You do not have permission to create expo halls',
+      };
     }
 
     try {
-      const hall = await this.expoService.createExpoHall(data.eventId, user.orgId, {
-        name: data.name,
-        description: data.description,
-        categories: data.categories,
-      });
+      const hall = await this.expoService.createExpoHall(
+        data.eventId,
+        user.orgId,
+        {
+          name: data.name,
+          description: data.description,
+          categories: data.categories,
+        },
+      );
 
       this.logger.log(`Expo hall ${hall.id} created by ${user.sub}`);
       return { success: true, hall };
     } catch (error) {
-      this.logger.error(`Failed to create expo hall: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to create expo hall: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -236,7 +255,8 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
    */
   @SubscribeMessage('expo.hall.update')
   async handleUpdateHall(
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       hallId: string;
       name?: string;
       description?: string;
@@ -248,10 +268,14 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     // Check for organizer permission
-    const hasPermission = user.permissions?.includes('expo:manage') ||
-                          user.permissions?.includes('event:manage');
+    const hasPermission =
+      user.permissions?.includes('expo:manage') ||
+      user.permissions?.includes('event:manage');
     if (!hasPermission) {
-      return { success: false, error: 'You do not have permission to update expo halls' };
+      return {
+        success: false,
+        error: 'You do not have permission to update expo halls',
+      };
     }
 
     try {
@@ -265,7 +289,9 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       this.logger.log(`Expo hall ${hall.id} updated by ${user.sub}`);
       return { success: true, hall };
     } catch (error) {
-      this.logger.error(`Failed to update expo hall: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to update expo hall: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -275,7 +301,8 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
    */
   @SubscribeMessage('expo.booth.create')
   async handleCreateBooth(
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       hallId: string;
       name: string;
       tagline?: string;
@@ -291,28 +318,113 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     // Check for organizer permission
-    const hasPermission = user.permissions?.includes('expo:manage') ||
-                          user.permissions?.includes('event:manage');
+    const hasPermission =
+      user.permissions?.includes('expo:manage') ||
+      user.permissions?.includes('event:manage');
     if (!hasPermission) {
-      return { success: false, error: 'You do not have permission to create booths' };
+      return {
+        success: false,
+        error: 'You do not have permission to create booths',
+      };
     }
 
     try {
-      const booth = await this.expoService.createBooth(data.hallId, user.orgId, {
-        name: data.name,
-        tagline: data.tagline,
-        description: data.description,
-        tier: data.tier as 'PLATINUM' | 'GOLD' | 'SILVER' | 'BRONZE' | 'STARTUP' | undefined,
-        logoUrl: data.logoUrl,
-        bannerUrl: data.bannerUrl,
-        videoUrl: data.videoUrl,
-        category: data.category,
-      });
+      const booth = await this.expoService.createBooth(
+        data.hallId,
+        user.orgId,
+        {
+          name: data.name,
+          tagline: data.tagline,
+          description: data.description,
+          tier: data.tier as
+            | 'PLATINUM'
+            | 'GOLD'
+            | 'SILVER'
+            | 'BRONZE'
+            | 'STARTUP'
+            | undefined,
+          logoUrl: data.logoUrl,
+          bannerUrl: data.bannerUrl,
+          videoUrl: data.videoUrl,
+          category: data.category,
+        },
+      );
 
       this.logger.log(`Booth ${booth.id} created by ${user.sub}`);
       return { success: true, booth };
     } catch (error) {
       this.logger.error(`Failed to create booth: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Update a booth (organizer only)
+   */
+  @SubscribeMessage('expo.booth.update')
+  async handleUpdateBooth(
+    @MessageBody()
+    data: {
+      boothId: string;
+      name?: string;
+      tagline?: string;
+      description?: string;
+      tier?: string;
+      logoUrl?: string;
+      bannerUrl?: string;
+      videoUrl?: string;
+      category?: string;
+      chatEnabled?: boolean;
+      videoEnabled?: boolean;
+      displayOrder?: number;
+    },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    // Check for organizer permission
+    const hasPermission =
+      user.permissions?.includes('expo:manage') ||
+      user.permissions?.includes('event:manage');
+    if (!hasPermission) {
+      return {
+        success: false,
+        error: 'You do not have permission to update booths',
+      };
+    }
+
+    try {
+      const booth = await this.expoService.updateBooth(data.boothId, {
+        name: data.name,
+        tagline: data.tagline,
+        description: data.description,
+        tier: data.tier as
+          | 'PLATINUM'
+          | 'GOLD'
+          | 'SILVER'
+          | 'BRONZE'
+          | 'STARTUP'
+          | undefined,
+        logoUrl: data.logoUrl,
+        bannerUrl: data.bannerUrl,
+        videoUrl: data.videoUrl,
+        category: data.category,
+        chatEnabled: data.chatEnabled,
+        videoEnabled: data.videoEnabled,
+        displayOrder: data.displayOrder,
+      });
+
+      this.logger.log(`Booth ${booth.id} updated by ${user.sub}`);
+
+      // Notify booth visitors of update
+      this.server.to(`booth:${data.boothId}`).emit('expo.booth.updated', {
+        boothId: data.boothId,
+        booth,
+      });
+
+      return { success: true, booth };
+    } catch (error) {
+      this.logger.error(`Failed to update booth: ${getErrorMessage(error)}`);
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -343,19 +455,26 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       await client.join(`booth:${dto.boothId}`);
 
       // Track for disconnect cleanup
-      this.userVisits.set(client.id, { boothId: dto.boothId, visitId: visit.id });
+      this.userVisits.set(client.id, {
+        boothId: dto.boothId,
+        visitId: visit.id,
+      });
 
       // Update analytics
       await this.analyticsService.updateVisitorMetrics(dto.boothId);
 
       // Get current visitor count
-      const visitorCount = await this.expoService.getBoothVisitorCount(dto.boothId);
+      const visitorCount = await this.expoService.getBoothVisitorCount(
+        dto.boothId,
+      );
 
       // Broadcast visitor update to booth and expo hall
-      this.server.to(`booth:${dto.boothId}`).emit('expo.booth.visitors.update', {
-        boothId: dto.boothId,
-        visitorCount,
-      });
+      this.server
+        .to(`booth:${dto.boothId}`)
+        .emit('expo.booth.visitors.update', {
+          boothId: dto.boothId,
+          visitorCount,
+        });
 
       this.server.to(`expo:${dto.eventId}`).emit('expo.booth.visitors.update', {
         boothId: dto.boothId,
@@ -363,13 +482,16 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       });
 
       // Notify booth staff of new visitor
-      this.server.to(`booth-staff:${dto.boothId}`).emit('expo.booth.visitor.entered', {
-        visitorId: user.sub,
-        visitorName: user.firstName && user.lastName
-          ? `${user.firstName} ${user.lastName}`
-          : user.email,
-        visitId: visit.id,
-      });
+      this.server
+        .to(`booth-staff:${dto.boothId}`)
+        .emit('expo.booth.visitor.entered', {
+          visitorId: user.sub,
+          visitorName:
+            user.firstName && user.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user.email,
+          visitId: visit.id,
+        });
 
       const booth = await this.expoService.getBooth(dto.boothId);
 
@@ -396,7 +518,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       if (visit) {
         // Update analytics
         await this.analyticsService.updateVisitorMetrics(dto.boothId);
-        await this.analyticsService.updateAvgVisitDuration(dto.boothId, visit.durationSeconds);
+        await this.analyticsService.updateAvgVisitDuration(
+          dto.boothId,
+          visit.durationSeconds,
+        );
       }
 
       // Leave booth room
@@ -404,13 +529,17 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       this.userVisits.delete(client.id);
 
       // Get current visitor count
-      const visitorCount = await this.expoService.getBoothVisitorCount(dto.boothId);
+      const visitorCount = await this.expoService.getBoothVisitorCount(
+        dto.boothId,
+      );
 
       // Broadcast visitor update
-      this.server.to(`booth:${dto.boothId}`).emit('expo.booth.visitors.update', {
-        boothId: dto.boothId,
-        visitorCount,
-      });
+      this.server
+        .to(`booth:${dto.boothId}`)
+        .emit('expo.booth.visitors.update', {
+          boothId: dto.boothId,
+          visitorCount,
+        });
 
       return { success: true };
     } catch (error) {
@@ -459,7 +588,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     }
 
     if (dto.text.length > this.MAX_MESSAGE_LENGTH) {
-      return { success: false, error: `Message too long (max ${this.MAX_MESSAGE_LENGTH} characters)` };
+      return {
+        success: false,
+        error: `Message too long (max ${this.MAX_MESSAGE_LENGTH} characters)`,
+      };
     }
 
     // Rate limiting
@@ -467,15 +599,22 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const lastMessageTime = this.chatRateLimits.get(rateLimitKey) || 0;
     const now = Date.now();
     if (now - lastMessageTime < this.CHAT_RATE_LIMIT_MS) {
-      return { success: false, error: 'Please wait before sending another message' };
+      return {
+        success: false,
+        error: 'Please wait before sending another message',
+      };
     }
 
     try {
-      const isStaff = await this.expoService.isBoothStaff(user.sub, dto.boothId);
+      const isStaff = await this.expoService.isBoothStaff(
+        user.sub,
+        dto.boothId,
+      );
 
-      const userName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email || 'Anonymous';
+      const userName =
+        user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.email || 'Anonymous';
 
       const message = await this.expoService.sendBoothChat(
         user.sub,
@@ -493,7 +632,9 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       await this.analyticsService.trackChatMessage(dto.boothId);
 
       // Broadcast to booth room
-      this.server.to(`booth:${dto.boothId}`).emit('expo.booth.chat.message', message);
+      this.server
+        .to(`booth:${dto.boothId}`)
+        .emit('expo.booth.chat.message', message);
 
       return { success: true, message };
     } catch (error) {
@@ -519,7 +660,9 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
 
       return { success: true, ...result };
     } catch (error) {
-      this.logger.error(`Failed to get chat history: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to get chat history: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -539,9 +682,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     try {
-      const userName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email || 'Anonymous';
+      const userName =
+        user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.email || 'Anonymous';
 
       const session = await this.expoService.requestVideoCall(
         user.sub,
@@ -551,17 +695,21 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       );
 
       // Notify staff of video request
-      this.server.to(`booth-staff:${dto.boothId}`).emit('expo.booth.video.requested', {
-        sessionId: session.id,
-        attendeeId: user.sub,
-        attendeeName: userName,
-        message: dto.message,
-        requestedAt: session.requestedAt,
-      });
+      this.server
+        .to(`booth-staff:${dto.boothId}`)
+        .emit('expo.booth.video.requested', {
+          sessionId: session.id,
+          attendeeId: user.sub,
+          attendeeName: userName,
+          message: dto.message,
+          requestedAt: session.requestedAt,
+        });
 
       return { success: true, session };
     } catch (error) {
-      this.logger.error(`Failed to request video call: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to request video call: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -577,9 +725,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     try {
-      const staffName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email || 'Staff';
+      const staffName =
+        user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.email || 'Staff';
 
       const session = await this.expoService.acceptVideoCall(
         user.sub,
@@ -588,13 +737,15 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       );
 
       // Notify attendee that call was accepted
-      this.server.to(`booth:${session.boothId}`).emit('expo.booth.video.accepted', {
-        sessionId: session.id,
-        staffId: session.staffId,
-        staffName: session.staffName,
-        videoRoomUrl: session.videoRoomUrl,
-        attendeeToken: session.attendeeToken,
-      });
+      this.server
+        .to(`booth:${session.boothId}`)
+        .emit('expo.booth.video.accepted', {
+          sessionId: session.id,
+          staffId: session.staffId,
+          staffName: session.staffName,
+          videoRoomUrl: session.videoRoomUrl,
+          attendeeToken: session.attendeeToken,
+        });
 
       return {
         success: true,
@@ -604,7 +755,9 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
         },
       };
     } catch (error) {
-      this.logger.error(`Failed to accept video call: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to accept video call: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -627,14 +780,18 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       );
 
       // Notify attendee that call was declined
-      this.server.to(`booth:${session.boothId}`).emit('expo.booth.video.declined', {
-        sessionId: session.id,
-        reason: dto.reason,
-      });
+      this.server
+        .to(`booth:${session.boothId}`)
+        .emit('expo.booth.video.declined', {
+          sessionId: session.id,
+          reason: dto.reason,
+        });
 
       return { success: true };
     } catch (error) {
-      this.logger.error(`Failed to decline video call: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to decline video call: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -650,7 +807,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     try {
-      const session = await this.expoService.endVideoCall(dto.sessionId, user.sub);
+      const session = await this.expoService.endVideoCall(
+        dto.sessionId,
+        user.sub,
+      );
 
       // Track video session completion
       await this.analyticsService.trackVideoSession(
@@ -660,11 +820,13 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       );
 
       // Notify both parties
-      this.server.to(`booth:${session.boothId}`).emit('expo.booth.video.ended', {
-        sessionId: session.id,
-        endedBy: user.sub,
-        durationSeconds: session.durationSeconds,
-      });
+      this.server
+        .to(`booth:${session.boothId}`)
+        .emit('expo.booth.video.ended', {
+          sessionId: session.id,
+          endedBy: user.sub,
+          durationSeconds: session.durationSeconds,
+        });
 
       return { success: true };
     } catch (error) {
@@ -745,7 +907,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       const visitInfo = this.userVisits.get(client.id);
 
       if (!visitInfo) {
-        return { success: false, error: 'You must be visiting the booth to submit lead info' };
+        return {
+          success: false,
+          error: 'You must be visiting the booth to submit lead info',
+        };
       }
 
       await this.analyticsService.trackLeadCapture(
@@ -756,13 +921,16 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       );
 
       // Notify staff of new lead
-      this.server.to(`booth-staff:${dto.boothId}`).emit('expo.booth.lead.captured', {
-        visitorId: user.sub,
-        visitorName: user.firstName && user.lastName
-          ? `${user.firstName} ${user.lastName}`
-          : user.email,
-        formData: dto.formData,
-      });
+      this.server
+        .to(`booth-staff:${dto.boothId}`)
+        .emit('expo.booth.lead.captured', {
+          visitorId: user.sub,
+          visitorName:
+            user.firstName && user.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user.email,
+          formData: dto.formData,
+        });
 
       return { success: true };
     } catch (error) {
@@ -786,9 +954,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     try {
-      const staffName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email || 'Staff';
+      const staffName =
+        user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.email || 'Staff';
 
       await this.expoService.updateStaffPresence(
         user.sub,
@@ -804,17 +973,26 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       await client.join(`booth:${dto.boothId}`);
 
       // Track for disconnect cleanup
-      this.staffSockets.set(client.id, { boothId: dto.boothId, staffId: user.sub });
+      this.staffSockets.set(client.id, {
+        boothId: dto.boothId,
+        staffId: user.sub,
+      });
 
       // Get pending video requests
-      const pendingRequests = await this.expoService.getPendingVideoRequests(dto.boothId);
+      const pendingRequests = await this.expoService.getPendingVideoRequests(
+        dto.boothId,
+      );
 
       // Broadcast staff availability update
-      const staffPresence = await this.expoService.getBoothStaffPresence(dto.boothId);
-      this.server.to(`booth:${dto.boothId}`).emit('expo.booth.staff.available', {
-        boothId: dto.boothId,
-        staff: staffPresence,
-      });
+      const staffPresence = await this.expoService.getBoothStaffPresence(
+        dto.boothId,
+      );
+      this.server
+        .to(`booth:${dto.boothId}`)
+        .emit('expo.booth.staff.available', {
+          boothId: dto.boothId,
+          staff: staffPresence,
+        });
 
       return { success: true, pendingRequests };
     } catch (error) {
@@ -834,9 +1012,10 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
     const user = getAuthenticatedUser(client);
 
     try {
-      const staffName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email || 'Staff';
+      const staffName =
+        user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.email || 'Staff';
 
       await this.expoService.updateStaffPresence(
         user.sub,
@@ -848,15 +1027,21 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
       );
 
       // Broadcast staff availability update
-      const staffPresence = await this.expoService.getBoothStaffPresence(dto.boothId);
-      this.server.to(`booth:${dto.boothId}`).emit('expo.booth.staff.available', {
-        boothId: dto.boothId,
-        staff: staffPresence,
-      });
+      const staffPresence = await this.expoService.getBoothStaffPresence(
+        dto.boothId,
+      );
+      this.server
+        .to(`booth:${dto.boothId}`)
+        .emit('expo.booth.staff.available', {
+          boothId: dto.boothId,
+          staff: staffPresence,
+        });
 
       return { success: true };
     } catch (error) {
-      this.logger.error(`Failed to update staff status: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to update staff status: ${getErrorMessage(error)}`,
+      );
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -877,9 +1062,15 @@ export class ExpoGateway implements OnGatewayDisconnect, OnGatewayInit, OnModule
 
     try {
       // Verify user is staff for this booth
-      const isStaff = await this.expoService.isBoothStaff(user.sub, data.boothId);
+      const isStaff = await this.expoService.isBoothStaff(
+        user.sub,
+        data.boothId,
+      );
       if (!isStaff) {
-        return { success: false, error: 'You are not authorized to view booth analytics' };
+        return {
+          success: false,
+          error: 'You are not authorized to view booth analytics',
+        };
       }
 
       const stats = await this.analyticsService.getRealtimeStats(data.boothId);

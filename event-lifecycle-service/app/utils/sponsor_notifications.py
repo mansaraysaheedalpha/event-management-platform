@@ -125,6 +125,192 @@ def emit_lead_intent_updated_event(sponsor_id: str, lead_id: str, intent_data: D
         return False
 
 
+# ==================== Booth Sync Functions ====================
+
+def create_booth_for_sponsor(
+    event_id: str,
+    sponsor_id: str,
+    organization_id: str,
+    company_name: str,
+    company_description: Optional[str] = None,
+    company_logo_url: Optional[str] = None,
+    tier: Optional[str] = None,
+    category: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Create a booth in the expo hall when a sponsor is added.
+
+    This is called automatically when a sponsor is created. If no expo hall
+    exists for the event, it gracefully returns without error (booth can
+    be created manually later or when expo hall is set up).
+
+    Args:
+        event_id: The event ID
+        sponsor_id: The sponsor's ID
+        organization_id: The organization ID
+        company_name: Sponsor's company name (used as booth name)
+        company_description: Optional description
+        company_logo_url: Optional logo URL
+        tier: Sponsor tier (PLATINUM, GOLD, SILVER, BRONZE, STARTUP)
+        category: Optional category for filtering
+
+    Returns:
+        Dict with success status and booth data or reason for skip
+    """
+    try:
+        real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+        if not real_time_url:
+            logger.warning("REAL_TIME_SERVICE_URL_INTERNAL not configured - skipping booth creation")
+            return {"success": False, "reason": "SERVICE_NOT_CONFIGURED"}
+
+        payload = {
+            "eventId": event_id,
+            "sponsorId": sponsor_id,
+            "organizationId": organization_id,
+            "companyName": company_name,
+            "companyDescription": company_description,
+            "companyLogoUrl": company_logo_url,
+            "tier": tier,
+            "category": category,
+        }
+
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{real_time_url}/internal/expo/sponsor-booth",
+                json=payload,
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code in (200, 201):
+                result = response.json()
+                if result.get("boothCreated"):
+                    logger.info(f"Auto-created booth for sponsor {sponsor_id}")
+                else:
+                    logger.info(f"Booth not created for sponsor {sponsor_id}: {result.get('reason')}")
+                return result
+            else:
+                logger.error(f"Failed to create booth: HTTP {response.status_code} - {response.text}")
+                return {"success": False, "reason": "API_ERROR", "statusCode": response.status_code}
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout creating booth for sponsor {sponsor_id}")
+        return {"success": False, "reason": "TIMEOUT"}
+    except Exception as e:
+        logger.error(f"Error creating booth for sponsor {sponsor_id}: {e}")
+        return {"success": False, "reason": "ERROR", "error": str(e)}
+
+
+def update_booth_for_sponsor(
+    event_id: str,
+    sponsor_id: str,
+    organization_id: str,
+    company_name: Optional[str] = None,
+    company_description: Optional[str] = None,
+    company_logo_url: Optional[str] = None,
+    tier: Optional[str] = None,
+    category: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Update a booth when sponsor details are updated.
+
+    Note: Booths don't have an isActive field. Use deactivate_booth_for_sponsor
+    when archiving a sponsor.
+
+    Args:
+        event_id: The event ID
+        sponsor_id: The sponsor's ID
+        organization_id: The organization ID
+        company_name: Updated company name
+        company_description: Updated description
+        company_logo_url: Updated logo URL
+        tier: Updated tier
+        category: Updated category
+
+    Returns:
+        Dict with success status and booth data
+    """
+    try:
+        real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+        if not real_time_url:
+            return {"success": False, "reason": "SERVICE_NOT_CONFIGURED"}
+
+        payload = {
+            "eventId": event_id,
+            "sponsorId": sponsor_id,
+            "organizationId": organization_id,
+            "companyName": company_name,
+            "companyDescription": company_description,
+            "companyLogoUrl": company_logo_url,
+            "tier": tier,
+            "category": category,
+        }
+
+        # Remove None values to only send actual updates
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{real_time_url}/internal/expo/sponsor-booth/update",
+                json=payload,
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("boothUpdated"):
+                    logger.info(f"Updated booth for sponsor {sponsor_id}")
+                return result
+            else:
+                logger.error(f"Failed to update booth: HTTP {response.status_code}")
+                return {"success": False, "reason": "API_ERROR"}
+
+    except Exception as e:
+        logger.error(f"Error updating booth for sponsor {sponsor_id}: {e}")
+        return {"success": False, "reason": "ERROR", "error": str(e)}
+
+
+def deactivate_booth_for_sponsor(event_id: str, sponsor_id: str) -> Dict[str, Any]:
+    """
+    Deactivate a booth when a sponsor is archived.
+
+    Args:
+        event_id: The event ID
+        sponsor_id: The sponsor's ID
+
+    Returns:
+        Dict with success status
+    """
+    try:
+        real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+        if not real_time_url:
+            return {"success": False, "reason": "SERVICE_NOT_CONFIGURED"}
+
+        payload = {
+            "eventId": event_id,
+            "sponsorId": sponsor_id,
+        }
+
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{real_time_url}/internal/expo/sponsor-booth/deactivate",
+                json=payload,
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("boothDeactivated"):
+                    logger.info(f"Deactivated booth for sponsor {sponsor_id}")
+                return result
+            else:
+                logger.error(f"Failed to deactivate booth: HTTP {response.status_code}")
+                return {"success": False, "reason": "API_ERROR"}
+
+    except Exception as e:
+        logger.error(f"Error deactivating booth for sponsor {sponsor_id}: {e}")
+        return {"success": False, "reason": "ERROR", "error": str(e)}
+
+
 # ==================== Email Notifications ====================
 
 def send_sponsor_invitation_email(

@@ -16,9 +16,13 @@ And allow sponsor representatives to:
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import logging
 import httpx
+import csv
+import io
+from datetime import datetime
 
 from app.api import deps
 from app.db.session import get_db
@@ -44,6 +48,9 @@ from app.utils.sponsor_notifications import (
     send_sponsor_invitation_email,
     send_lead_notification_email,
     emit_lead_captured_event,
+    create_booth_for_sponsor,
+    update_booth_for_sponsor,
+    deactivate_booth_for_sponsor,
 )
 
 router = APIRouter(tags=["Sponsors"])
@@ -149,6 +156,7 @@ def create_sponsor(
     org_id: str,
     event_id: str,
     sponsor_in: SponsorCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
@@ -156,7 +164,8 @@ def create_sponsor(
     if current_user.org_id != org_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    # Validate tier if provided
+    # Validate tier if provided and get tier name for booth
+    tier_name = None
     if sponsor_in.tier_id:
         tier = sponsor_tier.get(db, id=sponsor_in.tier_id)
         if not tier or tier.event_id != event_id:
@@ -164,10 +173,30 @@ def create_sponsor(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid tier for this event"
             )
+        # Map tier name to booth tier (PLATINUM, GOLD, SILVER, BRONZE, STARTUP)
+        tier_name = tier.name.upper() if tier.name else None
+        # Normalize tier name to valid booth tier values
+        if tier_name and tier_name not in ('PLATINUM', 'GOLD', 'SILVER', 'BRONZE', 'STARTUP'):
+            tier_name = 'BRONZE'  # Default to BRONZE for custom tier names
 
-    return sponsor.create_sponsor(
+    new_sponsor = sponsor.create_sponsor(
         db, sponsor_in=sponsor_in, event_id=event_id, organization_id=org_id
     )
+
+    # Auto-create booth for sponsor in background (non-blocking)
+    # This will create a booth if an expo hall exists for this event
+    background_tasks.add_task(
+        create_booth_for_sponsor,
+        event_id=event_id,
+        sponsor_id=new_sponsor.id,
+        organization_id=org_id,
+        company_name=new_sponsor.company_name,
+        company_description=new_sponsor.company_description,
+        company_logo_url=new_sponsor.company_logo_url,
+        tier=tier_name,
+    )
+
+    return new_sponsor
 
 
 @router.get(
@@ -219,6 +248,7 @@ def update_sponsor(
     org_id: str,
     sponsor_id: str,
     sponsor_update: SponsorUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
@@ -230,7 +260,23 @@ def update_sponsor(
     if not sponsor_obj or sponsor_obj.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
 
-    return sponsor.update(db, db_obj=sponsor_obj, obj_in=sponsor_update)
+    updated_sponsor = sponsor.update(db, db_obj=sponsor_obj, obj_in=sponsor_update)
+
+    # Sync booth update in background if relevant fields changed
+    update_data = sponsor_update.model_dump(exclude_unset=True) if hasattr(sponsor_update, 'model_dump') else sponsor_update.dict(exclude_unset=True)
+    booth_relevant_fields = {'company_name', 'company_description', 'company_logo_url'}
+    if any(field in update_data for field in booth_relevant_fields):
+        background_tasks.add_task(
+            update_booth_for_sponsor,
+            event_id=sponsor_obj.event_id,
+            sponsor_id=sponsor_id,
+            organization_id=org_id,
+            company_name=update_data.get('company_name'),
+            company_description=update_data.get('company_description'),
+            company_logo_url=update_data.get('company_logo_url'),
+        )
+
+    return updated_sponsor
 
 
 @router.delete(
@@ -240,6 +286,7 @@ def update_sponsor(
 def archive_sponsor(
     org_id: str,
     sponsor_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
@@ -251,7 +298,15 @@ def archive_sponsor(
     if not sponsor_obj or sponsor_obj.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
 
+    # Archive sponsor
     sponsor.archive(db, id=sponsor_id)
+
+    # Deactivate booth in background
+    background_tasks.add_task(
+        deactivate_booth_for_sponsor,
+        event_id=sponsor_obj.event_id,
+        sponsor_id=sponsor_id,
+    )
 
 
 # ==================== Sponsor Invitation Endpoints ====================
@@ -906,6 +961,134 @@ def get_sponsor_lead_stats(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     return sponsor_lead.get_stats(db, sponsor_id=sponsor_id)
+
+
+@router.get("/sponsors/{sponsor_id}/leads/export")
+def export_sponsor_leads(
+    sponsor_id: str,
+    format: str = "csv",
+    intent_level: Optional[str] = None,
+    follow_up_status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Export leads for a sponsor as CSV.
+
+    This endpoint allows sponsor representatives with export permission to download
+    their leads in CSV format for import into CRM systems or further analysis.
+
+    Query parameters:
+    - format: Export format (currently only 'csv' is supported)
+    - intent_level: Filter by intent level ('hot', 'warm', 'cold')
+    - follow_up_status: Filter by follow-up status ('new', 'contacted', 'qualified', etc.)
+
+    Returns a CSV file with the following columns:
+    - Name, Email, Company, Title, Intent Level, Intent Score
+    - First Interaction, Last Interaction, Interaction Count
+    - Follow-up Status, Follow-up Notes, Tags
+    - Contact Requested, Contact Notes, Preferred Contact Method
+    """
+    # Verify user is a sponsor representative with export permission
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active or not su.can_export_leads:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to export leads. Export permission required."
+        )
+
+    # Get sponsor for filename
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Get all leads (no pagination for export)
+    leads = sponsor_lead.get_by_sponsor(
+        db,
+        sponsor_id=sponsor_id,
+        intent_level=intent_level,
+        skip=0,
+        limit=10000  # Reasonable limit for CSV export
+    )
+
+    # Apply additional filters if provided
+    if follow_up_status:
+        leads = [l for l in leads if l.follow_up_status == follow_up_status]
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write header row
+    writer.writerow([
+        "Name",
+        "Email",
+        "Company",
+        "Job Title",
+        "Intent Level",
+        "Intent Score",
+        "First Interaction",
+        "Last Interaction",
+        "Interaction Count",
+        "Follow-up Status",
+        "Follow-up Notes",
+        "Contact Requested",
+        "Contact Notes",
+        "Preferred Contact Method",
+        "Tags",
+        "Is Starred",
+        "Created At",
+    ])
+
+    # Write lead data rows
+    for lead in leads:
+        # Format tags as comma-separated string
+        tags = ", ".join(lead.tags) if lead.tags else ""
+
+        # Format datetime fields
+        first_interaction = lead.first_interaction_at.strftime("%Y-%m-%d %H:%M") if lead.first_interaction_at else ""
+        last_interaction = lead.last_interaction_at.strftime("%Y-%m-%d %H:%M") if lead.last_interaction_at else ""
+        created_at = lead.created_at.strftime("%Y-%m-%d %H:%M") if lead.created_at else ""
+
+        writer.writerow([
+            lead.user_name or "",
+            lead.user_email or "",
+            lead.user_company or "",
+            lead.user_title or "",
+            lead.intent_level or "",
+            lead.intent_score or 0,
+            first_interaction,
+            last_interaction,
+            lead.interaction_count or 0,
+            lead.follow_up_status or "",
+            lead.follow_up_notes or "",
+            "Yes" if lead.contact_requested else "No",
+            lead.contact_notes or "",
+            lead.preferred_contact_method or "",
+            tags,
+            "Yes" if lead.is_starred else "No",
+            created_at,
+        ])
+
+    # Log export activity
+    logger.info(f"User {current_user.sub} exported {len(leads)} leads for sponsor {sponsor_id}")
+
+    # Prepare response
+    output.seek(0)
+    company_name_safe = "".join(c for c in sponsor_obj.company_name if c.isalnum() or c in (' ', '-', '_')).strip()
+    company_name_safe = company_name_safe.replace(' ', '_')[:30]
+    filename = f"leads_{company_name_safe}_{datetime.now().strftime('%Y%m%d')}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "X-Total-Leads": str(len(leads)),
+        }
+    )
 
 
 @router.patch("/sponsors/{sponsor_id}/booth-settings", response_model=SponsorResponse)
