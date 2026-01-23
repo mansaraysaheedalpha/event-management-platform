@@ -51,6 +51,8 @@ from app.utils.sponsor_notifications import (
     create_booth_for_sponsor,
     update_booth_for_sponsor,
     deactivate_booth_for_sponsor,
+    sync_booth_staff,
+    bulk_sync_booth_staff,
 )
 
 router = APIRouter(tags=["Sponsors"])
@@ -615,6 +617,14 @@ def accept_invitation_new_user(
     # Mark invitation as accepted
     sponsor_invitation.accept_invitation(db, invitation=invitation, user_id=user_data["user"]["id"])
 
+    # Sync booth staff - add user to booth's staffIds in real-time-service
+    # This runs in the current thread (not background) to ensure it completes
+    sync_booth_staff(
+        sponsor_id=invitation.sponsor_id,
+        user_id=user_data["user"]["id"],
+        action="add"
+    )
+
     logger.info(f"New user {user_data['user']['id']} accepted sponsor invitation {invitation.id}")
 
     return AcceptInvitationResponse(
@@ -724,6 +734,14 @@ def accept_invitation_existing_user(
     # Mark invitation as accepted
     sponsor_invitation.accept_invitation(db, invitation=invitation, user_id=user_data["user"]["id"])
 
+    # Sync booth staff - add user to booth's staffIds in real-time-service
+    # This runs in the current thread (not background) to ensure it completes
+    sync_booth_staff(
+        sponsor_id=invitation.sponsor_id,
+        user_id=user_data["user"]["id"],
+        action="add"
+    )
+
     logger.info(f"Existing user {user_data['user']['id']} accepted sponsor invitation {invitation.id}")
 
     return AcceptInvitationResponse(
@@ -794,6 +812,13 @@ def accept_invitation(
 
     # Mark invitation as accepted
     sponsor_invitation.accept_invitation(db, invitation=invitation, user_id=current_user.sub)
+
+    # Sync booth staff - add user to booth's staffIds in real-time-service
+    sync_booth_staff(
+        sponsor_id=invitation.sponsor_id,
+        user_id=current_user.sub,
+        action="add"
+    )
 
     logger.info(f"User {current_user.sub} accepted sponsor invitation {invitation.id}")
     return new_sponsor_user
@@ -867,8 +892,67 @@ def remove_sponsor_user(
     if not sponsor_obj or sponsor_obj.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
+    # Store user_id before deactivating
+    user_id = su.user_id
+
     su.is_active = False
     db.commit()
+
+    # Sync booth staff - remove user from booth's staffIds in real-time-service
+    sync_booth_staff(
+        sponsor_id=su.sponsor_id,
+        user_id=user_id,
+        action="remove"
+    )
+
+
+@router.post(
+    "/organizations/{org_id}/sponsors/{sponsor_id}/sync-booth-staff",
+    status_code=status.HTTP_200_OK
+)
+def sync_sponsor_booth_staff(
+    org_id: str,
+    sponsor_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Sync all sponsor representatives to the booth's staff list.
+
+    This endpoint is used to repair existing sponsor reps who were added
+    before the automatic booth staff sync was implemented. It ensures all
+    active sponsor users are registered as booth staff in the real-time service.
+    """
+    if current_user.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj or sponsor_obj.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Get all active sponsor users
+    users = sponsor_user.get_by_sponsor(db, sponsor_id=sponsor_id)
+    active_user_ids = [u.user_id for u in users if u.is_active]
+
+    if not active_user_ids:
+        return {"success": True, "message": "No active sponsor users to sync", "usersAdded": 0}
+
+    # Call bulk sync
+    result = bulk_sync_booth_staff(sponsor_id=sponsor_id, user_ids=active_user_ids)
+
+    if result.get("success"):
+        return {
+            "success": True,
+            "message": f"Synced {result.get('usersAdded', 0)} users to booth staff",
+            "usersAdded": result.get("usersAdded", 0),
+            "usersSkipped": result.get("usersSkipped", 0),
+            "reason": result.get("reason"),
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync booth staff: {result.get('reason', 'Unknown error')}"
+        )
 
 
 # ==================== Sponsor Lead Endpoints (For Sponsors) ====================

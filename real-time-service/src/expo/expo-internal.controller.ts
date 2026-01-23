@@ -40,6 +40,17 @@ interface SponsorArchivedPayload {
   sponsorId: string;
 }
 
+interface SyncBoothStaffPayload {
+  sponsorId: string;
+  userId: string;
+  action: 'add' | 'remove';
+}
+
+interface BulkSyncBoothStaffPayload {
+  sponsorId: string;
+  userIds: string[];
+}
+
 @Controller('internal/expo')
 @UseGuards(InternalApiKeyGuard)
 export class ExpoInternalController {
@@ -327,5 +338,172 @@ export class ExpoInternalController {
       summary: { created, skipped, failed },
       results,
     };
+  }
+
+  /**
+   * Sync booth staff when a sponsor representative is added or removed.
+   * Called by event-lifecycle-service when a user accepts an invitation
+   * or is removed from a sponsor.
+   */
+  @Post('booth-staff')
+  @HttpCode(HttpStatus.OK)
+  async syncBoothStaff(@Body() payload: SyncBoothStaffPayload) {
+    this.logger.log(
+      `Received booth staff sync request: ${payload.action} user ${payload.userId} for sponsor ${payload.sponsorId}`,
+    );
+
+    try {
+      // Find booth by sponsor ID
+      const booth = await this.expoService.getBoothBySponsorId(payload.sponsorId);
+
+      if (!booth) {
+        this.logger.log(
+          `No booth exists for sponsor ${payload.sponsorId}. Staff sync skipped.`,
+        );
+        return {
+          success: true,
+          staffSynced: false,
+          reason: 'NO_BOOTH',
+          message: 'No booth exists for this sponsor.',
+        };
+      }
+
+      if (payload.action === 'add') {
+        // Check if user is already in staffIds
+        const staffIds = booth.staffIds || [];
+        if (staffIds.includes(payload.userId)) {
+          return {
+            success: true,
+            staffSynced: false,
+            reason: 'ALREADY_STAFF',
+            message: 'User is already booth staff.',
+          };
+        }
+
+        await this.expoService.addBoothStaff(booth.id, payload.userId);
+        this.logger.log(
+          `Added user ${payload.userId} as staff for booth ${booth.id}`,
+        );
+
+        return {
+          success: true,
+          staffSynced: true,
+          boothId: booth.id,
+          action: 'added',
+        };
+      } else if (payload.action === 'remove') {
+        // Check if user is in staffIds
+        const staffIds = booth.staffIds || [];
+        if (!staffIds.includes(payload.userId)) {
+          return {
+            success: true,
+            staffSynced: false,
+            reason: 'NOT_STAFF',
+            message: 'User is not booth staff.',
+          };
+        }
+
+        await this.expoService.removeBoothStaff(booth.id, payload.userId);
+        this.logger.log(
+          `Removed user ${payload.userId} from staff for booth ${booth.id}`,
+        );
+
+        return {
+          success: true,
+          staffSynced: true,
+          boothId: booth.id,
+          action: 'removed',
+        };
+      }
+
+      return {
+        success: false,
+        reason: 'INVALID_ACTION',
+        message: 'Action must be "add" or "remove".',
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to sync booth staff for sponsor ${payload.sponsorId}: ${error.message}`,
+      );
+      throw new HttpException(
+        {
+          success: false,
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Bulk sync all sponsor representatives to booth staff.
+   * Used to repair existing sponsor reps who were added before
+   * the automatic booth staff sync was implemented.
+   */
+  @Post('booth-staff/bulk')
+  @HttpCode(HttpStatus.OK)
+  async bulkSyncBoothStaff(@Body() payload: BulkSyncBoothStaffPayload) {
+    this.logger.log(
+      `Received bulk booth staff sync request for sponsor ${payload.sponsorId} with ${payload.userIds.length} users`,
+    );
+
+    try {
+      // Find booth by sponsor ID
+      const booth = await this.expoService.getBoothBySponsorId(payload.sponsorId);
+
+      if (!booth) {
+        this.logger.log(
+          `No booth exists for sponsor ${payload.sponsorId}. Bulk sync skipped.`,
+        );
+        return {
+          success: true,
+          staffSynced: false,
+          reason: 'NO_BOOTH',
+          message: 'No booth exists for this sponsor.',
+        };
+      }
+
+      const currentStaffIds = booth.staffIds || [];
+      const usersToAdd = payload.userIds.filter(
+        (userId) => !currentStaffIds.includes(userId),
+      );
+
+      if (usersToAdd.length === 0) {
+        return {
+          success: true,
+          staffSynced: false,
+          reason: 'ALL_ALREADY_STAFF',
+          message: 'All users are already booth staff.',
+        };
+      }
+
+      // Add all users
+      for (const userId of usersToAdd) {
+        await this.expoService.addBoothStaff(booth.id, userId);
+      }
+
+      this.logger.log(
+        `Bulk synced ${usersToAdd.length} users as staff for booth ${booth.id}`,
+      );
+
+      return {
+        success: true,
+        staffSynced: true,
+        boothId: booth.id,
+        usersAdded: usersToAdd.length,
+        usersSkipped: payload.userIds.length - usersToAdd.length,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to bulk sync booth staff for sponsor ${payload.sponsorId}: ${error.message}`,
+      );
+      throw new HttpException(
+        {
+          success: false,
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }

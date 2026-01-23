@@ -311,6 +311,114 @@ def deactivate_booth_for_sponsor(event_id: str, sponsor_id: str) -> Dict[str, An
         return {"success": False, "reason": "ERROR", "error": str(e)}
 
 
+def sync_booth_staff(sponsor_id: str, user_id: str, action: str = "add") -> Dict[str, Any]:
+    """
+    Sync booth staff when a sponsor representative is added or removed.
+
+    This is called when:
+    - A user accepts a sponsor invitation (action='add')
+    - A user is removed from a sponsor (action='remove')
+
+    Args:
+        sponsor_id: The sponsor's ID
+        user_id: The user's ID to add/remove as booth staff
+        action: Either 'add' or 'remove'
+
+    Returns:
+        Dict with success status and sync result
+    """
+    try:
+        real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+        if not real_time_url:
+            logger.warning("REAL_TIME_SERVICE_URL_INTERNAL not configured - skipping booth staff sync")
+            return {"success": False, "reason": "SERVICE_NOT_CONFIGURED"}
+
+        payload = {
+            "sponsorId": sponsor_id,
+            "userId": user_id,
+            "action": action,
+        }
+
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{real_time_url}/internal/expo/booth-staff",
+                json=payload,
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("staffSynced"):
+                    logger.info(f"Synced booth staff for sponsor {sponsor_id}: {action} user {user_id}")
+                else:
+                    logger.info(f"Booth staff sync skipped for sponsor {sponsor_id}: {result.get('reason')}")
+                return result
+            else:
+                logger.error(f"Failed to sync booth staff: HTTP {response.status_code} - {response.text}")
+                return {"success": False, "reason": "API_ERROR", "statusCode": response.status_code}
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout syncing booth staff for sponsor {sponsor_id}")
+        return {"success": False, "reason": "TIMEOUT"}
+    except Exception as e:
+        logger.error(f"Error syncing booth staff for sponsor {sponsor_id}: {e}")
+        return {"success": False, "reason": "ERROR", "error": str(e)}
+
+
+def bulk_sync_booth_staff(sponsor_id: str, user_ids: list) -> Dict[str, Any]:
+    """
+    Bulk sync all sponsor representatives to booth staff.
+
+    This is used to repair existing sponsor reps who were added before
+    the automatic booth staff sync was implemented.
+
+    Args:
+        sponsor_id: The sponsor's ID
+        user_ids: List of user IDs to add as booth staff
+
+    Returns:
+        Dict with success status and sync result
+    """
+    try:
+        real_time_url = settings.REAL_TIME_SERVICE_URL_INTERNAL
+        if not real_time_url:
+            logger.warning("REAL_TIME_SERVICE_URL_INTERNAL not configured - skipping bulk booth staff sync")
+            return {"success": False, "reason": "SERVICE_NOT_CONFIGURED"}
+
+        if not user_ids:
+            return {"success": True, "reason": "NO_USERS", "message": "No users to sync"}
+
+        payload = {
+            "sponsorId": sponsor_id,
+            "userIds": user_ids,
+        }
+
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(
+                f"{real_time_url}/internal/expo/booth-staff/bulk",
+                json=payload,
+                headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY}
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("staffSynced"):
+                    logger.info(f"Bulk synced {result.get('usersAdded', 0)} users as booth staff for sponsor {sponsor_id}")
+                else:
+                    logger.info(f"Bulk booth staff sync skipped for sponsor {sponsor_id}: {result.get('reason')}")
+                return result
+            else:
+                logger.error(f"Failed to bulk sync booth staff: HTTP {response.status_code} - {response.text}")
+                return {"success": False, "reason": "API_ERROR", "statusCode": response.status_code}
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout bulk syncing booth staff for sponsor {sponsor_id}")
+        return {"success": False, "reason": "TIMEOUT"}
+    except Exception as e:
+        logger.error(f"Error bulk syncing booth staff for sponsor {sponsor_id}: {e}")
+        return {"success": False, "reason": "ERROR", "error": str(e)}
+
+
 # ==================== Email Notifications ====================
 
 def send_sponsor_invitation_email(
