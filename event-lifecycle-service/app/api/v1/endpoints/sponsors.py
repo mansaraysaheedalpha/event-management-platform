@@ -967,6 +967,53 @@ def get_my_sponsors(
     return sponsor.get_by_user(db, user_id=current_user.sub, event_id=event_id)
 
 
+@router.post(
+    "/sponsors/{sponsor_id}/sync-my-booth-access",
+    status_code=status.HTTP_200_OK
+)
+def sync_my_booth_access(
+    sponsor_id: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Sync current user's booth access for a sponsor they represent.
+
+    This endpoint allows sponsor representatives to repair their own booth access
+    if they're getting 403 errors when trying to access booth settings.
+    It verifies the user is an active sponsor rep, then syncs them to the booth's staffIds.
+    """
+    # Verify user is a sponsor representative
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a representative for this sponsor"
+        )
+
+    # Sync this user to the booth's staffIds
+    result = sync_booth_staff(
+        sponsor_id=sponsor_id,
+        user_id=current_user.sub,
+        action="add"
+    )
+
+    if result.get("success"):
+        return {
+            "success": True,
+            "message": "Booth access synced successfully",
+            "synced": result.get("staffSynced", False),
+            "reason": result.get("reason"),
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync booth access: {result.get('reason', 'Unknown error')}"
+        )
+
+
 # ==================== Internal API Endpoints ====================
 
 @router.get(
