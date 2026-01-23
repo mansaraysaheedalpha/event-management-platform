@@ -661,7 +661,13 @@ export class ExpoService {
   async acceptVideoCall(staffId: string, staffName: string, sessionId: string) {
     const session = await this.prisma.boothVideoSession.findUnique({
       where: { id: sessionId },
-      include: { booth: true },
+      include: {
+        booth: {
+          include: {
+            expoHall: { select: { eventId: true } },
+          },
+        },
+      },
     });
 
     if (!session) {

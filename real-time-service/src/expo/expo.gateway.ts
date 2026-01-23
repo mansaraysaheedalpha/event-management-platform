@@ -761,12 +761,11 @@ export class ExpoGateway
       this.server.to(`booth:${session.boothId}`).emit('expo.booth.video.accepted', acceptedEventData);
 
       // Also emit to expo event room as backup (in case attendee reconnected and lost booth room)
-      const booth = await this.prisma.expoBooth.findUnique({
-        where: { id: session.boothId },
-        select: { expoHall: { select: { eventId: true } } },
-      });
-      if (booth?.expoHall?.eventId) {
-        this.server.to(`expo:${booth.expoHall.eventId}`).emit('expo.booth.video.accepted', acceptedEventData);
+      // The booth with expoHall is already included in the session from acceptVideoCall
+      type SessionWithBooth = typeof session & { booth?: { expoHall?: { eventId?: string } } };
+      const eventId = (session as SessionWithBooth)?.booth?.expoHall?.eventId;
+      if (eventId) {
+        this.server.to(`expo:${eventId}`).emit('expo.booth.video.accepted', acceptedEventData);
       }
 
       return {
