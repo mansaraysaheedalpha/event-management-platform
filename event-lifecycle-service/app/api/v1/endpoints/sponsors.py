@@ -1358,6 +1358,7 @@ def request_booth_resource_upload(
             content_type=content_type,
             expires_in=3600,  # 1 hour
             max_size_bytes=MAX_BOOTH_RESOURCE_SIZE,
+            public_read=True,  # Booth resources need to be publicly accessible
         )
     except ClientError as e:
         logger.error(f"S3 presigned post error for sponsor {sponsor_id}: {e}")

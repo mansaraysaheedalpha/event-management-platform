@@ -38,21 +38,38 @@ def generate_presigned_post(
     content_type: str,
     expires_in: int = 3600,
     max_size_bytes: int = MAX_UPLOAD_SIZE_BYTES,
+    public_read: bool = False,
 ):
     """
     Generates a pre-signed URL and fields for an S3 POST request.
     Includes file size limit for security.
+
+    Args:
+        object_name: The S3 object key (path) for the uploaded file
+        content_type: The MIME type of the file
+        expires_in: URL expiration time in seconds
+        max_size_bytes: Maximum allowed file size
+        public_read: If True, sets ACL to public-read for public access
     """
     s3_client = get_s3_client()
+
+    fields = {"Content-Type": content_type}
+    conditions = [
+        {"Content-Type": content_type},
+        ["content-length-range", 1, max_size_bytes],
+    ]
+
+    # Add public-read ACL if requested
+    if public_read:
+        fields["acl"] = "public-read"
+        conditions.append({"acl": "public-read"})
+
     # Let ClientError exceptions propagate up to the caller for debugging
     response = s3_client.generate_presigned_post(
         Bucket=settings.AWS_S3_BUCKET_NAME,
         Key=object_name,
-        Fields={"Content-Type": content_type},
-        Conditions=[
-            {"Content-Type": content_type},
-            ["content-length-range", 1, max_size_bytes],  # Min 1 byte, max 100MB
-        ],
+        Fields=fields,
+        Conditions=conditions,
         ExpiresIn=expires_in,
     )
     return response
