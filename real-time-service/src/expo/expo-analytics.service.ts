@@ -1,7 +1,10 @@
 // src/expo/expo-analytics.service.ts
 import { Injectable, Logger } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/prisma.service';
 import { Prisma } from '@prisma/client';
+import { firstValueFrom } from 'rxjs';
 
 interface EngagementAction {
   action: string;
@@ -9,11 +12,37 @@ interface EngagementAction {
   metadata?: Record<string, unknown>;
 }
 
+interface LeadFormData {
+  name?: string;
+  email?: string;
+  company?: string;
+  jobTitle?: string;
+  phone?: string;
+  interests?: string;
+  message?: string;
+  marketingConsent?: boolean;
+}
+
 @Injectable()
 export class ExpoAnalyticsService {
   private readonly logger = new Logger(ExpoAnalyticsService.name);
+  private readonly eventLifecycleServiceUrl: string;
+  private readonly internalApiKey: string;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    this.eventLifecycleServiceUrl = this.configService.get<string>(
+      'EVENT_LIFECYCLE_SERVICE_URL',
+      'http://localhost:8000',
+    );
+    this.internalApiKey = this.configService.get<string>(
+      'INTERNAL_API_KEY',
+      '',
+    );
+  }
 
   /**
    * Tracks a resource download.
@@ -106,11 +135,90 @@ export class ExpoAnalyticsService {
       // Update booth analytics
       await this.incrementAnalytics(boothId, 'totalLeads');
 
+      // Sync lead to event-lifecycle-service for sponsor dashboard
+      await this.syncLeadToEventService(userId, boothId, formData as LeadFormData);
+
       this.logger.log(`Lead captured in booth ${boothId} from user ${userId}`);
     } catch (error) {
       this.logger.error(`Failed to track lead capture: ${error}`);
       // Re-throw for lead capture since it's business-critical
       throw error;
+    }
+  }
+
+  /**
+   * Syncs a captured lead to the event-lifecycle-service.
+   * This creates a SponsorLead record that shows up in the sponsor dashboard.
+   */
+  private async syncLeadToEventService(
+    userId: string,
+    boothId: string,
+    formData: LeadFormData,
+  ) {
+    try {
+      // Get booth with sponsor and event info
+      const booth = await this.prisma.expoBooth.findUnique({
+        where: { id: boothId },
+        include: {
+          expoHall: true,
+        },
+      });
+
+      if (!booth || !booth.expoHall) {
+        this.logger.warn(`Booth ${boothId} or expo hall not found for lead sync`);
+        return;
+      }
+
+      const sponsorId = booth.sponsorId;
+      const eventId = booth.expoHall.eventId;
+
+      if (!sponsorId || !eventId) {
+        this.logger.warn(`Missing sponsorId or eventId for booth ${boothId}`);
+        return;
+      }
+
+      // Ensure URL doesn't have trailing slash
+      const baseUrl = this.eventLifecycleServiceUrl.replace(/\/$/, '');
+      const url = `${baseUrl}/api/v1/events/${eventId}/sponsors/${sponsorId}/capture-lead`;
+
+      // Build lead data payload
+      const leadPayload = {
+        user_id: userId,
+        user_name: formData.name || null,
+        user_email: formData.email || null,
+        user_company: formData.company || null,
+        user_title: formData.jobTitle || null,
+        interaction_type: 'booth_contact_form',
+        interaction_metadata: {
+          message: formData.message || null,
+          phone: formData.phone || null,
+          interests: formData.interests || null,
+          marketing_consent: formData.marketingConsent || false,
+          booth_id: boothId,
+          booth_name: booth.name,
+        },
+      };
+
+      const response = await firstValueFrom(
+        this.httpService.post(url, leadPayload, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Api-Key': this.internalApiKey,
+          },
+          timeout: 5000, // 5 second timeout
+        }),
+      );
+
+      this.logger.log(
+        `Lead synced to event-lifecycle-service for sponsor ${sponsorId}, lead ID: ${response.data?.id}`,
+      );
+    } catch (error: any) {
+      // Log error but don't fail the lead capture
+      // The lead is still saved locally in BoothVisit
+      const errorMessage = error.response?.data?.detail || error.message;
+      this.logger.error(
+        `Failed to sync lead to event-lifecycle-service: ${errorMessage}`,
+      );
     }
   }
 
