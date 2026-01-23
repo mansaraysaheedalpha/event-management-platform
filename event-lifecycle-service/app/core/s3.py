@@ -93,6 +93,38 @@ def sanitize_filename_for_header(filename: str) -> str:
     return filename
 
 
+def extract_s3_key_from_url(url: str) -> str | None:
+    """
+    Extract the S3 object key from a full S3 URL.
+
+    Handles URLs in formats:
+    - https://bucket-name.s3.region.amazonaws.com/path/to/file
+    - https://bucket-name.s3.amazonaws.com/path/to/file
+    - http://localhost:9000/bucket-name/path/to/file (MinIO)
+
+    Returns the object key (path/to/file) or None if not a valid S3 URL.
+    """
+    import re
+    from urllib.parse import urlparse, unquote
+
+    parsed = urlparse(url)
+
+    # Standard S3 URL: bucket-name.s3.region.amazonaws.com/key
+    # or bucket-name.s3.amazonaws.com/key
+    s3_pattern = rf"^{re.escape(settings.AWS_S3_BUCKET_NAME)}\.s3(?:\.[^.]+)?\.amazonaws\.com$"
+    if re.match(s3_pattern, parsed.netloc):
+        # Key is the path without leading slash
+        return unquote(parsed.path.lstrip("/"))
+
+    # MinIO URL: localhost:9000/bucket-name/key
+    if "localhost" in parsed.netloc or "minio" in parsed.netloc:
+        path_parts = parsed.path.lstrip("/").split("/", 1)
+        if len(path_parts) == 2 and path_parts[0] == settings.AWS_S3_BUCKET_NAME:
+            return unquote(path_parts[1])
+
+    return None
+
+
 def generate_presigned_download_url(
     object_key: str,
     filename: str,

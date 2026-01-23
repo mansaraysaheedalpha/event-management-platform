@@ -54,7 +54,7 @@ from app.utils.sponsor_notifications import (
     sync_booth_staff,
     bulk_sync_booth_staff,
 )
-from app.core.s3 import generate_presigned_post
+from app.core.s3 import generate_presigned_post, generate_presigned_download_url, extract_s3_key_from_url
 from botocore.exceptions import ClientError
 
 router = APIRouter(tags=["Sponsors"])
@@ -1399,6 +1399,59 @@ def request_booth_resource_upload(
         "max_size_bytes": MAX_BOOTH_RESOURCE_SIZE,
         "expires_in": 3600,
     }
+
+
+@router.post("/booth-resources/download-url")
+def get_booth_resource_download_url(
+    resource_url: str,
+    filename: str,
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Generate a presigned download URL for a booth resource.
+
+    This endpoint generates a temporary, secure URL that allows downloading
+    a booth resource file directly from S3. The URL expires after 5 minutes.
+
+    Query Parameters:
+    - resource_url: The S3 URL of the resource to download
+    - filename: The desired filename for the downloaded file
+
+    Returns:
+    - download_url: A presigned URL for downloading the file
+    - expires_in: Seconds until the URL expires
+    """
+    # Extract S3 key from the resource URL
+    s3_key = extract_s3_key_from_url(resource_url)
+
+    if not s3_key:
+        # Not an S3 URL - return the original URL for external resources
+        return {
+            "download_url": resource_url,
+            "expires_in": None,
+            "is_external": True,
+        }
+
+    try:
+        download_url = generate_presigned_download_url(
+            object_key=s3_key,
+            filename=filename,
+            expires_in=300,  # 5 minutes
+        )
+
+        logger.info(f"Generated download URL for resource: {filename}")
+
+        return {
+            "download_url": download_url,
+            "expires_in": 300,
+            "is_external": False,
+        }
+    except ClientError as e:
+        logger.error(f"S3 presigned download error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not generate download URL. Please try again."
+        )
 
 
 @router.patch("/sponsors/{sponsor_id}/leads/{lead_id}", response_model=SponsorLeadResponse)
