@@ -738,20 +738,36 @@ export class ExpoGateway
 
       // Notify attendee that call was accepted
       // Include attendeeId so the frontend can identify if this event is for them
-      this.server
-        .to(`booth:${session.boothId}`)
-        .emit('expo.booth.video.accepted', {
-          sessionId: session.id,
-          boothId: session.boothId,
-          attendeeId: session.attendeeId,
-          attendeeName: session.attendeeName,
-          staffId: session.staffId,
-          staffName: session.staffName,
-          status: session.status,
-          videoRoomUrl: session.videoRoomUrl,
-          attendeeToken: session.attendeeToken,
-          acceptedAt: session.acceptedAt,
-        });
+      // Also emit to expo hall room to reach attendees who may have reconnected
+      const acceptedEventData = {
+        id: session.id, // Frontend uses 'id', not 'sessionId'
+        sessionId: session.id, // Keep for backwards compatibility
+        boothId: session.boothId,
+        attendeeId: session.attendeeId,
+        attendeeName: session.attendeeName,
+        staffId: session.staffId,
+        staffName: session.staffName,
+        status: session.status,
+        videoRoomUrl: session.videoRoomUrl,
+        attendeeToken: session.attendeeToken,
+        acceptedAt: session.acceptedAt,
+        requestedAt: session.requestedAt,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        durationSeconds: session.durationSeconds || 0,
+      };
+
+      // Emit to booth room (primary)
+      this.server.to(`booth:${session.boothId}`).emit('expo.booth.video.accepted', acceptedEventData);
+
+      // Also emit to expo event room as backup (in case attendee reconnected and lost booth room)
+      const booth = await this.prisma.expoBooth.findUnique({
+        where: { id: session.boothId },
+        select: { expoHall: { select: { eventId: true } } },
+      });
+      if (booth?.expoHall?.eventId) {
+        this.server.to(`expo:${booth.expoHall.eventId}`).emit('expo.booth.video.accepted', acceptedEventData);
+      }
 
       return {
         success: true,
@@ -910,12 +926,39 @@ export class ExpoGateway
     const user = getAuthenticatedUser(client);
 
     try {
-      const visitInfo = this.userVisits.get(client.id);
+      // First check in-memory map for visit info
+      let visitInfo = this.userVisits.get(client.id);
+
+      // If not in memory, try to find or create a visit record
+      // This handles cases where socket reconnected or server restarted
+      if (!visitInfo) {
+        this.logger.log(
+          `Visit not in memory for user ${user.sub}, checking database...`,
+        );
+
+        // Try to get or create a visit for this user/booth
+        const visit = await this.expoService.getOrCreateVisit(
+          user.sub,
+          dto.boothId,
+          client.id,
+        );
+
+        if (visit) {
+          visitInfo = {
+            boothId: dto.boothId,
+            visitId: visit.id,
+          };
+          // Store it in memory for future use
+          this.userVisits.set(client.id, visitInfo);
+          // Join the booth room
+          await client.join(`booth:${dto.boothId}`);
+        }
+      }
 
       if (!visitInfo) {
         return {
           success: false,
-          error: 'You must be visiting the booth to submit lead info',
+          error: 'Unable to track booth visit. Please refresh and try again.',
         };
       }
 

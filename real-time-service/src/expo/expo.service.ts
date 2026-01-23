@@ -436,6 +436,54 @@ export class ExpoService {
   }
 
   /**
+   * Gets or creates a visit record for a user/booth combination.
+   * This is used when the in-memory visit tracking is lost (e.g., after server restart or socket reconnect).
+   */
+  async getOrCreateVisit(userId: string, boothId: string, socketId: string) {
+    // First, check for an existing active visit
+    const existingVisit = await this.prisma.boothVisit.findFirst({
+      where: {
+        boothId,
+        userId,
+        exitedAt: null,
+      },
+    });
+
+    if (existingVisit) {
+      // Update socket ID and return existing visit
+      return this.prisma.boothVisit.update({
+        where: { id: existingVisit.id },
+        data: { socketId },
+      });
+    }
+
+    // Get the booth to find the event ID
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+      include: { expoHall: true },
+    });
+
+    if (!booth || !booth.expoHall) {
+      this.logger.warn(`Cannot create visit: booth ${boothId} not found`);
+      return null;
+    }
+
+    // Create a new visit
+    const visit = await this.prisma.boothVisit.create({
+      data: {
+        boothId,
+        userId,
+        eventId: booth.expoHall.eventId,
+        socketId,
+        status: 'BROWSING',
+      },
+    });
+
+    this.logger.log(`Created visit for user ${userId} at booth ${boothId}`);
+    return visit;
+  }
+
+  /**
    * Records a user leaving a booth.
    */
   async leaveBooth(userId: string, boothId: string) {
