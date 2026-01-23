@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_NAME: str
     AWS_S3_REGION: str
     AWS_S3_ENDPOINT_URL: Optional[str] = None
+    # Set to False for S3 buckets with ACLs disabled (modern default)
+    AWS_S3_USE_ACL: bool = False
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_DOMAIN: Optional[str] = "onboarding@resend.dev"
 

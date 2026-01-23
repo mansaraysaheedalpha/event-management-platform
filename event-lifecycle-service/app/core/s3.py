@@ -50,6 +50,7 @@ def generate_presigned_post(
         expires_in: URL expiration time in seconds
         max_size_bytes: Maximum allowed file size
         public_read: If True, sets ACL to public-read for public access
+            (only if AWS_S3_USE_ACL is enabled in config)
     """
     s3_client = get_s3_client()
 
@@ -59,8 +60,10 @@ def generate_presigned_post(
         ["content-length-range", 1, max_size_bytes],
     ]
 
-    # Add public-read ACL if requested
-    if public_read:
+    # Add public-read ACL if requested AND ACLs are enabled for this bucket
+    # Modern S3 buckets have ACLs disabled by default ("Bucket owner enforced")
+    # so we only include ACL if explicitly enabled via config
+    if public_read and settings.AWS_S3_USE_ACL:
         fields["acl"] = "public-read"
         conditions.append({"acl": "public-read"})
 
