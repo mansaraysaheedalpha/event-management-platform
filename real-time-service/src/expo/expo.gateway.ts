@@ -737,14 +737,20 @@ export class ExpoGateway
       );
 
       // Notify attendee that call was accepted
+      // Include attendeeId so the frontend can identify if this event is for them
       this.server
         .to(`booth:${session.boothId}`)
         .emit('expo.booth.video.accepted', {
           sessionId: session.id,
+          boothId: session.boothId,
+          attendeeId: session.attendeeId,
+          attendeeName: session.attendeeName,
           staffId: session.staffId,
           staffName: session.staffName,
+          status: session.status,
           videoRoomUrl: session.videoRoomUrl,
           attendeeToken: session.attendeeToken,
+          acceptedAt: session.acceptedAt,
         });
 
       return {
