@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -65,6 +66,40 @@ interface UpdateBoothDto {
   chatEnabled?: boolean;
   videoEnabled?: boolean;
   displayOrder?: number;
+}
+
+interface AddResourceDto {
+  name: string;
+  description?: string;
+  type: 'PDF' | 'VIDEO' | 'IMAGE' | 'DOCUMENT' | 'LINK';
+  url: string;
+  thumbnailUrl?: string;
+  fileSize?: number;
+}
+
+interface UpdateResourceDto {
+  name?: string;
+  description?: string;
+  url?: string;
+  thumbnailUrl?: string;
+}
+
+interface AddCtaDto {
+  label: string;
+  url: string;
+  style?: 'primary' | 'secondary' | 'outline';
+  icon?: string;
+}
+
+interface UpdateCtaDto {
+  label?: string;
+  url?: string;
+  style?: 'primary' | 'secondary' | 'outline';
+  icon?: string;
+}
+
+interface AddStaffDto {
+  staffId: string;
 }
 
 /**
@@ -367,6 +402,304 @@ export class ExpoController {
       success: true,
       totals,
       booths: boothStats,
+    };
+  }
+
+  // ==========================================
+  // SPONSOR BOOTH MANAGEMENT ENDPOINTS
+  // ==========================================
+
+  /**
+   * Get sponsor's own booth by sponsorId
+   * Sponsors can use this to find and manage their booth
+   */
+  @Get('sponsor/:sponsorId/booth')
+  async getSponsorBooth(
+    @Param('sponsorId') sponsorId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const booth = await this.expoService.getBoothForSponsor(sponsorId);
+
+    if (!booth) {
+      throw new NotFoundException('No booth found for this sponsor');
+    }
+
+    // Check authorization: user must be booth staff or have manage permission
+    const isStaff = await this.expoService.isBoothStaff(user.sub, booth.id);
+    if (!isStaff && !this.hasManagePermission(user)) {
+      throw new ForbiddenException(
+        'You do not have permission to view this booth',
+      );
+    }
+
+    return {
+      success: true,
+      booth,
+    };
+  }
+
+  /**
+   * Check if user can manage booth (staff or has manage permission)
+   */
+  private async canManageBooth(
+    userId: string,
+    boothId: string,
+    user: JwtUser,
+  ): Promise<boolean> {
+    const isStaff = await this.expoService.isBoothStaff(userId, boothId);
+    return isStaff || this.hasManagePermission(user);
+  }
+
+  // ==========================================
+  // BOOTH RESOURCE MANAGEMENT
+  // ==========================================
+
+  /**
+   * Add a resource to a booth
+   */
+  @Post('booths/:boothId/resources')
+  @HttpCode(HttpStatus.CREATED)
+  async addResource(
+    @Param('boothId') boothId: string,
+    @Body() dto: AddResourceDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    const result = await this.expoService.addBoothResource(boothId, dto);
+
+    this.logger.log(`Added resource to booth ${boothId}`);
+
+    return {
+      success: true,
+      resource: result.resource,
+    };
+  }
+
+  /**
+   * Update a resource in a booth
+   */
+  @Patch('booths/:boothId/resources/:resourceId')
+  async updateResource(
+    @Param('boothId') boothId: string,
+    @Param('resourceId') resourceId: string,
+    @Body() dto: UpdateResourceDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    const result = await this.expoService.updateBoothResource(
+      boothId,
+      resourceId,
+      dto,
+    );
+
+    this.logger.log(`Updated resource ${resourceId} in booth ${boothId}`);
+
+    return {
+      success: true,
+      resource: result.resource,
+    };
+  }
+
+  /**
+   * Remove a resource from a booth
+   */
+  @Delete('booths/:boothId/resources/:resourceId')
+  async removeResource(
+    @Param('boothId') boothId: string,
+    @Param('resourceId') resourceId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    await this.expoService.removeBoothResource(boothId, resourceId);
+
+    this.logger.log(`Removed resource ${resourceId} from booth ${boothId}`);
+
+    return {
+      success: true,
+      message: 'Resource removed successfully',
+    };
+  }
+
+  // ==========================================
+  // BOOTH CTA MANAGEMENT
+  // ==========================================
+
+  /**
+   * Add a CTA button to a booth
+   */
+  @Post('booths/:boothId/ctas')
+  @HttpCode(HttpStatus.CREATED)
+  async addCta(
+    @Param('boothId') boothId: string,
+    @Body() dto: AddCtaDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    const result = await this.expoService.addBoothCta(boothId, dto);
+
+    this.logger.log(`Added CTA to booth ${boothId}`);
+
+    return {
+      success: true,
+      cta: result.cta,
+    };
+  }
+
+  /**
+   * Update a CTA button in a booth
+   */
+  @Patch('booths/:boothId/ctas/:ctaId')
+  async updateCta(
+    @Param('boothId') boothId: string,
+    @Param('ctaId') ctaId: string,
+    @Body() dto: UpdateCtaDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    const result = await this.expoService.updateBoothCta(boothId, ctaId, dto);
+
+    this.logger.log(`Updated CTA ${ctaId} in booth ${boothId}`);
+
+    return {
+      success: true,
+      cta: result.cta,
+    };
+  }
+
+  /**
+   * Remove a CTA button from a booth
+   */
+  @Delete('booths/:boothId/ctas/:ctaId')
+  async removeCta(
+    @Param('boothId') boothId: string,
+    @Param('ctaId') ctaId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    await this.expoService.removeBoothCta(boothId, ctaId);
+
+    this.logger.log(`Removed CTA ${ctaId} from booth ${boothId}`);
+
+    return {
+      success: true,
+      message: 'CTA removed successfully',
+    };
+  }
+
+  // ==========================================
+  // BOOTH STAFF MANAGEMENT
+  // ==========================================
+
+  /**
+   * Add a staff member to a booth
+   */
+  @Post('booths/:boothId/staff')
+  @HttpCode(HttpStatus.CREATED)
+  async addStaff(
+    @Param('boothId') boothId: string,
+    @Body() dto: AddStaffDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    const booth = await this.expoService.addBoothStaff(boothId, dto.staffId);
+
+    this.logger.log(`Added staff ${dto.staffId} to booth ${boothId}`);
+
+    return {
+      success: true,
+      booth,
+    };
+  }
+
+  /**
+   * Remove a staff member from a booth
+   */
+  @Delete('booths/:boothId/staff/:staffId')
+  async removeStaff(
+    @Param('boothId') boothId: string,
+    @Param('staffId') staffId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!(await this.canManageBooth(user.sub, boothId, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this booth',
+      );
+    }
+
+    const booth = await this.expoService.removeBoothStaff(boothId, staffId);
+
+    this.logger.log(`Removed staff ${staffId} from booth ${boothId}`);
+
+    return {
+      success: true,
+      booth,
+    };
+  }
+
+  /**
+   * Sponsor updates their own booth details
+   */
+  @Patch('sponsor/:sponsorId/booth')
+  async updateSponsorBooth(
+    @Param('sponsorId') sponsorId: string,
+    @Body() dto: UpdateBoothDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const booth = await this.expoService.getBoothForSponsor(sponsorId);
+
+    if (!booth) {
+      throw new NotFoundException('No booth found for this sponsor');
+    }
+
+    // Check authorization
+    if (!(await this.canManageBooth(user.sub, booth.id, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to update this booth',
+      );
+    }
+
+    const updatedBooth = await this.expoService.updateBooth(booth.id, dto);
+
+    this.logger.log(`Sponsor ${sponsorId} updated their booth ${booth.id}`);
+
+    return {
+      success: true,
+      booth: updatedBooth,
     };
   }
 }

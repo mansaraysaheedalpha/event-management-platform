@@ -886,4 +886,311 @@ export class ExpoService {
       },
     });
   }
+
+  // ==========================================
+  // BOOTH CONTENT MANAGEMENT
+  // ==========================================
+
+  /**
+   * Adds a resource to a booth.
+   */
+  async addBoothResource(
+    boothId: string,
+    resource: {
+      name: string;
+      description?: string;
+      type: 'PDF' | 'VIDEO' | 'IMAGE' | 'DOCUMENT' | 'LINK';
+      url: string;
+      thumbnailUrl?: string;
+      fileSize?: number;
+    },
+  ) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const resources = (booth.resources as unknown[]) || [];
+    const newResource = {
+      id: `res-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      ...resource,
+      downloadCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: {
+        resources: [...resources, newResource],
+      },
+    });
+
+    this.logger.log(`Added resource ${newResource.id} to booth ${boothId}`);
+    return { booth: updatedBooth, resource: newResource };
+  }
+
+  /**
+   * Updates a resource in a booth.
+   */
+  async updateBoothResource(
+    boothId: string,
+    resourceId: string,
+    updates: {
+      name?: string;
+      description?: string;
+      url?: string;
+      thumbnailUrl?: string;
+    },
+  ) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const resources = (booth.resources as Array<{ id: string }>) || [];
+    const resourceIndex = resources.findIndex((r) => r.id === resourceId);
+
+    if (resourceIndex === -1) {
+      throw new NotFoundException('Resource not found');
+    }
+
+    resources[resourceIndex] = { ...resources[resourceIndex], ...updates };
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: { resources },
+    });
+
+    this.logger.log(`Updated resource ${resourceId} in booth ${boothId}`);
+    return { booth: updatedBooth, resource: resources[resourceIndex] };
+  }
+
+  /**
+   * Removes a resource from a booth.
+   */
+  async removeBoothResource(boothId: string, resourceId: string) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const resources = (booth.resources as Array<{ id: string }>) || [];
+    const filteredResources = resources.filter((r) => r.id !== resourceId);
+
+    if (filteredResources.length === resources.length) {
+      throw new NotFoundException('Resource not found');
+    }
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: { resources: filteredResources },
+    });
+
+    this.logger.log(`Removed resource ${resourceId} from booth ${boothId}`);
+    return updatedBooth;
+  }
+
+  /**
+   * Adds a CTA button to a booth.
+   */
+  async addBoothCta(
+    boothId: string,
+    cta: {
+      label: string;
+      url: string;
+      style?: 'primary' | 'secondary' | 'outline';
+      icon?: string;
+    },
+  ) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const ctaButtons = (booth.ctaButtons as unknown[]) || [];
+    const newCta = {
+      id: `cta-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      ...cta,
+      style: cta.style || 'primary',
+      clickCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: {
+        ctaButtons: [...ctaButtons, newCta],
+      },
+    });
+
+    this.logger.log(`Added CTA ${newCta.id} to booth ${boothId}`);
+    return { booth: updatedBooth, cta: newCta };
+  }
+
+  /**
+   * Updates a CTA button in a booth.
+   */
+  async updateBoothCta(
+    boothId: string,
+    ctaId: string,
+    updates: {
+      label?: string;
+      url?: string;
+      style?: 'primary' | 'secondary' | 'outline';
+      icon?: string;
+    },
+  ) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const ctaButtons = (booth.ctaButtons as Array<{ id: string }>) || [];
+    const ctaIndex = ctaButtons.findIndex((c) => c.id === ctaId);
+
+    if (ctaIndex === -1) {
+      throw new NotFoundException('CTA button not found');
+    }
+
+    ctaButtons[ctaIndex] = { ...ctaButtons[ctaIndex], ...updates };
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: { ctaButtons },
+    });
+
+    this.logger.log(`Updated CTA ${ctaId} in booth ${boothId}`);
+    return { booth: updatedBooth, cta: ctaButtons[ctaIndex] };
+  }
+
+  /**
+   * Removes a CTA button from a booth.
+   */
+  async removeBoothCta(boothId: string, ctaId: string) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const ctaButtons = (booth.ctaButtons as Array<{ id: string }>) || [];
+    const filteredCtas = ctaButtons.filter((c) => c.id !== ctaId);
+
+    if (filteredCtas.length === ctaButtons.length) {
+      throw new NotFoundException('CTA button not found');
+    }
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: { ctaButtons: filteredCtas },
+    });
+
+    this.logger.log(`Removed CTA ${ctaId} from booth ${boothId}`);
+    return updatedBooth;
+  }
+
+  /**
+   * Adds a staff member to a booth.
+   */
+  async addBoothStaff(boothId: string, staffId: string) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const staffIds = booth.staffIds || [];
+    if (staffIds.includes(staffId)) {
+      throw new ConflictException('Staff member already assigned to this booth');
+    }
+
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: {
+        staffIds: [...staffIds, staffId],
+      },
+    });
+
+    this.logger.log(`Added staff ${staffId} to booth ${boothId}`);
+    return updatedBooth;
+  }
+
+  /**
+   * Removes a staff member from a booth.
+   */
+  async removeBoothStaff(boothId: string, staffId: string) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth) {
+      throw new NotFoundException('Booth not found');
+    }
+
+    const staffIds = booth.staffIds || [];
+    if (!staffIds.includes(staffId)) {
+      throw new NotFoundException('Staff member not assigned to this booth');
+    }
+
+    // Remove staff from staffIds
+    const updatedBooth = await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: {
+        staffIds: staffIds.filter((id) => id !== staffId),
+      },
+    });
+
+    // Also remove their presence record
+    await this.prisma.boothStaffPresence.deleteMany({
+      where: { boothId, staffId },
+    });
+
+    this.logger.log(`Removed staff ${staffId} from booth ${boothId}`);
+    return updatedBooth;
+  }
+
+  /**
+   * Gets booth for a sponsor by their user/org ID.
+   * Used by sponsors to find their own booth.
+   */
+  async getBoothForSponsor(sponsorId: string) {
+    return this.prisma.expoBooth.findFirst({
+      where: { sponsorId },
+      include: {
+        staffPresence: true,
+        expoHall: {
+          select: {
+            id: true,
+            eventId: true,
+            name: true,
+          },
+        },
+        _count: {
+          select: {
+            visits: true,
+            chatMessages: true,
+          },
+        },
+      },
+    });
+  }
 }
