@@ -13,6 +13,7 @@ import {
   BoothVisitorStatus,
   BoothVideoSessionStatus,
   StaffPresenceStatus,
+  Prisma,
 } from '@prisma/client';
 
 export interface ExpoBoothWithCount {
@@ -924,7 +925,7 @@ export class ExpoService {
     const updatedBooth = await this.prisma.expoBooth.update({
       where: { id: boothId },
       data: {
-        resources: [...resources, newResource],
+        resources: [...resources, newResource] as Prisma.InputJsonValue,
       },
     });
 
@@ -964,7 +965,7 @@ export class ExpoService {
 
     const updatedBooth = await this.prisma.expoBooth.update({
       where: { id: boothId },
-      data: { resources },
+      data: { resources: resources as Prisma.InputJsonValue },
     });
 
     this.logger.log(`Updated resource ${resourceId} in booth ${boothId}`);
@@ -992,7 +993,7 @@ export class ExpoService {
 
     const updatedBooth = await this.prisma.expoBooth.update({
       where: { id: boothId },
-      data: { resources: filteredResources },
+      data: { resources: filteredResources as Prisma.InputJsonValue },
     });
 
     this.logger.log(`Removed resource ${resourceId} from booth ${boothId}`);
@@ -1031,7 +1032,7 @@ export class ExpoService {
     const updatedBooth = await this.prisma.expoBooth.update({
       where: { id: boothId },
       data: {
-        ctaButtons: [...ctaButtons, newCta],
+        ctaButtons: [...ctaButtons, newCta] as Prisma.InputJsonValue,
       },
     });
 
@@ -1071,7 +1072,7 @@ export class ExpoService {
 
     const updatedBooth = await this.prisma.expoBooth.update({
       where: { id: boothId },
-      data: { ctaButtons },
+      data: { ctaButtons: ctaButtons as Prisma.InputJsonValue },
     });
 
     this.logger.log(`Updated CTA ${ctaId} in booth ${boothId}`);
@@ -1099,7 +1100,7 @@ export class ExpoService {
 
     const updatedBooth = await this.prisma.expoBooth.update({
       where: { id: boothId },
-      data: { ctaButtons: filteredCtas },
+      data: { ctaButtons: filteredCtas as Prisma.InputJsonValue },
     });
 
     this.logger.log(`Removed CTA ${ctaId} from booth ${boothId}`);
