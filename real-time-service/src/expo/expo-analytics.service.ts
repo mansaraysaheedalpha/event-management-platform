@@ -67,6 +67,7 @@ export class ExpoAnalyticsService {
       // Update booth analytics
       await this.incrementAnalytics(boothId, 'totalDownloads');
       await this.incrementResourceDownload(boothId, resourceId);
+      await this.incrementBoothResourceDownloadCount(boothId, resourceId);
 
       this.logger.log(
         `Resource ${resourceId} downloaded from booth ${boothId} by ${userId}`,
@@ -98,6 +99,7 @@ export class ExpoAnalyticsService {
 
       await this.incrementAnalytics(boothId, 'totalCtaClicks');
       await this.incrementCtaClick(boothId, ctaId);
+      await this.incrementBoothCtaClickCount(boothId, ctaId);
 
       this.logger.log(`CTA ${ctaId} clicked in booth ${boothId} by ${userId}`);
     } catch (error) {
@@ -457,6 +459,78 @@ export class ExpoAnalyticsService {
     await this.prisma.boothAnalytics.update({
       where: { boothId },
       data: { ctaClicks: clicks },
+    });
+  }
+
+  /**
+   * Updates the downloadCount in the booth's resources JSON array.
+   * This keeps the booth record in sync with analytics for display purposes.
+   */
+  private async incrementBoothResourceDownloadCount(
+    boothId: string,
+    resourceId: string,
+  ) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+      select: { resources: true },
+    });
+
+    if (!booth) return;
+
+    const resources = (booth.resources as Array<{
+      id: string;
+      name: string;
+      type: string;
+      url: string;
+      description?: string;
+      thumbnailUrl?: string;
+      downloadCount: number;
+      fileSize?: number;
+    }>) || [];
+
+    // Find and update the specific resource's downloadCount
+    const updatedResources = resources.map((resource) =>
+      resource.id === resourceId
+        ? { ...resource, downloadCount: (resource.downloadCount || 0) + 1 }
+        : resource,
+    );
+
+    await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: { resources: updatedResources },
+    });
+  }
+
+  /**
+   * Updates the clickCount in the booth's ctaButtons JSON array.
+   * This keeps the booth record in sync with analytics for display purposes.
+   */
+  private async incrementBoothCtaClickCount(boothId: string, ctaId: string) {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+      select: { ctaButtons: true },
+    });
+
+    if (!booth) return;
+
+    const ctaButtons = (booth.ctaButtons as Array<{
+      id: string;
+      label: string;
+      url: string;
+      style: string;
+      icon?: string;
+      order?: number;
+      clickCount: number;
+    }>) || [];
+
+    // Find and update the specific CTA's clickCount
+    const updatedButtons = ctaButtons.map((cta) =>
+      cta.id === ctaId ? { ...cta, clickCount: (cta.clickCount || 0) + 1 } : cta,
+    );
+
+    await this.prisma.expoBooth.update({
+      where: { id: boothId },
+      data: { ctaButtons: updatedButtons },
     });
   }
 
