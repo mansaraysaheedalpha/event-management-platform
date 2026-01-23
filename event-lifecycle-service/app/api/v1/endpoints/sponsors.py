@@ -54,6 +54,8 @@ from app.utils.sponsor_notifications import (
     sync_booth_staff,
     bulk_sync_booth_staff,
 )
+from app.core.s3 import generate_presigned_post
+from botocore.exceptions import ClientError
 
 router = APIRouter(tags=["Sponsors"])
 logger = logging.getLogger(__name__)
@@ -1252,6 +1254,150 @@ def update_sponsor_booth_settings(
     update_data = settings_update.model_dump(exclude_unset=True)
 
     return sponsor.update(db, db_obj=sponsor_obj, obj_in=update_data)
+
+
+# ==================== Booth Resource Upload ====================
+
+# Allowed content types for booth resource uploads
+ALLOWED_RESOURCE_CONTENT_TYPES = {
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "video/mp4",
+    "video/webm",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
+# Max file size for booth resources (50MB)
+MAX_BOOTH_RESOURCE_SIZE = 50 * 1024 * 1024
+
+
+@router.post("/sponsors/{sponsor_id}/booth-resources/upload-request")
+def request_booth_resource_upload(
+    sponsor_id: str,
+    filename: str,
+    content_type: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Request a presigned URL to upload a booth resource file.
+
+    This endpoint generates a secure, time-limited presigned URL that allows
+    the sponsor representative to upload files directly to S3 without going
+    through our servers.
+
+    After uploading to S3, the sponsor should call the real-time service's
+    add resource endpoint with the resulting S3 URL.
+
+    Query Parameters:
+    - filename: The name of the file being uploaded
+    - content_type: The MIME type of the file (e.g., application/pdf, image/png)
+
+    Allowed file types:
+    - PDFs, images (PNG, JPEG, GIF, WebP)
+    - Videos (MP4, WebM)
+    - Office documents (Word, Excel, PowerPoint)
+
+    Maximum file size: 50MB
+    """
+    # Verify user is a sponsor representative
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Check if user has booth management permission
+    if not su.can_manage_booth:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to manage booth resources"
+        )
+
+    # Get sponsor
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
+
+    # Validate content type
+    if content_type not in ALLOWED_RESOURCE_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Content type '{content_type}' is not allowed. Supported types: PDF, images, videos, and Office documents."
+        )
+
+    # Sanitize filename
+    import re
+    safe_filename = filename.replace("\\", "/").split("/")[-1]
+    safe_filename = safe_filename.strip().strip(".")
+    if not safe_filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+
+    # Replace unsafe characters
+    safe_filename = re.sub(r"[^\w\-. ]", "_", safe_filename)
+    if len(safe_filename) > 200:
+        name, ext = safe_filename.rsplit(".", 1) if "." in safe_filename else (safe_filename, "")
+        safe_filename = name[:195] + ("." + ext if ext else "")
+
+    # Generate S3 key with sponsor context
+    import time
+    timestamp = int(time.time() * 1000)
+    s3_key = f"uploads/booth-resources/{sponsor_id}/{timestamp}_{safe_filename}"
+
+    try:
+        presigned_data = generate_presigned_post(
+            object_name=s3_key,
+            content_type=content_type,
+            expires_in=3600,  # 1 hour
+            max_size_bytes=MAX_BOOTH_RESOURCE_SIZE,
+        )
+    except ClientError as e:
+        logger.error(f"S3 presigned post error for sponsor {sponsor_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not generate upload URL. Please try again."
+        )
+
+    if not presigned_data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not generate upload URL."
+        )
+
+    upload_url = presigned_data["url"]
+
+    # For local dev, replace internal MinIO hostname with localhost
+    if settings.AWS_S3_ENDPOINT_URL and "minio:9000" in upload_url:
+        upload_url = upload_url.replace("minio:9000", "localhost:9000")
+
+    # Generate the public URL for the uploaded resource
+    # This is the URL that will be used when adding the resource to the booth
+    if settings.AWS_S3_ENDPOINT_URL:
+        # Local dev with MinIO
+        public_base_url = settings.AWS_S3_ENDPOINT_URL.replace("minio:9000", "localhost:9000")
+        public_url = f"{public_base_url}/{settings.AWS_S3_BUCKET_NAME}/{s3_key}"
+    else:
+        # Production S3
+        public_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{s3_key}"
+
+    logger.info(f"Generated upload URL for sponsor {sponsor_id}, file: {safe_filename}")
+
+    return {
+        "url": upload_url,
+        "fields": presigned_data["fields"],
+        "s3_key": s3_key,
+        "public_url": public_url,
+        "max_size_bytes": MAX_BOOTH_RESOURCE_SIZE,
+        "expires_in": 3600,
+    }
 
 
 @router.patch("/sponsors/{sponsor_id}/leads/{lead_id}", response_model=SponsorLeadResponse)
