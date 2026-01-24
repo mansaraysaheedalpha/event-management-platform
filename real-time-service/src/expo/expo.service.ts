@@ -636,9 +636,34 @@ export class ExpoService {
     });
 
     if (existingRequest) {
-      throw new ConflictException(
-        'You already have an active or pending video request',
-      );
+      // Auto-cleanup stale sessions to handle network disconnections
+      const now = new Date();
+      const sessionAge = now.getTime() - new Date(existingRequest.requestedAt).getTime();
+      const fiveMinutes = 5 * 60 * 1000;
+      const twoMinutes = 2 * 60 * 1000;
+
+      // If session is ACTIVE for >5 min or REQUESTED/ACCEPTED for >2 min, it's stale
+      const isStale =
+        (existingRequest.status === 'ACTIVE' && sessionAge > fiveMinutes) ||
+        (['REQUESTED', 'ACCEPTED'].includes(existingRequest.status) && sessionAge > twoMinutes);
+
+      if (isStale) {
+        // Auto-end the stale session
+        this.logger.warn(`Auto-ending stale video session ${existingRequest.id} for user ${userId}`);
+        await this.prisma.boothVideoSession.update({
+          where: { id: existingRequest.id },
+          data: {
+            status: 'COMPLETED',
+            endedAt: now,
+            durationSeconds: Math.floor(sessionAge / 1000),
+          },
+        });
+      } else {
+        // Session is recent and valid - reject new request
+        throw new ConflictException(
+          'You already have an active or pending video request',
+        );
+      }
     }
 
     const session = await this.prisma.boothVideoSession.create({
