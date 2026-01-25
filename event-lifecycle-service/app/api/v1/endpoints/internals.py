@@ -322,3 +322,34 @@ def check_if_user_is_speaker(
         "is_speaker": True,
         "speaker_id": speaker.id,
     }
+
+
+@router.post("/users/batch")
+def get_users_batch(
+    request: dict,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(deps.get_internal_api_key),
+):
+    """
+    Internal endpoint to fetch multiple users by their IDs.
+    Used by real-time service for booth visitor name resolution.
+    """
+    from app.models.user import User
+
+    user_ids = request.get("user_ids", [])
+    if not user_ids:
+        return {"users": []}
+
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+
+    return {
+        "users": [
+            {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+            for user in users
+        ]
+    }
