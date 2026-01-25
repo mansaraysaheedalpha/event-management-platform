@@ -498,6 +498,8 @@ export class ExpoAnalyticsService {
 
     try {
       const url = `${this.eventLifecycleServiceUrl}/api/v1/users/batch`;
+      this.logger.debug(`Fetching ${userIds.length} users from: ${url}`);
+
       const response = await firstValueFrom(
         this.httpService.post(
           url,
@@ -523,9 +525,13 @@ export class ExpoAnalyticsService {
         });
       });
 
+      this.logger.debug(`Successfully fetched ${users.length}/${userIds.length} users`);
       return usersMap;
     } catch (error) {
-      this.logger.warn(`Failed to fetch user details: ${error.message}`);
+      this.logger.error(
+        `Failed to fetch user details from ${this.eventLifecycleServiceUrl}: ${error.message}`,
+        error.stack,
+      );
       return new Map();
     }
   }
