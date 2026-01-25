@@ -1129,4 +1129,39 @@ export class ExpoGateway
       return { success: false, error: getErrorMessage(error) };
     }
   }
+
+  /**
+   * Get recent leads for a booth
+   */
+  @SubscribeMessage('expo.booth.leads')
+  async handleGetLeads(
+    @MessageBody() data: { boothId: string; limit?: number },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      // Verify user is staff for this booth
+      const isStaff = await this.expoService.isBoothStaff(
+        user.sub,
+        data.boothId,
+      );
+      if (!isStaff) {
+        return {
+          success: false,
+          error: 'You are not authorized to view booth leads',
+        };
+      }
+
+      const leads = await this.analyticsService.getRecentLeads(
+        data.boothId,
+        data.limit || 50,
+      );
+
+      return { success: true, leads };
+    } catch (error) {
+      this.logger.error(`Failed to get leads: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
 }

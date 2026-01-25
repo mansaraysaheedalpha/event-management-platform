@@ -400,6 +400,35 @@ export class ExpoAnalyticsService {
     };
   }
 
+  /**
+   * Gets recent leads captured for a booth.
+   */
+  async getRecentLeads(boothId: string, limit = 50) {
+    const leadVisits = await this.prisma.boothVisit.findMany({
+      where: {
+        boothId,
+        leadCaptured: true,
+        leadCapturedAt: { not: null },
+      },
+      select: {
+        userId: true,
+        leadData: true,
+        leadCapturedAt: true,
+      },
+      orderBy: {
+        leadCapturedAt: 'desc',
+      },
+      take: limit,
+    });
+
+    return leadVisits.map((visit) => ({
+      visitorId: visit.userId,
+      visitorName: visit.userId, // Name will be in leadData or populated from user service
+      formData: visit.leadData || {},
+      capturedAt: visit.leadCapturedAt?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
   // Private helper methods
 
   private async addVisitAction(visitId: string, action: EngagementAction) {
