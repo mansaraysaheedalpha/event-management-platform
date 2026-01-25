@@ -382,9 +382,11 @@ export class ExpoAnalyticsService {
       this.prisma.boothVisit.findMany({
         where: { boothId, exitedAt: null },
         select: {
+          id: true,
           userId: true,
           enteredAt: true,
           status: true,
+          leadData: true,
         },
       }),
       this.prisma.boothVideoSession.count({
@@ -392,11 +394,21 @@ export class ExpoAnalyticsService {
       }),
     ]);
 
+    const visitors = activeVisits.map((visit) => ({
+      visitId: visit.id,
+      userId: visit.userId,
+      // Try to get name from leadData if available (for captured leads)
+      // Otherwise use a shortened userId. Real-time socket events will update with actual names
+      userName: (visit.leadData as any)?.name || (visit.leadData as any)?.email || visit.userId,
+      enteredAt: visit.enteredAt,
+      status: visit.status,
+    }));
+
     return {
       ...analytics,
       currentVisitors: activeVisits.length,
       pendingVideoRequests,
-      visitors: activeVisits,
+      visitors,
     };
   }
 
@@ -423,7 +435,8 @@ export class ExpoAnalyticsService {
 
     return leadVisits.map((visit) => ({
       visitorId: visit.userId,
-      visitorName: visit.userId, // Name will be in leadData or populated from user service
+      // Extract visitor name from leadData (should contain name, email, etc.)
+      visitorName: (visit.leadData as any)?.name || (visit.leadData as any)?.email || visit.userId,
       formData: visit.leadData || {},
       capturedAt: visit.leadCapturedAt?.toISOString() || new Date().toISOString(),
     }));
