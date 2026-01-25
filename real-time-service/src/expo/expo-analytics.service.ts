@@ -394,15 +394,35 @@ export class ExpoAnalyticsService {
       }),
     ]);
 
-    const visitors = activeVisits.map((visit) => ({
-      visitId: visit.id,
-      userId: visit.userId,
-      // Try to get name from leadData if available (for captured leads)
-      // Otherwise use a shortened userId. Real-time socket events will update with actual names
-      userName: (visit.leadData as any)?.name || (visit.leadData as any)?.email || visit.userId,
-      enteredAt: visit.enteredAt,
-      status: visit.status,
-    }));
+    // Fetch user details for all active visitors
+    const userIds = activeVisits.map((v) => v.userId);
+    const usersMap = await this.fetchUsersByIds(userIds);
+
+    const visitors = activeVisits.map((visit) => {
+      const user = usersMap.get(visit.userId);
+      let userName = visit.userId;
+
+      // Priority: user service data > leadData > userId
+      if (user) {
+        userName =
+          user.first_name && user.last_name
+            ? `${user.first_name} ${user.last_name}`
+            : user.email || visit.userId;
+      } else if (visit.leadData) {
+        userName =
+          (visit.leadData as any)?.name ||
+          (visit.leadData as any)?.email ||
+          visit.userId;
+      }
+
+      return {
+        visitId: visit.id,
+        userId: visit.userId,
+        userName,
+        enteredAt: visit.enteredAt,
+        status: visit.status,
+      };
+    });
 
     return {
       ...analytics,
@@ -433,16 +453,82 @@ export class ExpoAnalyticsService {
       take: limit,
     });
 
-    return leadVisits.map((visit) => ({
-      visitorId: visit.userId,
-      // Extract visitor name from leadData (should contain name, email, etc.)
-      visitorName: (visit.leadData as any)?.name || (visit.leadData as any)?.email || visit.userId,
-      formData: visit.leadData || {},
-      capturedAt: visit.leadCapturedAt?.toISOString() || new Date().toISOString(),
-    }));
+    // Fetch user details for all leads
+    const userIds = leadVisits.map((v) => v.userId);
+    const usersMap = await this.fetchUsersByIds(userIds);
+
+    return leadVisits.map((visit) => {
+      const user = usersMap.get(visit.userId);
+      let visitorName = visit.userId;
+
+      // Priority: leadData > user service data > userId
+      if ((visit.leadData as any)?.name || (visit.leadData as any)?.email) {
+        visitorName =
+          (visit.leadData as any)?.name ||
+          (visit.leadData as any)?.email ||
+          visit.userId;
+      } else if (user) {
+        visitorName =
+          user.first_name && user.last_name
+            ? `${user.first_name} ${user.last_name}`
+            : user.email || visit.userId;
+      }
+
+      return {
+        visitorId: visit.userId,
+        visitorName,
+        formData: visit.leadData || {},
+        capturedAt:
+          visit.leadCapturedAt?.toISOString() || new Date().toISOString(),
+      };
+    });
   }
 
   // Private helper methods
+
+  /**
+   * Fetches user details from the event-lifecycle service
+   */
+  private async fetchUsersByIds(
+    userIds: string[],
+  ): Promise<Map<string, { first_name?: string; last_name?: string; email?: string }>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const url = `${this.eventLifecycleServiceUrl}/api/v1/users/batch`;
+      const response = await firstValueFrom(
+        this.httpService.post(
+          url,
+          { user_ids: userIds },
+          {
+            headers: {
+              'x-internal-api-key': this.internalApiKey,
+              'Content-Type': 'application/json',
+            },
+            timeout: 5000,
+          },
+        ),
+      );
+
+      const users = response.data?.users || [];
+      const usersMap = new Map();
+
+      users.forEach((user: any) => {
+        usersMap.set(user.id, {
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email,
+        });
+      });
+
+      return usersMap;
+    } catch (error) {
+      this.logger.warn(`Failed to fetch user details: ${error.message}`);
+      return new Map();
+    }
+  }
 
   private async addVisitAction(visitId: string, action: EngagementAction) {
     const visit = await this.prisma.boothVisit.findUnique({
