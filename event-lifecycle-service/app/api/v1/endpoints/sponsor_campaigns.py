@@ -21,6 +21,7 @@ from app.core.kafka_producer import get_kafka_producer
 from app.crud.crud_sponsor import sponsor_user, sponsor
 from app.crud.crud_sponsor_campaign import sponsor_campaign
 from app.crud.crud_campaign_delivery import campaign_delivery
+from app.crud.crud_event import event
 from app.schemas.sponsor_campaign import (
     CampaignCreate,
     CampaignUpdate,
@@ -30,9 +31,11 @@ from app.schemas.sponsor_campaign import (
     CampaignStats,
 )
 from app.schemas.token import TokenPayload
+from app.services.ai_message_generator import ai_generator
 from kafka import KafkaProducer
 import json
 from datetime import datetime
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -400,3 +403,144 @@ async def track_email_click(
 
     # Redirect to target URL
     return RedirectResponse(url=url)
+
+
+# AI-Powered Message Generation
+# These endpoints provide AI-generated campaign messages
+
+class AIGenerationRequest(BaseModel):
+    """Request schema for AI message generation."""
+    audience_type: str
+    campaign_goal: Optional[str] = None
+    tone: str = "professional"  # professional, casual, friendly
+    include_cta: bool = True
+
+
+class AIGenerationResponse(BaseModel):
+    """Response schema for AI-generated messages."""
+    subject: str
+    body: str
+    reasoning: str
+    suggestions: List[str]
+
+
+@router.post("/sponsors/{sponsor_id}/campaigns/generate-ai-message", response_model=AIGenerationResponse)
+@limiter.limit("20/minute")
+async def generate_ai_message(
+    sponsor_id: str,
+    request: AIGenerationRequest,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Generate AI-powered campaign message using Claude.
+
+    This endpoint uses Claude AI to generate personalized, context-aware
+    campaign messages based on the event, sponsor, and target audience.
+
+    Features:
+    - Context-aware generation (uses event details, sponsor info)
+    - Multiple tone options (professional, casual, friendly)
+    - Personalization variable suggestions
+    - Best practice recommendations
+
+    Permissions:
+    - User must be an active sponsor representative
+    - ANTHROPIC_API_KEY must be configured
+    """
+    # Check if AI is available
+    if not ai_generator.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI message generation is not available. Please contact support."
+        )
+
+    # Verify user is sponsor representative
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+
+    # Get sponsor details
+    sponsor_obj = sponsor.get(db, sponsor_id=sponsor_id)
+    if not sponsor_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sponsor not found"
+        )
+
+    # Get event details
+    event_obj = event.get(db, id=sponsor_obj.event_id) if sponsor_obj.event_id else None
+
+    try:
+        # Generate message using Claude AI
+        result = ai_generator.generate_campaign_message(
+            event_name=event_obj.name if event_obj else "Your Event",
+            event_description=event_obj.description if event_obj else None,
+            sponsor_name=sponsor_obj.company_name or "Your Company",
+            sponsor_description=sponsor_obj.description,
+            audience_type=request.audience_type,
+            campaign_goal=request.campaign_goal,
+            tone=request.tone,
+            include_cta=request.include_cta,
+        )
+
+        return AIGenerationResponse(**result)
+
+    except Exception as e:
+        logger.error(f"AI generation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI generation failed: {str(e)}"
+        )
+
+
+@router.post("/sponsors/{sponsor_id}/campaigns/generate-subject-variations")
+@limiter.limit("10/minute")
+async def generate_subject_variations(
+    sponsor_id: str,
+    base_subject: str,
+    count: int = 3,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Generate variations of a subject line for A/B testing.
+
+    Returns multiple variations of the same subject line with different
+    approaches (question vs statement, curiosity vs benefit, etc.)
+    """
+    if not ai_generator.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI generation not available"
+        )
+
+    # Verify user is sponsor representative
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+
+    try:
+        variations = ai_generator.generate_subject_variations(
+            base_subject=base_subject,
+            count=min(count, 5)  # Max 5 variations
+        )
+
+        return {"variations": variations}
+
+    except Exception as e:
+        logger.error(f"Subject variation generation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Generation failed: {str(e)}"
+        )

@@ -29,6 +29,7 @@ kafka-python-ng # <-- The modern, correct Kafka library
 boto3
 resend
 jinja2  # For email template personalization
+anthropic  # For AI-powered message generation
 
 # For background tasks
 celery
