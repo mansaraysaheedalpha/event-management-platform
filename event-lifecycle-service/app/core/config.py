@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_DOMAIN: Optional[str] = "onboarding@resend.dev"
 
+    # AI Services
+    ANTHROPIC_API_KEY: Optional[str] = None
+
+    # App URL for tracking links
+    NEXT_PUBLIC_APP_URL: Optional[str] = "http://localhost:3000"
+
     # Stripe Payment Configuration
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
@@ -77,6 +83,11 @@ class Settings(BaseSettings):
             if self.ENV == "local"
             else self.KAFKA_BOOTSTRAP_SERVERS_PROD
         )
+
+    @property
+    def SQLALCHEMY_DATABASE_URI(self) -> str:
+        """Alias for DATABASE_URL for SQLAlchemy compatibility."""
+        return self.DATABASE_URL
 
 
 # Create a single instance of the settings
