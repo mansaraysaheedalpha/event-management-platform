@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     sponsors,
     sponsor_campaigns,
     sponsor_user_permissions,
+    sponsor_team,
 )
 
 # This is the main router for the v1 API.
@@ -52,4 +53,5 @@ api_router.include_router(organizations.router)
 api_router.include_router(sponsors.router, prefix="/sponsors", tags=["Sponsors"])
 api_router.include_router(sponsor_campaigns.router, prefix="/sponsors-campaigns", tags=["Sponsor Campaigns"])
 api_router.include_router(sponsor_user_permissions.router, prefix="/sponsor-users", tags=["Sponsor User Permissions"])
+api_router.include_router(sponsor_team.router, prefix="/sponsor-team", tags=["Sponsor Team Management"])
 
