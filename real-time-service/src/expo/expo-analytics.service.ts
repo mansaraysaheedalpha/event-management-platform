@@ -12,7 +12,7 @@ interface EngagementAction {
   metadata?: Record<string, unknown>;
 }
 
-interface LeadFormData {
+export interface LeadFormData {
   name?: string;
   email?: string;
   company?: string;

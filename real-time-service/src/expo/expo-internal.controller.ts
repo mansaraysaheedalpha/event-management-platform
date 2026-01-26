@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { ExpoService } from './expo.service';
-import { ExpoAnalyticsService } from './expo-analytics.service';
+import { ExpoAnalyticsService, LeadFormData } from './expo-analytics.service';
 
 interface CreateBoothForSponsorPayload {
   eventId: string;
@@ -541,7 +541,11 @@ export class ExpoInternalController {
 
       this.logger.log(`Found ${leads.length} leads to resync for booth ${payload.boothId}`);
 
-      const results = [];
+      const results: Array<{
+        visitorId: string;
+        success: boolean;
+        error?: string;
+      }> = [];
       let syncedCount = 0;
       let failedCount = 0;
 
@@ -551,7 +555,7 @@ export class ExpoInternalController {
           await this.analyticsService.syncLeadToEventService(
             lead.visitorId,
             payload.boothId,
-            lead.formData,
+            lead.formData as LeadFormData,
           );
           syncedCount++;
           results.push({
