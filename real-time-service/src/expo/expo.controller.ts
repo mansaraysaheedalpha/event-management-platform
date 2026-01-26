@@ -708,6 +708,67 @@ export class ExpoController {
   // ==========================================
 
   /**
+   * Calculate intent score based on engagement actions.
+   * Returns { score: 0-100, level: 'hot' | 'warm' | 'cold' }
+   */
+  private calculateIntentScore(lead: any): { score: number; level: 'hot' | 'warm' | 'cold' } {
+    let score = 0;
+    const actions = (lead.actions || []) as Array<{ action: string }>;
+    const duration = lead.durationSeconds || 0;
+
+    // Action scoring (max 70 points)
+    const videoActions = actions.filter(a => a.action === 'video_watch' || a.action === 'video_call');
+    const chatActions = actions.filter(a => a.action === 'chat_message');
+    const downloadActions = actions.filter(a => a.action === 'resource_download');
+    const ctaActions = actions.filter(a => a.action === 'cta_click');
+
+    // Video call/watch: 25 points (highest intent signal)
+    if (videoActions.length > 0) {
+      score += 25;
+    }
+
+    // Multiple chats: 15 points
+    if (chatActions.length >= 3) {
+      score += 15;
+    } else if (chatActions.length > 0) {
+      score += 10;
+    }
+
+    // Resource downloads: 15 points
+    if (downloadActions.length >= 2) {
+      score += 15;
+    } else if (downloadActions.length > 0) {
+      score += 10;
+    }
+
+    // CTA clicks: 10 points
+    if (ctaActions.length > 0) {
+      score += 10;
+    }
+
+    // Time spent (max 30 points)
+    if (duration >= 300) { // 5+ minutes
+      score += 30;
+    } else if (duration >= 120) { // 2+ minutes
+      score += 20;
+    } else if (duration >= 60) { // 1+ minute
+      score += 10;
+    }
+
+    // Categorize
+    let level: 'hot' | 'warm' | 'cold';
+    if (score >= 60) {
+      level = 'hot';
+    } else if (score >= 30) {
+      level = 'warm';
+    } else {
+      level = 'cold';
+    }
+
+    return { score, level };
+  }
+
+  /**
    * Get lead statistics for a sponsor's booth from MongoDB.
    * This is the same data source as the Booth Dashboard.
    */
@@ -732,20 +793,37 @@ export class ExpoController {
     // Get all leads for this booth
     const allLeads = await this.analyticsService.getRecentLeads(booth.id, 1000);
 
-    // Calculate stats from MongoDB data
-    const total_leads = allLeads.length;
+    // Calculate intent scores for each lead
+    let hot_leads = 0;
+    let warm_leads = 0;
+    let cold_leads = 0;
+    let total_score = 0;
 
-    // For now, return basic stats
-    // TODO: Add intent scoring and categorization
+    allLeads.forEach(lead => {
+      const { score, level } = this.calculateIntentScore(lead);
+      total_score += score;
+
+      if (level === 'hot') {
+        hot_leads++;
+      } else if (level === 'warm') {
+        warm_leads++;
+      } else {
+        cold_leads++;
+      }
+    });
+
+    const total_leads = allLeads.length;
+    const avg_intent_score = total_leads > 0 ? total_score / total_leads : 0;
+
     return {
       total_leads,
-      hot_leads: 0,
-      warm_leads: 0,
-      cold_leads: total_leads,
-      leads_contacted: 0,
-      leads_converted: 0,
+      hot_leads,
+      warm_leads,
+      cold_leads,
+      leads_contacted: 0, // TODO: Track contacted status
+      leads_converted: 0, // TODO: Track conversion status
       conversion_rate: 0,
-      avg_intent_score: 0,
+      avg_intent_score: Math.round(avg_intent_score),
     };
   }
 
@@ -775,17 +853,21 @@ export class ExpoController {
     const limit = limitStr ? parseInt(limitStr, 10) : 50;
     const leads = await this.analyticsService.getRecentLeads(booth.id, limit);
 
-    // Transform to match expected format
-    return leads.map((lead) => ({
-      id: lead.visitorId,
-      user_id: lead.visitorId,
-      user_name: lead.visitorName,
-      user_email: (lead.formData as any)?.email,
-      user_company: (lead.formData as any)?.company,
-      intent_level: 'cold' as const,
-      intent_score: 0,
-      created_at: lead.capturedAt,
-      is_starred: false,
-    }));
+    // Transform to match expected format with intent scoring
+    return leads.map((lead) => {
+      const { score, level } = this.calculateIntentScore(lead);
+
+      return {
+        id: lead.visitorId,
+        user_id: lead.visitorId,
+        user_name: lead.visitorName,
+        user_email: (lead.formData as any)?.email,
+        user_company: (lead.formData as any)?.company,
+        intent_level: level,
+        intent_score: score,
+        created_at: lead.capturedAt,
+        is_starred: false,
+      };
+    });
   }
 }

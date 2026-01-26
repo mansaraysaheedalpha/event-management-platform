@@ -452,6 +452,8 @@ export class ExpoAnalyticsService {
         userId: true,
         leadData: true,
         leadCapturedAt: true,
+        actions: true,
+        durationSeconds: true,
       },
       orderBy: {
         leadCapturedAt: 'desc',
@@ -486,6 +488,8 @@ export class ExpoAnalyticsService {
         formData: visit.leadData || {},
         capturedAt:
           visit.leadCapturedAt?.toISOString() || new Date().toISOString(),
+        actions: visit.actions,
+        durationSeconds: visit.durationSeconds,
       };
     });
   }
