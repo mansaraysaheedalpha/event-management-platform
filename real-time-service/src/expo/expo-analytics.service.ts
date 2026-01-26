@@ -27,6 +27,7 @@ interface LeadFormData {
 export class ExpoAnalyticsService {
   private readonly logger = new Logger(ExpoAnalyticsService.name);
   private readonly eventLifecycleServiceUrl: string;
+  private readonly userOrgServiceUrl: string;
   private readonly internalApiKey: string;
 
   constructor(
@@ -37,6 +38,10 @@ export class ExpoAnalyticsService {
     this.eventLifecycleServiceUrl = this.configService.get<string>(
       'EVENT_LIFECYCLE_SERVICE_URL',
       'http://localhost:8000',
+    );
+    this.userOrgServiceUrl = this.configService.get<string>(
+      'USER_ORG_SERVICE_URL',
+      'http://user-and-org-service:3001',
     );
     this.internalApiKey = this.configService.get<string>(
       'INTERNAL_API_KEY',
@@ -487,7 +492,7 @@ export class ExpoAnalyticsService {
   // Private helper methods
 
   /**
-   * Fetches user details from the event-lifecycle service
+   * Fetches user details from the user-and-org service
    */
   private async fetchUsersByIds(
     userIds: string[],
@@ -497,7 +502,7 @@ export class ExpoAnalyticsService {
     }
 
     try {
-      const url = `${this.eventLifecycleServiceUrl}/api/v1/users/batch`;
+      const url = `${this.userOrgServiceUrl}/api/v1/users/batch`;
       this.logger.debug(`Fetching ${userIds.length} users from: ${url}`);
 
       const response = await firstValueFrom(
@@ -529,7 +534,7 @@ export class ExpoAnalyticsService {
       return usersMap;
     } catch (error) {
       this.logger.error(
-        `Failed to fetch user details from ${this.eventLifecycleServiceUrl}: ${error.message}`,
+        `Failed to fetch user details from ${this.userOrgServiceUrl}: ${error.message}`,
         error.stack,
       );
       return new Map();
