@@ -28,6 +28,7 @@ httpx
 kafka-python-ng # <-- The modern, correct Kafka library
 boto3
 resend
+jinja2  # For email template personalization
 
 # For background tasks
 celery
