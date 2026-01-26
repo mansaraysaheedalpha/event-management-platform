@@ -22,6 +22,7 @@ from app.api.v1.endpoints import (
     reports,
     ab_testing,
     sponsors,
+    sponsor_campaigns,
 )
 
 # This is the main router for the v1 API.
@@ -48,4 +49,5 @@ api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"]
 api_router.include_router(offer_webhooks.router, prefix="/offer-webhooks", tags=["offer-webhooks"])
 api_router.include_router(organizations.router)
 api_router.include_router(sponsors.router, prefix="/sponsors", tags=["Sponsors"])
+api_router.include_router(sponsor_campaigns.router, prefix="/sponsors-campaigns", tags=["Sponsor Campaigns"])
 

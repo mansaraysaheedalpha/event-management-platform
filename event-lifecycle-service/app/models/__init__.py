@@ -47,6 +47,8 @@ from app.models.sponsor import Sponsor
 from app.models.sponsor_user import SponsorUser
 from app.models.sponsor_invitation import SponsorInvitation
 from app.models.sponsor_lead import SponsorLead
+from app.models.sponsor_campaign import SponsorCampaign
+from app.models.campaign_delivery import CampaignDelivery
 
 # Virtual expo hall models
 from app.models.expo_hall import ExpoHall, ExpoHallLayout
@@ -95,6 +97,8 @@ __all__ = [
     "SponsorUser",
     "SponsorInvitation",
     "SponsorLead",
+    "SponsorCampaign",
+    "CampaignDelivery",
     "ExpoHall",
     "ExpoHallLayout",
     "ExpoBooth",
