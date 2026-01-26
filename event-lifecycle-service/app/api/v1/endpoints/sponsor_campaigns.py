@@ -109,7 +109,7 @@ async def create_campaign(
         sponsor_id=sponsor_id,
         event_id=sponsor_obj.event_id,
         created_by_user_id=current_user.sub,
-        created_by_user_name=su.user_name,
+        created_by_user_name=getattr(current_user, 'full_name', None) or current_user.email,
         obj_in=campaign_in,
     )
 
