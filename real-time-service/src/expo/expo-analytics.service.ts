@@ -156,8 +156,9 @@ export class ExpoAnalyticsService {
   /**
    * Syncs a captured lead to the event-lifecycle-service.
    * This creates a SponsorLead record that shows up in the sponsor dashboard.
+   * Made public to allow manual resyncs via internal API.
    */
-  private async syncLeadToEventService(
+  async syncLeadToEventService(
     userId: string,
     boothId: string,
     formData: LeadFormData,

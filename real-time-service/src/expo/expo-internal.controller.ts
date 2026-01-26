@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { ExpoService } from './expo.service';
+import { ExpoAnalyticsService } from './expo-analytics.service';
 
 interface CreateBoothForSponsorPayload {
   eventId: string;
@@ -56,7 +57,10 @@ interface BulkSyncBoothStaffPayload {
 export class ExpoInternalController {
   private readonly logger = new Logger(ExpoInternalController.name);
 
-  constructor(private readonly expoService: ExpoService) {}
+  constructor(
+    private readonly expoService: ExpoService,
+    private readonly analyticsService: ExpoAnalyticsService,
+  ) {}
 
   /**
    * Automatically creates a booth when a sponsor is added to an event.
@@ -496,6 +500,93 @@ export class ExpoInternalController {
     } catch (error) {
       this.logger.error(
         `Failed to bulk sync booth staff for sponsor ${payload.sponsorId}: ${error.message}`,
+      );
+      throw new HttpException(
+        {
+          success: false,
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Resync all booth leads to event-lifecycle-service.
+   * This fixes leads that failed to sync during capture.
+   */
+  @Post('booth-leads/resync')
+  @HttpCode(HttpStatus.OK)
+  async resyncBoothLeads(@Body() payload: { boothId: string }) {
+    this.logger.log(
+      `Received resync request for booth ${payload.boothId} leads`,
+    );
+
+    try {
+      // Get booth with sponsor and event info
+      const booth = await this.expoService.getBooth(payload.boothId);
+
+      if (!booth) {
+        throw new HttpException(
+          { success: false, error: 'Booth not found' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // Get all leads for this booth
+      const leads = await this.analyticsService.getRecentLeads(
+        payload.boothId,
+        1000, // Get all leads (max 1000)
+      );
+
+      this.logger.log(`Found ${leads.length} leads to resync for booth ${payload.boothId}`);
+
+      const results = [];
+      let syncedCount = 0;
+      let failedCount = 0;
+
+      // Resync each lead
+      for (const lead of leads) {
+        try {
+          await this.analyticsService.syncLeadToEventService(
+            lead.visitorId,
+            payload.boothId,
+            lead.formData,
+          );
+          syncedCount++;
+          results.push({
+            visitorId: lead.visitorId,
+            success: true,
+          });
+        } catch (error) {
+          failedCount++;
+          results.push({
+            visitorId: lead.visitorId,
+            success: false,
+            error: error.message,
+          });
+          this.logger.warn(
+            `Failed to resync lead ${lead.visitorId}: ${error.message}`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Resync complete for booth ${payload.boothId}: ${syncedCount} synced, ${failedCount} failed`,
+      );
+
+      return {
+        success: true,
+        summary: {
+          total: leads.length,
+          synced: syncedCount,
+          failed: failedCount,
+        },
+        results,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to resync booth leads: ${error.message}`,
       );
       throw new HttpException(
         {
