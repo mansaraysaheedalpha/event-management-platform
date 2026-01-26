@@ -68,7 +68,7 @@ async def create_campaign(
     su = sponsor_user.get_by_user_and_sponsor(
         db, user_id=current_user.sub, sponsor_id=sponsor_id
     )
-    if not su or not su.is_active or not su.can_send_messages:
+    if not su or not su.is_active or not su.can_message_attendees:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to send messages for this sponsor"
@@ -342,7 +342,7 @@ async def delete_campaign(
     su = sponsor_user.get_by_user_and_sponsor(
         db, user_id=current_user.sub, sponsor_id=sponsor_id
     )
-    if not su or not su.is_active or not su.can_send_messages:
+    if not su or not su.is_active or not su.can_message_attendees:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
