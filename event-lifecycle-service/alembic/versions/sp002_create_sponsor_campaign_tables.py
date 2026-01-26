@@ -70,7 +70,7 @@ def upgrade() -> None:
         sa.Column('error_message', sa.Text(), nullable=True),
 
         # Metadata
-        sa.Column('metadata', JSON, nullable=True, server_default='{}'),
+        sa.Column('campaign_metadata', JSON, nullable=True, server_default='{}'),
 
         # Timestamps
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('NOW()')),

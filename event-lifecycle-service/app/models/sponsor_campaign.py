@@ -61,7 +61,7 @@ class SponsorCampaign(Base):
     error_message = Column(Text, nullable=True)  # If status = 'failed'
 
     # Metadata
-    metadata = Column(JSON, nullable=True, server_default='{}')
+    campaign_metadata = Column(JSON, nullable=True, server_default='{}')
     # For storing: template variables used, UTM parameters, etc.
 
     # Timestamps

@@ -46,7 +46,7 @@ class CRUDSponsorCampaign:
             scheduled_at=obj_in.scheduled_at,
             created_by_user_id=created_by_user_id,
             created_by_user_name=created_by_user_name,
-            metadata=obj_in.metadata or {},
+            campaign_metadata=obj_in.campaign_metadata or {},
             status="draft",
         )
         db.add(campaign)

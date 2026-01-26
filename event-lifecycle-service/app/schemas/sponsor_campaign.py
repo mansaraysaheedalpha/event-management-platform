@@ -24,7 +24,7 @@ class CampaignCreate(BaseModel):
     audience_type: str = Field(..., description="all, hot, warm, cold, new, contacted, custom")
     audience_filter: Optional[Dict[str, Any]] = Field(None, description="Custom filter criteria")
     scheduled_at: Optional[datetime] = Field(None, description="Schedule for future sending")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    campaign_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator('audience_type')
     @classmethod
@@ -110,7 +110,7 @@ class CampaignResponse(BaseModel):
     created_by_user_id: str
     created_by_user_name: Optional[str]
     error_message: Optional[str]
-    metadata: Dict[str, Any]
+    campaign_metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
 
