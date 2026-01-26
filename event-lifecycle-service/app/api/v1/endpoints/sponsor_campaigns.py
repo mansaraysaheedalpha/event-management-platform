@@ -473,7 +473,7 @@ async def generate_ai_message(
         )
 
     # Get sponsor details
-    sponsor_obj = sponsor.get(db, sponsor_id=sponsor_id)
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
     if not sponsor_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
