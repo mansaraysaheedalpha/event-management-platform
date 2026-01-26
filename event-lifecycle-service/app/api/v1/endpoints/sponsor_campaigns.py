@@ -10,7 +10,7 @@ Production features:
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 import logging
 
@@ -47,6 +47,7 @@ KAFKA_TOPIC = "sponsor.campaigns.v1"
 @router.post("/sponsors/{sponsor_id}/campaigns", response_model=CampaignResponse)
 @limiter.limit("10/minute")
 async def create_campaign(
+    request: Request,
     sponsor_id: str,
     campaign_in: CampaignCreate,
     db: Session = Depends(get_db),
@@ -155,6 +156,7 @@ async def create_campaign(
 @router.get("/sponsors/{sponsor_id}/campaigns", response_model=CampaignListResponse)
 @limiter.limit("30/minute")
 async def list_campaigns(
+    request: Request,
     sponsor_id: str,
     skip: int = 0,
     limit: int = 20,
@@ -200,6 +202,7 @@ async def list_campaigns(
 @router.get("/sponsors/{sponsor_id}/campaigns/{campaign_id}", response_model=CampaignResponse)
 @limiter.limit("60/minute")
 async def get_campaign(
+    request: Request,
     sponsor_id: str,
     campaign_id: str,
     db: Session = Depends(get_db),
@@ -234,6 +237,7 @@ async def get_campaign(
 @router.get("/sponsors/{sponsor_id}/campaigns/{campaign_id}/stats", response_model=CampaignStats)
 @limiter.limit("30/minute")
 async def get_campaign_stats(
+    request: Request,
     sponsor_id: str,
     campaign_id: str,
     db: Session = Depends(get_db),
@@ -274,6 +278,7 @@ async def get_campaign_stats(
 @router.get("/sponsors/{sponsor_id}/campaigns/{campaign_id}/deliveries", response_model=List[DeliveryResponse])
 @limiter.limit("30/minute")
 async def get_campaign_deliveries(
+    request: Request,
     sponsor_id: str,
     campaign_id: str,
     skip: int = 0,
@@ -322,6 +327,7 @@ async def get_campaign_deliveries(
 @router.delete("/sponsors/{sponsor_id}/campaigns/{campaign_id}")
 @limiter.limit("10/minute")
 async def delete_campaign(
+    request: Request,
     sponsor_id: str,
     campaign_id: str,
     db: Session = Depends(get_db),
@@ -427,8 +433,9 @@ class AIGenerationResponse(BaseModel):
 @router.post("/sponsors/{sponsor_id}/campaigns/generate-ai-message", response_model=AIGenerationResponse)
 @limiter.limit("20/minute")
 async def generate_ai_message(
+    request: Request,
     sponsor_id: str,
-    request: AIGenerationRequest,
+    ai_request: AIGenerationRequest,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
@@ -483,10 +490,10 @@ async def generate_ai_message(
             event_description=event_obj.description if event_obj else None,
             sponsor_name=sponsor_obj.company_name or "Your Company",
             sponsor_description=sponsor_obj.description,
-            audience_type=request.audience_type,
-            campaign_goal=request.campaign_goal,
-            tone=request.tone,
-            include_cta=request.include_cta,
+            audience_type=ai_request.audience_type,
+            campaign_goal=ai_request.campaign_goal,
+            tone=ai_request.tone,
+            include_cta=ai_request.include_cta,
         )
 
         return AIGenerationResponse(**result)
@@ -502,6 +509,7 @@ async def generate_ai_message(
 @router.post("/sponsors/{sponsor_id}/campaigns/generate-subject-variations")
 @limiter.limit("10/minute")
 async def generate_subject_variations(
+    request: Request,
     sponsor_id: str,
     base_subject: str,
     count: int = 3,
