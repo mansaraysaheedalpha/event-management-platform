@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Any
 
-from app.api.dependencies import get_db, get_current_user
-from app.schemas.user import JwtUser
+from app.api import deps
+from app.schemas.user import TokenPayload
 from app.crud import sponsor_user
 from app.core.sponsor_roles import apply_role_permissions
 
@@ -19,8 +19,8 @@ router = APIRouter()
 def fix_my_sponsor_permissions(
     sponsor_id: str,
     *,
-    db: Session = Depends(get_db),
-    current_user: JwtUser = Depends(get_current_user),
+    db: Session = Depends(deps.get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
 ) -> Any:
     """
     Fix permissions for the current user based on their assigned role.
