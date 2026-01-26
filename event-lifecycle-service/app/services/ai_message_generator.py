@@ -38,6 +38,8 @@ class AIMessageGenerator:
         *,
         event_name: str,
         event_description: Optional[str] = None,
+        event_start_date: Optional[str] = None,
+        event_end_date: Optional[str] = None,
         sponsor_name: str,
         sponsor_description: Optional[str] = None,
         audience_type: str,
@@ -70,6 +72,8 @@ class AIMessageGenerator:
         prompt = self._build_generation_prompt(
             event_name=event_name,
             event_description=event_description,
+            event_start_date=event_start_date,
+            event_end_date=event_end_date,
             sponsor_name=sponsor_name,
             sponsor_description=sponsor_description,
             audience_type=audience_type,
@@ -109,6 +113,8 @@ class AIMessageGenerator:
         self,
         event_name: str,
         event_description: Optional[str],
+        event_start_date: Optional[str],
+        event_end_date: Optional[str],
         sponsor_name: str,
         sponsor_description: Optional[str],
         audience_type: str,
@@ -118,6 +124,7 @@ class AIMessageGenerator:
         previous_context: Optional[str],
     ) -> str:
         """Build the prompt for Claude AI."""
+        from datetime import datetime
 
         # Map audience types to descriptions
         audience_descriptions = {
@@ -131,11 +138,19 @@ class AIMessageGenerator:
 
         audience_desc = audience_descriptions.get(audience_type, "booth visitors")
 
+        # Build timing context
+        timing_context = ""
+        if event_start_date and event_end_date:
+            timing_context = f"""- Event Dates: {event_start_date} to {event_end_date}
+- Today's Date: {datetime.now().strftime('%Y-%m-%d')}
+- IMPORTANT: Use the event dates to determine if the event was in the past, is currently happening, or is upcoming. Adjust your language accordingly (e.g., "last week" vs "this week" vs "next week")."""
+
         prompt = f"""You are an expert email marketing copywriter specializing in B2B event follow-up campaigns. Generate a personalized follow-up email for a sponsor to send to their event leads.
 
 **Context:**
 - Event: {event_name}
 {f"- Event Description: {event_description}" if event_description else ""}
+{timing_context}
 - Sponsor Company: {sponsor_name}
 {f"- About Sponsor: {sponsor_description}" if sponsor_description else ""}
 - Target Audience: {audience_desc}
@@ -145,7 +160,7 @@ class AIMessageGenerator:
 **Requirements:**
 - Tone: {tone} and personable
 - Length: Keep the email concise (150-250 words max)
-- Personalization: Use {{{{name}}}}, {{{{company}}}}, {{{{title}}}} template variables where appropriate
+- Personalization: Use {{{{name}}}}, {{{{company}}}}, {{{{title}}}} template variables where appropriate (these will be replaced with actual values when sent)
 - Subject Line: Compelling and specific (not generic)
 {f"- Call-to-Action: Include a clear next step" if include_cta else "- Call-to-Action: Soft close, no hard ask"}
 

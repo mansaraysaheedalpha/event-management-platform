@@ -488,6 +488,8 @@ async def generate_ai_message(
         result = ai_generator.generate_campaign_message(
             event_name=event_obj.name if event_obj else "Your Event",
             event_description=event_obj.description if event_obj else None,
+            event_start_date=event_obj.start_date.isoformat() if event_obj and event_obj.start_date else None,
+            event_end_date=event_obj.end_date.isoformat() if event_obj and event_obj.end_date else None,
             sponsor_name=sponsor_obj.company_name or "Your Company",
             sponsor_description=sponsor_obj.company_description,
             audience_type=ai_request.audience_type,
