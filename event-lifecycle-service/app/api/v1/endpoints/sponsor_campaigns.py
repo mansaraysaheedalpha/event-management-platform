@@ -489,7 +489,7 @@ async def generate_ai_message(
             event_name=event_obj.name if event_obj else "Your Event",
             event_description=event_obj.description if event_obj else None,
             sponsor_name=sponsor_obj.company_name or "Your Company",
-            sponsor_description=sponsor_obj.description,
+            sponsor_description=sponsor_obj.company_description,
             audience_type=ai_request.audience_type,
             campaign_goal=ai_request.campaign_goal,
             tone=ai_request.tone,
