@@ -702,4 +702,90 @@ export class ExpoController {
       booth: updatedBooth,
     };
   }
+
+  // ==========================================
+  // SPONSOR LEAD MANAGEMENT
+  // ==========================================
+
+  /**
+   * Get lead statistics for a sponsor's booth from MongoDB.
+   * This is the same data source as the Booth Dashboard.
+   */
+  @Get('sponsor/:sponsorId/leads/stats')
+  async getSponsorLeadStats(
+    @Param('sponsorId') sponsorId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const booth = await this.expoService.getBoothForSponsor(sponsorId);
+
+    if (!booth) {
+      throw new NotFoundException('No booth found for this sponsor');
+    }
+
+    // Check authorization
+    if (!(await this.canManageBooth(user.sub, booth.id, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to view booth leads',
+      );
+    }
+
+    // Get all leads for this booth
+    const allLeads = await this.analyticsService.getRecentLeads(booth.id, 1000);
+
+    // Calculate stats from MongoDB data
+    const total_leads = allLeads.length;
+
+    // For now, return basic stats
+    // TODO: Add intent scoring and categorization
+    return {
+      total_leads,
+      hot_leads: 0,
+      warm_leads: 0,
+      cold_leads: total_leads,
+      leads_contacted: 0,
+      leads_converted: 0,
+      conversion_rate: 0,
+      avg_intent_score: 0,
+    };
+  }
+
+  /**
+   * Get recent leads for a sponsor's booth from MongoDB.
+   * This is the same data source as the Booth Dashboard.
+   */
+  @Get('sponsor/:sponsorId/leads')
+  async getSponsorLeads(
+    @Param('sponsorId') sponsorId: string,
+    @Query('limit') limitStr?: string,
+    @CurrentUser() user?: JwtUser,
+  ) {
+    const booth = await this.expoService.getBoothForSponsor(sponsorId);
+
+    if (!booth) {
+      throw new NotFoundException('No booth found for this sponsor');
+    }
+
+    // Check authorization
+    if (user && !(await this.canManageBooth(user.sub, booth.id, user))) {
+      throw new ForbiddenException(
+        'You do not have permission to view booth leads',
+      );
+    }
+
+    const limit = limitStr ? parseInt(limitStr, 10) : 50;
+    const leads = await this.analyticsService.getRecentLeads(booth.id, limit);
+
+    // Transform to match expected format
+    return leads.map((lead) => ({
+      id: lead.visitorId,
+      user_id: lead.visitorId,
+      user_name: lead.visitorName,
+      user_email: (lead.formData as any)?.email,
+      user_company: (lead.formData as any)?.company,
+      intent_level: 'cold' as const,
+      intent_score: 0,
+      created_at: lead.capturedAt,
+      is_starred: false,
+    }));
+  }
 }
