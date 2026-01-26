@@ -358,6 +358,20 @@ def invite_sponsor_representative(
                 detail=f"Maximum representatives ({sponsor_obj.tier.max_representatives}) reached"
             )
 
+    # Apply role-based permissions automatically
+    # This ensures consistent permissions across all roles
+    from app.core.sponsor_roles import apply_role_permissions
+
+    role_permissions = apply_role_permissions(invitation_in.role)
+
+    # Update invitation with role-based permissions
+    # Organizers can still override these by explicitly setting permissions in the request
+    invitation_in.can_view_leads = role_permissions["can_view_leads"]
+    invitation_in.can_export_leads = role_permissions["can_export_leads"]
+    invitation_in.can_message_attendees = role_permissions["can_message_attendees"]
+    invitation_in.can_manage_booth = role_permissions["can_manage_booth"]
+    invitation_in.can_invite_others = role_permissions["can_invite_others"]
+
     invitation = sponsor_invitation.create_invitation(
         db,
         invitation_in=invitation_in,
