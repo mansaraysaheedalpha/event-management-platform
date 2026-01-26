@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from typing import Any
 
 from app.api import deps
-from app.schemas.user import TokenPayload
+from app.schemas.token import TokenPayload
 from app.crud import sponsor_user
 from app.core.sponsor_roles import apply_role_permissions
 
