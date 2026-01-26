@@ -75,7 +75,7 @@ async def create_campaign(
         )
 
     # Verify sponsor has messaging enabled
-    sponsor_obj = sponsor.get(db, sponsor_id=sponsor_id)
+    sponsor_obj = sponsor.get(db, id=sponsor_id)
     if not sponsor_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
