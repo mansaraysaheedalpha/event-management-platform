@@ -935,12 +935,25 @@ export class ExpoService {
   }
 
   /**
-   * Marks staff as offline when they disconnect.
+   * Handles staff socket disconnection.
+   *
+   * Enterprise behavior: We do NOT mark staff as OFFLINE on disconnect.
+   * This allows the "live" status to persist across page refreshes and
+   * temporary network interruptions. Staff remains ONLINE until they
+   * explicitly click "Go Offline".
+   *
+   * We only clear the socketId to indicate the connection dropped,
+   * and update lastSeenAt for tracking purposes.
    */
   async markStaffOffline(socketId: string) {
     await this.prisma.boothStaffPresence.updateMany({
       where: { socketId },
-      data: { status: 'OFFLINE', socketId: null },
+      data: {
+        socketId: null,
+        lastSeenAt: new Date(),
+        // Note: status is intentionally NOT changed to OFFLINE
+        // Staff must explicitly go offline via the UI
+      },
     });
   }
 

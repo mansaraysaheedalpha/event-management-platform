@@ -1,6 +1,7 @@
 //src/monetization/sponsors/sponsors.gateway.ts
 import {
   ConnectedSocket,
+  MessageBody,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -10,6 +11,10 @@ import { ForbiddenException, Inject, Logger, forwardRef } from '@nestjs/common';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { SponsorsService } from './sponsors.service';
+
+interface JoinLeadStreamDto {
+  sponsorId?: string;
+}
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -26,9 +31,13 @@ export class SponsorsGateway {
 
   /**
    * Handles a sponsor client joining their private lead-capture room.
+   * Accepts sponsorId from payload or falls back to JWT token.
    */
   @SubscribeMessage('sponsor.leads.join')
-  handleJoinLeadStream(@ConnectedSocket() client: AuthenticatedSocket) {
+  handleJoinLeadStream(
+    @MessageBody() dto: JoinLeadStreamDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
     const user = getAuthenticatedUser(client);
     // This permission should be granted to sponsor users
     const requiredPermission = 'sponsor:leads:read';
@@ -39,11 +48,11 @@ export class SponsorsGateway {
       );
     }
 
-    // The sponsorId should be part of the user's JWT payload
-    const sponsorId = user.sponsorId; // Assuming sponsorId is in the JWT
+    // Accept sponsorId from payload first, fall back to JWT token
+    const sponsorId = dto?.sponsorId || user.sponsorId;
 
     if (!sponsorId) {
-      return { success: false, error: 'Sponsor ID not found in token.' };
+      return { success: false, error: 'Sponsor ID not provided.' };
     }
 
     const sponsorRoom = `sponsor:${sponsorId}`;
