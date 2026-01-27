@@ -514,17 +514,28 @@ export class ExpoInternalController {
   /**
    * Resync all booth leads to event-lifecycle-service.
    * This fixes leads that failed to sync during capture.
+   * Accepts either boothId or sponsorId to identify the booth.
    */
   @Post('booth-leads/resync')
   @HttpCode(HttpStatus.OK)
-  async resyncBoothLeads(@Body() payload: { boothId: string }) {
+  async resyncBoothLeads(@Body() payload: { boothId?: string; sponsorId?: string }) {
     this.logger.log(
-      `Received resync request for booth ${payload.boothId} leads`,
+      `Received resync request for booth ${payload.boothId || 'by sponsor ' + payload.sponsorId} leads`,
     );
 
     try {
-      // Get booth with sponsor and event info
-      const booth = await this.expoService.getBooth(payload.boothId);
+      // Get booth by boothId or sponsorId
+      let booth;
+      if (payload.boothId) {
+        booth = await this.expoService.getBooth(payload.boothId);
+      } else if (payload.sponsorId) {
+        booth = await this.expoService.getBoothBySponsorId(payload.sponsorId);
+      } else {
+        throw new HttpException(
+          { success: false, error: 'Either boothId or sponsorId is required' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
 
       if (!booth) {
         throw new HttpException(
@@ -533,13 +544,15 @@ export class ExpoInternalController {
         );
       }
 
+      const boothId = booth.id;
+
       // Get all leads for this booth
       const leads = await this.analyticsService.getRecentLeads(
-        payload.boothId,
+        boothId,
         1000, // Get all leads (max 1000)
       );
 
-      this.logger.log(`Found ${leads.length} leads to resync for booth ${payload.boothId}`);
+      this.logger.log(`Found ${leads.length} leads to resync for booth ${boothId}`);
 
       const results: Array<{
         visitorId: string;
@@ -554,7 +567,7 @@ export class ExpoInternalController {
         try {
           await this.analyticsService.syncLeadToEventService(
             lead.visitorId,
-            payload.boothId,
+            boothId,
             lead.formData as LeadFormData,
           );
           syncedCount++;
@@ -576,11 +589,13 @@ export class ExpoInternalController {
       }
 
       this.logger.log(
-        `Resync complete for booth ${payload.boothId}: ${syncedCount} synced, ${failedCount} failed`,
+        `Resync complete for booth ${boothId}: ${syncedCount} synced, ${failedCount} failed`,
       );
 
       return {
         success: true,
+        boothId,
+        boothName: booth.name,
         summary: {
           total: leads.length,
           synced: syncedCount,
