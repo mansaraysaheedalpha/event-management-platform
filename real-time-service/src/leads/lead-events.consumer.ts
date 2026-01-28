@@ -140,20 +140,21 @@ export class LeadEventsConsumer implements OnModuleInit, OnModuleDestroy {
           'GROUP',
           this.CONSUMER_GROUP,
           this.CONSUMER_ID,
-          'BLOCK',
-          this.BLOCK_TIMEOUT_MS,
           'COUNT',
           this.BATCH_SIZE,
+          'BLOCK',
+          this.BLOCK_TIMEOUT_MS,
           'STREAMS',
           this.STREAM_NAME,
           '>',
-        );
+        ) as [string, [string, string[]][]][] | null;
 
         if (!result || result.length === 0) {
           continue; // No messages, continue waiting
         }
 
         // Process messages from the stream
+        // Result format: [[streamName, [[messageId, [field, value, ...]], ...]]]
         for (const [, messages] of result) {
           for (const [messageId, fields] of messages) {
             await this.processMessage(messageId, fields);
@@ -299,36 +300,40 @@ export class LeadEventsConsumer implements OnModuleInit, OnModuleDestroy {
   private async claimPendingMessages(): Promise<void> {
     try {
       // XPENDING shows messages that haven't been acknowledged
+      // Returns: [[messageId, consumer, idleTime, deliveryCount], ...]
       const pending = await this.redis.xpending(
         this.STREAM_NAME,
         this.CONSUMER_GROUP,
         '-',
         '+',
         10, // Check up to 10 pending messages
-      );
+      ) as [string, string, number, number][];
 
       if (!pending || pending.length === 0) {
         return;
       }
 
       // Claim messages that have been pending longer than threshold
-      for (const [messageId, consumer, idleTime] of pending) {
+      for (const entry of pending) {
+        const [messageId, consumer, idleTime] = entry;
         if (Number(idleTime) > this.PENDING_CLAIM_TIMEOUT_MS) {
           this.logger.log(
             `Claiming pending message ${messageId} from ${consumer} (idle: ${idleTime}ms)`,
           );
 
           // XCLAIM transfers ownership of the message to this consumer
+          // Returns: [[messageId, [field, value, ...]], ...]
           const claimed = await this.redis.xclaim(
             this.STREAM_NAME,
             this.CONSUMER_GROUP,
             this.CONSUMER_ID,
             this.PENDING_CLAIM_TIMEOUT_MS,
             messageId,
-          );
+          ) as [string, string[]][];
 
           // Reprocess claimed messages
-          for (const [claimedId, fields] of claimed) {
+          for (const claimedEntry of claimed) {
+            const [claimedId, fields] = claimedEntry;
             await this.processMessage(claimedId, fields);
           }
         }
