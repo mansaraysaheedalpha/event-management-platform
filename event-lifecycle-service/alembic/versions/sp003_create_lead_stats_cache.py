@@ -22,7 +22,8 @@ from sqlalchemy.dialects.postgresql import JSON
 
 # revision identifiers, used by Alembic.
 revision = 'sp003_lead_stats_cache'
-down_revision = 'sp002_campaign_tables'
+# Merge migration: combines sp002_campaign_tables and v002_virtual_attendance branches
+down_revision = ('sp002_campaign_tables', 'v002_virtual_attendance')
 branch_labels = None
 depends_on = None
 
