@@ -348,6 +348,26 @@ services:
     env_file:
       - ./.env
 
+  lead-consumer:
+    build:
+      context: ./event-lifecycle-service
+    container_name: lead-consumer
+    restart: always
+    command: python run_lead_consumer.py
+    volumes:
+      - ./event-lifecycle-service:/app
+    networks:
+      - platform-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      event-lifecycle-service:
+        condition: service_healthy
+    env_file:
+      - ./.env
+
   real-time-service:
     build:
       context: ./real-time-service

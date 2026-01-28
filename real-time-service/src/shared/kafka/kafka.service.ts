@@ -5,7 +5,29 @@ import { Kafka, Producer, logLevel, SASLOptions } from 'kafkajs';
 // Kafka Topics
 export const KAFKA_TOPICS = {
   GIVEAWAY_EVENTS: 'giveaway.events.v1',
+  LEAD_CAPTURE_EVENTS: 'lead.capture.events.v1',
+  LEAD_INTENT_EVENTS: 'lead.intent.events.v1',
 } as const;
+
+// Lead capture event types
+export interface LeadCaptureEvent {
+  type: 'LEAD_CAPTURED';
+  sponsorId: string;
+  eventId: string;
+  userId: string;
+  boothId: string;
+  formData: {
+    name?: string;
+    email?: string;
+    company?: string;
+    jobTitle?: string;
+    phone?: string;
+    interests?: string;
+    message?: string;
+    marketingConsent?: boolean;
+  };
+  timestamp: string;
+}
 
 // Giveaway event types
 export interface GiveawayWinnerEmailEvent {
@@ -115,6 +137,37 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       return true;
     } catch (error) {
       this.logger.error('Failed to send giveaway winner email event:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Send a lead capture event to Kafka
+   * This replaces the synchronous HTTP call to event-lifecycle-service
+   */
+  async sendLeadCaptureEvent(event: LeadCaptureEvent): Promise<boolean> {
+    if (!this.isConnected) {
+      this.logger.warn('Kafka not connected, skipping lead capture event');
+      return false;
+    }
+
+    try {
+      await this.producer.send({
+        topic: KAFKA_TOPICS.LEAD_CAPTURE_EVENTS,
+        messages: [
+          {
+            key: event.sponsorId,
+            value: JSON.stringify(event),
+          },
+        ],
+      });
+
+      this.logger.log(
+        `Lead capture event sent for sponsor ${event.sponsorId}, booth ${event.boothId}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to send lead capture event:', error);
       return false;
     }
   }

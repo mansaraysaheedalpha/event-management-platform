@@ -74,3 +74,4 @@ class Sponsor(Base):
     leads = relationship("SponsorLead", back_populates="sponsor")
     campaigns = relationship("SponsorCampaign", back_populates="sponsor")
     expo_booth = relationship("ExpoBooth", back_populates="sponsor", uselist=False)
+    lead_stats_cache = relationship("SponsorLeadStatsCache", back_populates="sponsor", uselist=False)

@@ -1,10 +1,13 @@
 // src/expo/expo-analytics.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/prisma.service';
 import { Prisma } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../shared/redis.constants';
+import { KafkaService, LeadCaptureEvent } from '../shared/kafka/kafka.service';
 
 interface EngagementAction {
   action: string;
@@ -29,11 +32,14 @@ export class ExpoAnalyticsService {
   private readonly eventLifecycleServiceUrl: string;
   private readonly userOrgServiceUrl: string;
   private readonly internalApiKey: string;
+  private readonly useKafkaForLeadSync: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly kafkaService: KafkaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.eventLifecycleServiceUrl = this.configService.get<string>(
       'EVENT_LIFECYCLE_SERVICE_URL',
@@ -47,6 +53,11 @@ export class ExpoAnalyticsService {
       'INTERNAL_API_KEY',
       '',
     );
+    // Feature flag to enable Kafka-based lead sync (default: true for new implementation)
+    this.useKafkaForLeadSync = this.configService.get<string>(
+      'FF_KAFKA_LEAD_SYNC',
+      'true',
+    ) === 'true';
   }
 
   /**
@@ -73,6 +84,9 @@ export class ExpoAnalyticsService {
       await this.incrementAnalytics(boothId, 'totalDownloads');
       await this.incrementResourceDownload(boothId, resourceId);
       await this.incrementBoothResourceDownloadCount(boothId, resourceId);
+
+      // Broadcast analytics update
+      await this.publishAnalyticsUpdate(boothId, 'RESOURCE_DOWNLOAD');
 
       this.logger.log(
         `Resource ${resourceId} downloaded from booth ${boothId} by ${userId}`,
@@ -105,6 +119,9 @@ export class ExpoAnalyticsService {
       await this.incrementAnalytics(boothId, 'totalCtaClicks');
       await this.incrementCtaClick(boothId, ctaId);
       await this.incrementBoothCtaClickCount(boothId, ctaId);
+
+      // Broadcast analytics update
+      await this.publishAnalyticsUpdate(boothId, 'CTA_CLICK');
 
       this.logger.log(`CTA ${ctaId} clicked in booth ${boothId} by ${userId}`);
     } catch (error) {
@@ -145,6 +162,9 @@ export class ExpoAnalyticsService {
       // Sync lead to event-lifecycle-service for sponsor dashboard
       await this.syncLeadToEventService(userId, boothId, formData as LeadFormData);
 
+      // Broadcast analytics update immediately via Redis Pub/Sub
+      await this.publishAnalyticsUpdate(boothId, 'LEAD_CAPTURED');
+
       this.logger.log(`Lead captured in booth ${boothId} from user ${userId}`);
     } catch (error) {
       this.logger.error(`Failed to track lead capture: ${error}`);
@@ -157,6 +177,8 @@ export class ExpoAnalyticsService {
    * Syncs a captured lead to the event-lifecycle-service.
    * This creates a SponsorLead record that shows up in the sponsor dashboard.
    * Made public to allow manual resyncs via internal API.
+   *
+   * Uses Kafka for async processing (default) or HTTP for fallback.
    */
   async syncLeadToEventService(
     userId: string,
@@ -185,41 +207,41 @@ export class ExpoAnalyticsService {
         return;
       }
 
-      // Ensure URL doesn't have trailing slash
-      const baseUrl = this.eventLifecycleServiceUrl.replace(/\/$/, '');
-      const url = `${baseUrl}/api/v1/events/${eventId}/sponsors/${sponsorId}/capture-lead`;
-
-      // Build lead data payload
-      const leadPayload = {
-        user_id: userId,
-        user_name: formData.name || null,
-        user_email: formData.email || null,
-        user_company: formData.company || null,
-        user_title: formData.jobTitle || null,
-        interaction_type: 'booth_contact_form',
-        interaction_metadata: {
-          message: formData.message || null,
-          phone: formData.phone || null,
-          interests: formData.interests || null,
-          marketing_consent: formData.marketingConsent || false,
-          booth_id: boothId,
-          booth_name: booth.name,
-        },
-      };
-
-      const response = await firstValueFrom(
-        this.httpService.post(url, leadPayload, {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Internal-Api-Key': this.internalApiKey,
+      // Use Kafka for async processing (eliminates HTTP timeout issues)
+      if (this.useKafkaForLeadSync) {
+        const leadEvent: LeadCaptureEvent = {
+          type: 'LEAD_CAPTURED',
+          sponsorId,
+          eventId,
+          userId,
+          boothId,
+          formData: {
+            name: formData.name,
+            email: formData.email,
+            company: formData.company,
+            jobTitle: formData.jobTitle,
+            phone: formData.phone,
+            interests: formData.interests,
+            message: formData.message,
+            marketingConsent: formData.marketingConsent,
           },
-          timeout: 5000, // 5 second timeout
-        }),
-      );
+          timestamp: new Date().toISOString(),
+        };
 
-      this.logger.log(
-        `Lead synced to event-lifecycle-service for sponsor ${sponsorId}, lead ID: ${response.data?.id}`,
-      );
+        const sent = await this.kafkaService.sendLeadCaptureEvent(leadEvent);
+        if (sent) {
+          this.logger.log(
+            `Lead capture event published to Kafka for sponsor ${sponsorId}`,
+          );
+        } else {
+          // Fallback to HTTP if Kafka fails
+          this.logger.warn('Kafka unavailable, falling back to HTTP sync');
+          await this.syncLeadViaHttp(userId, boothId, booth, formData, sponsorId, eventId);
+        }
+      } else {
+        // Legacy HTTP-based sync
+        await this.syncLeadViaHttp(userId, boothId, booth, formData, sponsorId, eventId);
+      }
     } catch (error: any) {
       // Log error but don't fail the lead capture
       // The lead is still saved locally in BoothVisit
@@ -227,6 +249,100 @@ export class ExpoAnalyticsService {
       this.logger.error(
         `Failed to sync lead to event-lifecycle-service: ${errorMessage}`,
       );
+    }
+  }
+
+  /**
+   * Legacy HTTP-based sync to event-lifecycle-service.
+   * Used as fallback when Kafka is unavailable.
+   */
+  private async syncLeadViaHttp(
+    userId: string,
+    boothId: string,
+    booth: { name: string },
+    formData: LeadFormData,
+    sponsorId: string,
+    eventId: string,
+  ) {
+    // Ensure URL doesn't have trailing slash
+    const baseUrl = this.eventLifecycleServiceUrl.replace(/\/$/, '');
+    const url = `${baseUrl}/api/v1/events/${eventId}/sponsors/${sponsorId}/capture-lead`;
+
+    // Build lead data payload
+    const leadPayload = {
+      user_id: userId,
+      user_name: formData.name || null,
+      user_email: formData.email || null,
+      user_company: formData.company || null,
+      user_title: formData.jobTitle || null,
+      interaction_type: 'booth_contact_form',
+      interaction_metadata: {
+        message: formData.message || null,
+        phone: formData.phone || null,
+        interests: formData.interests || null,
+        marketing_consent: formData.marketingConsent || false,
+        booth_id: boothId,
+        booth_name: booth.name,
+      },
+    };
+
+    const response = await firstValueFrom(
+      this.httpService.post(url, leadPayload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Api-Key': this.internalApiKey,
+        },
+        timeout: 5000, // 5 second timeout
+      }),
+    );
+
+    this.logger.log(
+      `Lead synced to event-lifecycle-service via HTTP for sponsor ${sponsorId}, lead ID: ${response.data?.id}`,
+    );
+  }
+
+  /**
+   * Publishes an analytics update to Redis Pub/Sub for real-time push.
+   * This enables immediate updates to sponsor dashboards and booth staff.
+   */
+  private async publishAnalyticsUpdate(
+    boothId: string,
+    eventType: string,
+  ): Promise<void> {
+    try {
+      const booth = await this.prisma.expoBooth.findUnique({
+        where: { id: boothId },
+        select: { sponsorId: true },
+      });
+
+      const stats = await this.getRealtimeStats(boothId);
+
+      const payload = {
+        type: 'expo.booth.analytics.update',
+        boothId,
+        sponsorId: booth?.sponsorId,
+        eventType,
+        stats: {
+          currentVisitors: stats.currentVisitors,
+          totalVisitors: stats.totalVisitors,
+          totalLeads: stats.totalLeads,
+          totalDownloads: stats.totalDownloads,
+          totalCtaClicks: stats.totalCtaClicks,
+        },
+        timestamp: new Date().toISOString(),
+      };
+
+      await this.redis.publish('analytics-events', JSON.stringify(payload));
+
+      this.logger.debug(
+        `Analytics update published for booth ${boothId}: ${eventType}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish analytics update for booth ${boothId}:`,
+        error,
+      );
+      // Don't throw - analytics push should not block lead capture
     }
   }
 

@@ -15,6 +15,7 @@ from app.models.sponsor import Sponsor
 from app.models.sponsor_user import SponsorUser
 from app.models.sponsor_invitation import SponsorInvitation
 from app.models.sponsor_lead import SponsorLead
+from app.models.sponsor_lead_stats_cache import SponsorLeadStatsCache
 from app.schemas.sponsor import (
     SponsorTierCreate, SponsorTierUpdate,
     SponsorCreate, SponsorUpdate,
@@ -591,7 +592,21 @@ class CRUDSponsorLead(CRUDBase[SponsorLead, SponsorLeadCreate, SponsorLeadUpdate
         return lead
 
     def get_stats(self, db: Session, *, sponsor_id: str) -> Dict[str, Any]:
-        """Get lead statistics for a sponsor."""
+        """
+        Get lead statistics for a sponsor.
+
+        First tries the pre-computed cache (updated by PostgreSQL trigger),
+        then falls back to live aggregation if cache is not available.
+        """
+        # Try to get from cache first (O(1) lookup)
+        cached_stats = db.query(SponsorLeadStatsCache).filter(
+            SponsorLeadStatsCache.sponsor_id == sponsor_id
+        ).first()
+
+        if cached_stats:
+            return cached_stats.to_dict()
+
+        # Fallback to live aggregation (for sponsors without any leads yet)
         leads = db.query(self.model).filter(
             self.model.sponsor_id == sponsor_id,
             self.model.is_archived == False
