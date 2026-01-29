@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{{ subject }}</title>
+    <!--[if mso]>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <![endif]-->
+    <style>
+        /* Reset styles */
+        body, table, td, p, a, li, blockquote {
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        table, td {
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+        }
+        img {
+            -ms-interpolation-mode: bicubic;
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+        }
+        /* Main styles */
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background-color: #f4f4f5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .email-bg { background-color: #18181b !important; }
+            .email-content { background-color: #27272a !important; }
+            .email-text { color: #fafafa !important; }
+            .email-muted { color: #a1a1aa !important; }
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f5;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="email-bg" style="background-color: #f4f4f5;">
+        <tr>
+            <td style="padding: 20px 10px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="email-container" style="max-width: 600px; margin: 0 auto;">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 20px 30px 15px 30px; text-align: left;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="font-size: 13px; color: #71717a;" class="email-muted">
+                                        <span style="color: #3b82f6; font-weight: 600;">{{ sender_company }}</span>
+                                        <span style="color: #d4d4d8; margin: 0 8px;">|</span>
+                                        <span>via Event Dynamics</span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Email Body -->
+                    <tr>
+                        <td>
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="email-content" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                                <tr>
+                                    <td style="padding: 35px 35px 30px 35px;">
+                                        <!-- Message Content -->
+                                        <div class="email-text" style="font-size: 15px; line-height: 1.7; color: #27272a;">
+                                            {{ content }}
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 25px 30px 20px 30px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="font-size: 12px; line-height: 1.6; color: #a1a1aa; text-align: center;" class="email-muted">
+                                        <p style="margin: 0 0 8px 0;">
+                                            You're receiving this because you connected with <strong>{{ sender_company }}</strong> at the event.
+                                        </p>
+                                        <p style="margin: 0 0 12px 0;">
+                                            <a href="{{ unsubscribe_url }}" style="color: #71717a; text-decoration: underline;">Unsubscribe</a>
+                                            <span style="color: #d4d4d8; margin: 0 6px;">|</span>
+                                            <a href="{{ preferences_url }}" style="color: #71717a; text-decoration: underline;">Email Preferences</a>
+                                        </p>
+                                        <p style="margin: 0; color: #d4d4d8;">
+                                            Powered by <a href="https://eventdynamics.io" style="color: #a1a1aa; text-decoration: none;">Event Dynamics</a>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Tracking pixel -->
+    {{ tracking_pixel }}
+</body>
+</html>

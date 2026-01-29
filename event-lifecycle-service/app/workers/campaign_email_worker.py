@@ -57,6 +57,61 @@ EMAIL_DELAY_MS = 550  # 550ms delay between emails = ~1.8 req/sec (safe margin f
 # Initialize Resend
 resend.api_key = settings.RESEND_API_KEY
 
+# Load HTML email template
+TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
+EMAIL_TEMPLATE_PATH = TEMPLATE_DIR / "campaign_email.html"
+
+
+def load_email_template() -> str:
+    """Load the HTML email template."""
+    try:
+        with open(EMAIL_TEMPLATE_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning(f"Email template not found at {EMAIL_TEMPLATE_PATH}, using plain text")
+        return "{{ content }}{{ tracking_pixel }}"
+
+
+def render_email_html(
+    content: str,
+    subject: str,
+    sender_company: str,
+    tracking_pixel: str,
+    delivery_id: str,
+) -> str:
+    """
+    Render the full HTML email with the template.
+
+    Args:
+        content: The personalized message body
+        subject: Email subject
+        sender_company: Company name of the sender
+        tracking_pixel: HTML for open tracking
+        delivery_id: For generating unsubscribe/preference links
+    """
+    template_str = load_email_template()
+    template = Template(template_str)
+
+    # Generate URLs
+    base_url = settings.NEXT_PUBLIC_APP_URL or "https://eventdynamics.io"
+    unsubscribe_url = f"{base_url}/unsubscribe/{delivery_id}"
+    preferences_url = f"{base_url}/email-preferences/{delivery_id}"
+
+    # Convert plain text line breaks to HTML paragraphs
+    # Split by double newlines for paragraphs, single newlines for line breaks
+    formatted_content = content.replace("\n\n", "</p><p style='margin: 0 0 16px 0;'>")
+    formatted_content = formatted_content.replace("\n", "<br>")
+    formatted_content = f"<p style='margin: 0 0 16px 0;'>{formatted_content}</p>"
+
+    return template.render(
+        content=formatted_content,
+        subject=subject,
+        sender_company=sender_company or "Event Dynamics",
+        tracking_pixel=tracking_pixel,
+        unsubscribe_url=unsubscribe_url,
+        preferences_url=preferences_url,
+    )
+
 
 def create_db_session() -> Session:
     """Create database session."""
@@ -213,11 +268,6 @@ def process_campaign(campaign_id: str, db: Session):
                     campaign_obj.message_body, lead, sender_name, sender_company
                 )
 
-                # Add tracking pixel to body
-                delivery_id = f"spdlvr_{lead.id}_{campaign_obj.id[:8]}"  # Temporary ID
-                tracking_pixel = f'<img src="{settings.NEXT_PUBLIC_APP_URL}/api/v1/sponsors-campaigns/campaigns/track/open/{delivery_id}.png" width="1" height="1" alt="" />'
-                personalized_body_with_tracking = personalized_body + tracking_pixel
-
                 # Create delivery record BEFORE sending
                 delivery = campaign_delivery.create(
                     db,
@@ -229,15 +279,23 @@ def process_campaign(campaign_id: str, db: Session):
                     personalized_body=personalized_body,
                 )
 
-                # Update tracking pixel with real delivery ID
-                tracking_pixel = f'<img src="{settings.NEXT_PUBLIC_APP_URL}/api/v1/sponsors-campaigns/campaigns/track/open/{delivery.id}.png" width="1" height="1" alt="" />'
-                personalized_body_with_tracking = personalized_body + tracking_pixel
+                # Build tracking pixel with real delivery ID
+                tracking_pixel = f'<img src="{settings.NEXT_PUBLIC_APP_URL}/api/v1/sponsors-campaigns/campaigns/track/open/{delivery.id}.png" width="1" height="1" alt="" style="display:block;width:1px;height:1px;" />'
+
+                # Render full HTML email with template
+                html_email = render_email_html(
+                    content=personalized_body,
+                    subject=personalized_subject,
+                    sender_company=sender_company,
+                    tracking_pixel=tracking_pixel,
+                    delivery_id=delivery.id,
+                )
 
                 # Send email
                 result = send_email_via_resend(
                     recipient_email=lead.user_email,
                     subject=personalized_subject,
-                    html_body=personalized_body_with_tracking,
+                    html_body=html_email,
                 )
 
                 # Update delivery status
