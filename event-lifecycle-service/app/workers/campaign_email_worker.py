@@ -65,16 +65,25 @@ def create_db_session() -> Session:
     return SessionLocal()
 
 
-def personalize_template(template_str: str, lead: SponsorLead) -> str:
+def personalize_template(
+    template_str: str,
+    lead: SponsorLead,
+    sender_name: str = "",
+    sender_company: str = ""
+) -> str:
     """
-    Personalize email template with lead data using Jinja2.
+    Personalize email template with lead and sender data using Jinja2.
 
-    Available variables:
+    Available variables (recipient):
     - {{name}} or {{first_name}}
     - {{last_name}}
     - {{company}}
     - {{title}}
     - {{email}}
+
+    Available variables (sender):
+    - {{sender_name}}
+    - {{sender_company}}
     """
     try:
         template = Template(template_str)
@@ -85,12 +94,16 @@ def personalize_template(template_str: str, lead: SponsorLead) -> str:
         last_name = name_parts[1] if len(name_parts) > 1 else ""
 
         context = {
+            # Recipient variables
             "name": lead.user_name or "there",
             "first_name": first_name,
             "last_name": last_name,
             "company": lead.user_company or "",
             "title": lead.user_title or "",
             "email": lead.user_email or "",
+            # Sender variables
+            "sender_name": sender_name,
+            "sender_company": sender_company,
         }
 
         return template.render(**context)
@@ -162,6 +175,12 @@ def process_campaign(campaign_id: str, db: Session):
     # Mark as sending
     sponsor_campaign.mark_sending(db, campaign=campaign_obj)
 
+    # Get sender info from campaign and sponsor
+    sender_name = campaign_obj.created_by_user_name or ""
+    sender_company = ""
+    if campaign_obj.sponsor:
+        sender_company = campaign_obj.sponsor.company_name or ""
+
     # Get recipients
     leads = sponsor_campaign.get_recipients(
         db,
@@ -187,8 +206,12 @@ def process_campaign(campaign_id: str, db: Session):
         for lead in batch:
             try:
                 # Personalize subject and body
-                personalized_subject = personalize_template(campaign_obj.subject, lead)
-                personalized_body = personalize_template(campaign_obj.message_body, lead)
+                personalized_subject = personalize_template(
+                    campaign_obj.subject, lead, sender_name, sender_company
+                )
+                personalized_body = personalize_template(
+                    campaign_obj.message_body, lead, sender_name, sender_company
+                )
 
                 # Add tracking pixel to body
                 delivery_id = f"spdlvr_{lead.id}_{campaign_obj.id[:8]}"  # Temporary ID
