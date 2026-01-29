@@ -266,7 +266,7 @@ export class ExpoAnalyticsService {
   ) {
     // Ensure URL doesn't have trailing slash
     const baseUrl = this.eventLifecycleServiceUrl.replace(/\/$/, '');
-    const url = `${baseUrl}/api/v1/events/${eventId}/sponsors/${sponsorId}/capture-lead`;
+    const url = `${baseUrl}/api/v1/sponsors/events/${eventId}/sponsors/${sponsorId}/capture-lead`;
 
     // Build lead data payload
     const leadPayload = {
