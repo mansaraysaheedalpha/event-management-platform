@@ -32,7 +32,11 @@ def get_kafka_producer():
             "value_serializer": lambda v: json.dumps(v, default=str).encode("utf-8"),
             "request_timeout_ms": 10000,
             "api_version_auto_timeout_ms": 10000,
+            "acks": "all",  # Wait for all replicas to acknowledge (reliable delivery)
+            "retries": 3,  # Retry on transient failures
         }
+
+        logger.info(f"Connecting to Kafka at: {settings.KAFKA_BOOTSTRAP_SERVERS[:30]}...")
 
         # Add SASL authentication if credentials are provided (for Confluent Cloud)
         if settings.KAFKA_API_KEY and settings.KAFKA_API_SECRET:

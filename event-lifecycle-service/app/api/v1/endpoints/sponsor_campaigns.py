@@ -129,15 +129,22 @@ async def create_campaign(
                     "recipient_count": len(recipients),
                     "created_at": datetime.utcnow().isoformat(),
                 }
-                kafka_producer.send(
+                # Send message and wait for delivery confirmation
+                future = kafka_producer.send(
                     KAFKA_TOPIC,
                     key=campaign.id.encode('utf-8'),
                     value=event
                 )
-                kafka_producer.flush()
-                logger.info(f"Campaign {campaign.id} queued to Kafka for sending")
+                # Wait for the message to be delivered (blocks until sent or error)
+                # Timeout after 10 seconds to avoid hanging
+                record_metadata = future.get(timeout=10)
+                logger.info(
+                    f"Campaign {campaign.id} queued to Kafka successfully. "
+                    f"Topic: {record_metadata.topic}, Partition: {record_metadata.partition}, "
+                    f"Offset: {record_metadata.offset}"
+                )
             except Exception as e:
-                logger.error(f"Failed to queue campaign to Kafka: {e}")
+                logger.error(f"Failed to queue campaign to Kafka: {e}", exc_info=True)
                 sponsor_campaign.mark_failed(db, campaign=campaign, error=str(e))
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
