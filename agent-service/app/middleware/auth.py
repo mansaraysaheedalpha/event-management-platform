@@ -51,11 +51,16 @@ async def verify_token(authorization: Optional[str] = Header(None)) -> AuthUser:
                 detail="Invalid authentication scheme. Use Bearer token."
             )
 
-        # Verify JWT token
+        # SECURITY: JWT_SECRET must be configured - fail closed, never open
         if not settings.JWT_SECRET:
-            logger.warning("JWT_SECRET not configured - authentication disabled in development")
-            # Development mode: Allow without verification
-            return AuthUser(user_id="dev_user", email="dev@example.com", permissions=["*"])
+            logger.critical(
+                "SECURITY VIOLATION: JWT_SECRET not configured. "
+                "This is a critical misconfiguration that must be fixed immediately."
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Server configuration error: Authentication system unavailable"
+            )
 
         payload = jwt.decode(
             token,
@@ -94,6 +99,8 @@ async def verify_organizer(
     """
     Verify that the authenticated user is an organizer for the event/session.
 
+    SECURITY: This function follows fail-closed principle - any error denies access.
+
     Args:
         session_id: Session ID to check ownership for
         user: Authenticated user from verify_token
@@ -102,41 +109,48 @@ async def verify_organizer(
         AuthUser if authorized
 
     Raises:
-        HTTPException: If user is not authorized
+        HTTPException: If user is not authorized or verification fails
     """
-    # Development bypass
-    if user.user_id == "dev_user":
-        return user
-
     # Check if user has admin permissions
     if "*" in user.permissions or "event:manage" in user.permissions:
         return user
 
-    # TODO: Query database to verify user owns the event for this session
-    # For now, we'll implement a basic check
     try:
         async with AsyncSessionLocal() as db:
             # Query to check if user is organizer of the event for this session
+            # Using SQLAlchemy text() for parameterized queries
+            from sqlalchemy import text
             result = await db.execute(
-                """
-                SELECT em.event_id, e.organizer_id
-                FROM engagement_metrics em
-                LEFT JOIN events e ON em.event_id = e.id
-                WHERE em.session_id = :session_id
-                LIMIT 1
-                """,
+                text("""
+                    SELECT em.event_id, e.organizer_id
+                    FROM engagement_metrics em
+                    LEFT JOIN events e ON em.event_id = e.id
+                    WHERE em.session_id = :session_id
+                    LIMIT 1
+                """),
                 {"session_id": session_id}
             )
             row = result.fetchone()
 
             if not row:
-                # Session not found or no data yet - allow for now
-                logger.warning(f"Session {session_id} not found in database")
-                return user
+                # Session not found - check if user has general event access
+                # This handles the case of new sessions not yet in the metrics table
+                logger.info(f"Session {session_id} not found in metrics, checking event access")
+                # For new sessions, require explicit event:manage permission
+                if "event:view" in user.permissions:
+                    return user
+                raise HTTPException(
+                    status_code=403,
+                    detail="Session not found or you do not have access"
+                )
 
             organizer_id = row.organizer_id if hasattr(row, 'organizer_id') else None
 
-            if organizer_id and organizer_id != user.user_id:
+            if organizer_id and str(organizer_id) != str(user.user_id):
+                logger.warning(
+                    f"Authorization denied: user {user.user_id} attempted to access "
+                    f"session {session_id} owned by {organizer_id}"
+                )
                 raise HTTPException(
                     status_code=403,
                     detail="You are not authorized to manage this event"
@@ -147,10 +161,15 @@ async def verify_organizer(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error verifying organizer permissions: {e}")
-        # Fail open in case of database errors (for now)
-        # In production, you might want to fail closed
-        return user
+        # SECURITY: Fail closed - deny access on any error
+        logger.error(
+            f"Authorization check failed for user {user.user_id}, session {session_id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Authorization verification failed. Please try again."
+        )
 
 
 async def verify_event_owner(
@@ -160,6 +179,8 @@ async def verify_event_owner(
     """
     Verify that the authenticated user owns the specified event.
 
+    SECURITY: This function follows fail-closed principle - any error denies access.
+
     Args:
         event_id: Event ID to check ownership for
         user: Authenticated user from verify_token
@@ -168,27 +189,21 @@ async def verify_event_owner(
         AuthUser if authorized
 
     Raises:
-        HTTPException: If user is not authorized
+        HTTPException: If user is not authorized or verification fails
     """
-    # Development bypass
-    if user.user_id == "dev_user":
-        return user
-
     # Check if user has admin permissions
     if "*" in user.permissions or "event:manage" in user.permissions:
         return user
 
-    # TODO: Query main database to verify event ownership
-    # This would typically call the event-lifecycle-service or query shared DB
     try:
         async with AsyncSessionLocal() as db:
-            # Placeholder query - adjust based on your schema
+            from sqlalchemy import text
             result = await db.execute(
-                """
-                SELECT organizer_id
-                FROM events
-                WHERE id = :event_id
-                """,
+                text("""
+                    SELECT organizer_id
+                    FROM events
+                    WHERE id = :event_id
+                """),
                 {"event_id": event_id}
             )
             row = result.fetchone()
@@ -199,7 +214,11 @@ async def verify_event_owner(
                     detail="Event not found"
                 )
 
-            if row.organizer_id != user.user_id:
+            if str(row.organizer_id) != str(user.user_id):
+                logger.warning(
+                    f"Authorization denied: user {user.user_id} attempted to access "
+                    f"event {event_id} owned by {row.organizer_id}"
+                )
                 raise HTTPException(
                     status_code=403,
                     detail="You are not authorized to manage this event"
@@ -210,9 +229,15 @@ async def verify_event_owner(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error verifying event ownership: {e}")
-        # Fail open for now - in production you may want to fail closed
-        return user
+        # SECURITY: Fail closed - deny access on any error
+        logger.error(
+            f"Event ownership check failed for user {user.user_id}, event {event_id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Authorization verification failed. Please try again."
+        )
 
 
 def has_permission(user: AuthUser, required_permission: str) -> bool:

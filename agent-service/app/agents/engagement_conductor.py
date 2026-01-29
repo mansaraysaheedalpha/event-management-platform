@@ -146,7 +146,14 @@ class EngagementConductorAgent:
 
     Implements full Perceive → Decide → Act → Learn cycle with support for
     three operating modes (Manual, Semi-Auto, Auto).
+
+    RELIABILITY: Pending approvals are persisted to Redis to survive service restarts.
+    This ensures no approval requests are lost during deployments or crashes.
     """
+
+    # Redis key prefix for pending approvals
+    PENDING_APPROVAL_KEY_PREFIX = "agent:pending_approval:"
+    PENDING_APPROVAL_INDEX_KEY = "agent:pending_approvals:index"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -188,9 +195,9 @@ class EngagementConductorAgent:
         self.memory = MemorySaver()
         self.app = self.workflow.compile(checkpointer=self.memory)
 
-        # Track active decisions awaiting approval with timestamps for TTL cleanup
+        # Local cache for pending approvals (backed by Redis for persistence)
         # Format: {session_id: (AgentState, created_at)}
-        self._pending_approvals: Dict[str, Tuple[AgentState, datetime]] = {}
+        self._pending_approvals_cache: Dict[str, Tuple[AgentState, datetime]] = {}
 
         # Start background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
@@ -198,16 +205,18 @@ class EngagementConductorAgent:
         # Store current agent mode (default to MANUAL)
         self._current_mode: AgentMode = AgentMode.MANUAL
 
-        logger.info("EngagementConductorAgent initialized with LangGraph workflow")
+        logger.info("EngagementConductorAgent initialized with LangGraph workflow and Redis persistence")
 
     @property
     def pending_approvals(self) -> Dict[str, AgentState]:
-        """Get pending approvals dict (for backwards compatibility)."""
-        return {k: v[0] for k, v in self._pending_approvals.items()}
+        """Get pending approvals dict (for backwards compatibility - uses local cache)."""
+        return {k: v[0] for k, v in self._pending_approvals_cache.items()}
 
     async def start_cleanup_task(self):
         """Start the background cleanup task for expired pending approvals."""
         if self._cleanup_task is None or self._cleanup_task.done():
+            # Load existing pending approvals from Redis on startup
+            await self._load_pending_approvals_from_redis()
             self._cleanup_task = asyncio.create_task(self._cleanup_expired_approvals())
             logger.info("Started pending approvals cleanup task")
 
@@ -221,15 +230,54 @@ class EngagementConductorAgent:
                 pass
             logger.info("Stopped pending approvals cleanup task")
 
+    async def _load_pending_approvals_from_redis(self):
+        """Load pending approvals from Redis on startup for crash recovery."""
+        try:
+            if redis_client is None:
+                logger.warning("Redis client not available, skipping pending approvals recovery")
+                return
+
+            # Get all pending approval keys
+            keys = await redis_client.client.keys(f"{self.PENDING_APPROVAL_KEY_PREFIX}*")
+            loaded_count = 0
+
+            for key in keys:
+                try:
+                    data = await redis_client.client.get(key)
+                    if data:
+                        approval_data = json.loads(data)
+                        session_id = approval_data.get("session_id")
+                        created_at = datetime.fromisoformat(approval_data.get("created_at"))
+                        state = self._deserialize_state(approval_data.get("state"))
+
+                        # Check if still valid
+                        age = (datetime.now(timezone.utc) - created_at).total_seconds()
+                        if age <= self.PENDING_APPROVAL_TTL_SECONDS:
+                            self._pending_approvals_cache[session_id] = (state, created_at)
+                            loaded_count += 1
+                        else:
+                            # Expired, delete from Redis
+                            await redis_client.client.delete(key)
+
+                except Exception as e:
+                    logger.error(f"Error loading pending approval from Redis key {key}: {e}")
+
+            if loaded_count > 0:
+                logger.info(f"Recovered {loaded_count} pending approvals from Redis")
+
+        except Exception as e:
+            logger.error(f"Error loading pending approvals from Redis: {e}")
+
     async def _cleanup_expired_approvals(self):
-        """Background task to clean up expired pending approvals."""
+        """Background task to clean up expired pending approvals from cache and Redis."""
         while True:
             try:
                 await asyncio.sleep(60)  # Check every minute
                 now = datetime.now(timezone.utc)
                 expired = []
 
-                for session_id, (state, created_at) in self._pending_approvals.items():
+                # Check local cache
+                for session_id, (state, created_at) in list(self._pending_approvals_cache.items()):
                     age = (now - created_at).total_seconds()
                     if age > self.PENDING_APPROVAL_TTL_SECONDS:
                         expired.append(session_id)
@@ -239,7 +287,11 @@ class EngagementConductorAgent:
                         f"Cleaning up expired pending approval for session {session_id} "
                         f"(TTL exceeded: {self.PENDING_APPROVAL_TTL_SECONDS}s)"
                     )
-                    del self._pending_approvals[session_id]
+                    # Remove from cache
+                    if session_id in self._pending_approvals_cache:
+                        del self._pending_approvals_cache[session_id]
+                    # Remove from Redis
+                    await self._remove_pending_approval_from_redis(session_id)
 
                 if expired:
                     logger.info(f"Cleaned up {len(expired)} expired pending approvals")
@@ -249,43 +301,166 @@ class EngagementConductorAgent:
             except Exception as e:
                 logger.error(f"Error in pending approvals cleanup: {e}")
 
-    def _add_pending_approval(self, session_id: str, state: AgentState):
-        """Add a pending approval with TTL tracking and size limit enforcement."""
+    def _serialize_state(self, state: AgentState) -> Dict:
+        """Serialize AgentState for Redis storage."""
+        serialized = {}
+        for key, value in state.items():
+            if isinstance(value, Enum):
+                serialized[key] = {"_enum": type(value).__name__, "value": value.value}
+            elif isinstance(value, datetime):
+                serialized[key] = {"_datetime": value.isoformat()}
+            elif hasattr(value, '__dict__'):
+                # Handle dataclasses and custom objects
+                serialized[key] = {"_object": type(value).__name__, "data": value.__dict__}
+            else:
+                serialized[key] = value
+        return serialized
+
+    def _deserialize_state(self, data: Dict) -> AgentState:
+        """Deserialize AgentState from Redis storage."""
+        deserialized = {}
+        enum_map = {
+            "AgentMode": AgentMode,
+            "AgentStatus": AgentStatus,
+            "InterventionType": InterventionType,
+            "AnomalyType": AnomalyType,
+        }
+
+        for key, value in data.items():
+            if isinstance(value, dict):
+                if "_enum" in value:
+                    enum_class = enum_map.get(value["_enum"])
+                    if enum_class:
+                        deserialized[key] = enum_class(value["value"])
+                    else:
+                        deserialized[key] = value["value"]
+                elif "_datetime" in value:
+                    deserialized[key] = datetime.fromisoformat(value["_datetime"])
+                elif "_object" in value:
+                    # For now, store as dict - full reconstruction would need object registry
+                    deserialized[key] = value.get("data", value)
+                else:
+                    deserialized[key] = value
+            else:
+                deserialized[key] = value
+        return deserialized
+
+    async def _add_pending_approval(self, session_id: str, state: AgentState):
+        """Add a pending approval with TTL tracking, size limit enforcement, and Redis persistence."""
         # Enforce max size limit
-        if len(self._pending_approvals) >= self.MAX_PENDING_APPROVALS:
+        if len(self._pending_approvals_cache) >= self.MAX_PENDING_APPROVALS:
             # Remove oldest approval
             oldest_session = min(
-                self._pending_approvals.keys(),
-                key=lambda k: self._pending_approvals[k][1]
+                self._pending_approvals_cache.keys(),
+                key=lambda k: self._pending_approvals_cache[k][1]
             )
             logger.warning(
                 f"Max pending approvals reached ({self.MAX_PENDING_APPROVALS}). "
                 f"Removing oldest: {oldest_session}"
             )
-            del self._pending_approvals[oldest_session]
+            del self._pending_approvals_cache[oldest_session]
+            await self._remove_pending_approval_from_redis(oldest_session)
 
-        self._pending_approvals[session_id] = (state, datetime.now(timezone.utc))
+        created_at = datetime.now(timezone.utc)
+        self._pending_approvals_cache[session_id] = (state, created_at)
 
-    def _get_pending_approval(self, session_id: str) -> Optional[AgentState]:
-        """Get a pending approval if it exists and hasn't expired."""
-        if session_id not in self._pending_approvals:
-            return None
+        # Persist to Redis with TTL
+        await self._save_pending_approval_to_redis(session_id, state, created_at)
 
-        state, created_at = self._pending_approvals[session_id]
-        age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    async def _save_pending_approval_to_redis(
+        self,
+        session_id: str,
+        state: AgentState,
+        created_at: datetime
+    ):
+        """Persist pending approval to Redis."""
+        try:
+            if redis_client is None:
+                return
 
-        if age > self.PENDING_APPROVAL_TTL_SECONDS:
-            # Expired, clean it up
-            del self._pending_approvals[session_id]
-            logger.info(f"Pending approval for session {session_id} expired")
-            return None
+            key = f"{self.PENDING_APPROVAL_KEY_PREFIX}{session_id}"
+            data = {
+                "session_id": session_id,
+                "created_at": created_at.isoformat(),
+                "state": self._serialize_state(state)
+            }
 
-        return state
+            # Set with TTL
+            await redis_client.client.setex(
+                key,
+                self.PENDING_APPROVAL_TTL_SECONDS,
+                json.dumps(data, default=str)
+            )
+            logger.debug(f"Persisted pending approval to Redis: {session_id}")
 
-    def _remove_pending_approval(self, session_id: str):
-        """Remove a pending approval."""
-        if session_id in self._pending_approvals:
-            del self._pending_approvals[session_id]
+        except Exception as e:
+            logger.error(f"Failed to persist pending approval to Redis: {e}")
+
+    async def _remove_pending_approval_from_redis(self, session_id: str):
+        """Remove pending approval from Redis."""
+        try:
+            if redis_client is None:
+                return
+
+            key = f"{self.PENDING_APPROVAL_KEY_PREFIX}{session_id}"
+            await redis_client.client.delete(key)
+            logger.debug(f"Removed pending approval from Redis: {session_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to remove pending approval from Redis: {e}")
+
+    async def _get_pending_approval(self, session_id: str) -> Optional[AgentState]:
+        """Get a pending approval if it exists and hasn't expired (checks cache first, then Redis)."""
+        # Check local cache first
+        if session_id in self._pending_approvals_cache:
+            state, created_at = self._pending_approvals_cache[session_id]
+            age = (datetime.now(timezone.utc) - created_at).total_seconds()
+
+            if age > self.PENDING_APPROVAL_TTL_SECONDS:
+                # Expired, clean it up
+                del self._pending_approvals_cache[session_id]
+                await self._remove_pending_approval_from_redis(session_id)
+                logger.info(f"Pending approval for session {session_id} expired")
+                return None
+
+            return state
+
+        # Not in cache, try Redis (in case another instance added it)
+        try:
+            if redis_client is not None:
+                key = f"{self.PENDING_APPROVAL_KEY_PREFIX}{session_id}"
+                data = await redis_client.client.get(key)
+                if data:
+                    approval_data = json.loads(data)
+                    created_at = datetime.fromisoformat(approval_data.get("created_at"))
+                    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+
+                    if age <= self.PENDING_APPROVAL_TTL_SECONDS:
+                        state = self._deserialize_state(approval_data.get("state"))
+                        # Cache it locally
+                        self._pending_approvals_cache[session_id] = (state, created_at)
+                        return state
+                    else:
+                        # Expired, delete from Redis
+                        await redis_client.client.delete(key)
+
+        except Exception as e:
+            logger.error(f"Error fetching pending approval from Redis: {e}")
+
+        return None
+
+    async def _remove_pending_approval(self, session_id: str):
+        """Remove a pending approval from cache and Redis."""
+        if session_id in self._pending_approvals_cache:
+            del self._pending_approvals_cache[session_id]
+        await self._remove_pending_approval_from_redis(session_id)
+
+    # Synchronous wrapper for backwards compatibility
+    def _add_pending_approval_sync(self, session_id: str, state: AgentState):
+        """Synchronous wrapper - use _add_pending_approval for async contexts."""
+        created_at = datetime.now(timezone.utc)
+        self._pending_approvals_cache[session_id] = (state, created_at)
+        # Note: Redis persistence happens in async context
 
     async def _publish_agent_event(
         self,
@@ -527,13 +702,15 @@ class EngagementConductorAgent:
 
         This is a blocking node that stores state and waits for external
         approval via the approve_intervention() method.
+
+        RELIABILITY: State is persisted to Redis for crash recovery.
         """
         session_id = state["session_id"]
 
         logger.info(f"[WAIT] Session {session_id}: Waiting for approval")
 
-        # Store state for later retrieval with TTL tracking
-        self._add_pending_approval(session_id, state)
+        # Store state for later retrieval with TTL tracking and Redis persistence
+        await self._add_pending_approval(session_id, state)
 
         # Publish waiting for approval status
         await self._publish_agent_event(
@@ -737,7 +914,7 @@ class EngagementConductorAgent:
             session_id: Session ID
             approved: True to approve, False to dismiss
         """
-        state = self._get_pending_approval(session_id)
+        state = await self._get_pending_approval(session_id)
         if state is None:
             raise ValueError(f"No pending approval for session {session_id} (may have expired)")
 
@@ -746,7 +923,7 @@ class EngagementConductorAgent:
         if approved:
             logger.info(f"[APPROVAL] Session {session_id}: Intervention approved")
             # Remove from pending before continuing
-            self._remove_pending_approval(session_id)
+            await self._remove_pending_approval(session_id)
             # Continue workflow from wait_approval node
             config = {"configurable": {"thread_id": session_id}}
             final_state = await self.app.ainvoke(state, config)
@@ -754,13 +931,33 @@ class EngagementConductorAgent:
         else:
             logger.info(f"[APPROVAL] Session {session_id}: Intervention dismissed")
             # Remove from pending
-            self._remove_pending_approval(session_id)
+            await self._remove_pending_approval(session_id)
             return state
 
-    def get_pending_approval(self, session_id: str) -> Optional[AgentDecision]:
-        """Get pending approval for a session"""
-        state = self._get_pending_approval(session_id)
+    async def get_pending_approval_async(self, session_id: str) -> Optional[AgentDecision]:
+        """Get pending approval for a session (async version)."""
+        state = await self._get_pending_approval(session_id)
         if state is None:
+            return None
+
+        return AgentDecision(
+            intervention_type=state["selected_intervention"],
+            confidence=state["confidence"],
+            context=state["context"],
+            reasoning=state["explanation"],
+            requires_approval=state["requires_approval"],
+            timestamp=datetime.fromisoformat(state["timestamp"])
+        )
+
+    def get_pending_approval(self, session_id: str) -> Optional[AgentDecision]:
+        """Get pending approval for a session (sync version - uses cache only)."""
+        if session_id not in self._pending_approvals_cache:
+            return None
+
+        state, created_at = self._pending_approvals_cache[session_id]
+        age = (datetime.now(timezone.utc) - created_at).total_seconds()
+
+        if age > self.PENDING_APPROVAL_TTL_SECONDS:
             return None
 
         return AgentDecision(

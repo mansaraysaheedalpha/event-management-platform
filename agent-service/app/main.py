@@ -3,9 +3,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+import os
 
 from app.core.config import get_settings
 from app.core.redis_client import RedisClient
+from app.core.worker_pool import init_worker_pool, shutdown_worker_pool
 from app.db.timescale import init_db
 from app.collectors.signal_collector import EngagementSignalCollector
 from app.middleware import (
@@ -39,7 +41,7 @@ async def lifespan(app: FastAPI):
     global signal_collector
 
     # Startup
-    logger.info("🚀 Starting Engagement Conductor Agent Service...")
+    logger.info("Starting Engagement Conductor Agent Service...")
 
     try:
         # Connect to Redis
@@ -48,22 +50,32 @@ async def lifespan(app: FastAPI):
         # Initialize database
         await init_db()
 
+        # Initialize worker pool for high-throughput event processing
+        # Configure based on environment (more workers in production)
+        num_workers = int(os.getenv("WORKER_POOL_SIZE", "4"))
+        queue_size = int(os.getenv("WORKER_QUEUE_SIZE", "1000"))
+        await init_worker_pool(num_workers=num_workers, queue_size=queue_size)
+        logger.info(f"Worker pool initialized: {num_workers} workers, queue_size={queue_size}")
+
         # Start signal collector
         signal_collector = EngagementSignalCollector(redis_module.redis_client)
         await signal_collector.start()
 
-        logger.info("✅ Agent service ready")
+        logger.info("Agent service ready")
     except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
+        logger.error(f"Startup failed: {e}")
         raise
 
     yield
 
     # Shutdown
-    logger.info("👋 Shutting down Agent Service...")
+    logger.info("Shutting down Agent Service...")
 
     if signal_collector:
         await signal_collector.stop()
+
+    # Shutdown worker pool gracefully
+    await shutdown_worker_pool()
 
     await redis_module.redis_client.disconnect()
 

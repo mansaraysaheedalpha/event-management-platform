@@ -1,6 +1,8 @@
 """
 Engagement Signal Collector
 Subscribes to platform events via Redis and calculates engagement scores
+
+RELIABILITY: Includes rate limiting to prevent intervention storms.
 """
 import asyncio
 import json
@@ -11,6 +13,7 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from app.core.redis_client import RedisClient
+from app.core.rate_limiter import get_intervention_rate_limiter
 from app.collectors.session_tracker import SessionTracker, session_tracker
 from app.utils.engagement_score import EngagementScoreCalculator, EngagementSignals, engagement_calculator
 from app.agents.anomaly_detector import AnomalyDetector, anomaly_detector
@@ -566,6 +569,11 @@ class EngagementSignalCollector:
         """
         Trigger Phase 5 Agent Orchestrator based on detected anomaly.
 
+        RELIABILITY: Rate limited to prevent overwhelming users with interventions:
+        - Max 1 intervention per 30 seconds per session
+        - Max 10 interventions per 5 minutes per session
+        - Max 100 interventions per hour per event
+
         The agent will:
         1. Perceive the anomaly
         2. Decide on intervention using Thompson Sampling
@@ -577,6 +585,19 @@ class EngagementSignalCollector:
             signals: Current engagement signals
         """
         try:
+            # Rate limiting check
+            rate_limiter = get_intervention_rate_limiter()
+            is_allowed, rejection_reason = await rate_limiter.is_intervention_allowed(
+                session_id=anomaly_event.session_id,
+                event_id=anomaly_event.event_id
+            )
+
+            if not is_allowed:
+                logger.info(
+                    f"⏳ Intervention rate limited for session {anomaly_event.session_id[:8]}...: "
+                    f"{rejection_reason}"
+                )
+                return
             # Get session context
             session_state = self.tracker.get_session_state(anomaly_event.session_id)
             session_context = {

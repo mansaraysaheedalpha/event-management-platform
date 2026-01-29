@@ -1,17 +1,139 @@
 """
 Anomaly Detector
 Detects engagement drops and classifies anomaly types using online learning
+
+RELIABILITY: Memory bounded with LRU eviction and TTL to prevent unbounded growth.
 """
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from collections import deque
+from collections import deque, OrderedDict
 import statistics
 
 from river import anomaly, preprocessing
 
 logger = logging.getLogger(__name__)
+
+
+class BoundedTTLCache:
+    """
+    A bounded cache with LRU eviction and TTL (time-to-live).
+
+    Memory-safe for high-concurrency scenarios with thousands of sessions.
+    """
+
+    def __init__(self, maxsize: int = 10000, ttl_seconds: int = 3600):
+        """
+        Initialize bounded cache.
+
+        Args:
+            maxsize: Maximum number of entries (default: 10,000 sessions)
+            ttl_seconds: Time-to-live in seconds (default: 1 hour)
+        """
+        self.maxsize = maxsize
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict = OrderedDict()
+        self._timestamps: Dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._stats = {
+            'hits': 0,
+            'misses': 0,
+            'evictions': 0,
+            'expired': 0,
+        }
+
+    def get(self, key: str) -> Optional[any]:
+        """Get item from cache, returning None if expired or missing."""
+        with self._lock:
+            if key not in self._cache:
+                self._stats['misses'] += 1
+                return None
+
+            # Check TTL
+            if time.time() - self._timestamps[key] > self.ttl_seconds:
+                # Expired
+                self._remove_key(key)
+                self._stats['expired'] += 1
+                self._stats['misses'] += 1
+                return None
+
+            # Move to end (most recently used)
+            self._cache.move_to_end(key)
+            self._stats['hits'] += 1
+            return self._cache[key]
+
+    def set(self, key: str, value: any) -> None:
+        """Set item in cache with LRU eviction if needed."""
+        with self._lock:
+            now = time.time()
+
+            if key in self._cache:
+                # Update existing
+                self._cache[key] = value
+                self._timestamps[key] = now
+                self._cache.move_to_end(key)
+                return
+
+            # Evict if at capacity
+            while len(self._cache) >= self.maxsize:
+                # Remove oldest (first item in OrderedDict)
+                oldest_key = next(iter(self._cache))
+                self._remove_key(oldest_key)
+                self._stats['evictions'] += 1
+                logger.debug(f"LRU eviction: removed {oldest_key}")
+
+            # Add new item
+            self._cache[key] = value
+            self._timestamps[key] = now
+
+    def _remove_key(self, key: str) -> None:
+        """Remove a key from cache (must hold lock)."""
+        if key in self._cache:
+            del self._cache[key]
+        if key in self._timestamps:
+            del self._timestamps[key]
+
+    def delete(self, key: str) -> None:
+        """Delete item from cache."""
+        with self._lock:
+            self._remove_key(key)
+
+    def contains(self, key: str) -> bool:
+        """Check if key exists and is not expired."""
+        return self.get(key) is not None
+
+    def cleanup_expired(self) -> int:
+        """Clean up expired entries. Returns count of removed items."""
+        with self._lock:
+            now = time.time()
+            expired_keys = [
+                k for k, ts in self._timestamps.items()
+                if now - ts > self.ttl_seconds
+            ]
+            for key in expired_keys:
+                self._remove_key(key)
+                self._stats['expired'] += 1
+            return len(expired_keys)
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+    def __contains__(self, key: str) -> bool:
+        return self.contains(key)
+
+    @property
+    def stats(self) -> Dict:
+        """Get cache statistics."""
+        with self._lock:
+            return {
+                **self._stats,
+                'size': len(self._cache),
+                'maxsize': self.maxsize,
+                'hit_rate': self._stats['hits'] / max(1, self._stats['hits'] + self._stats['misses']),
+            }
 
 
 @dataclass
@@ -36,7 +158,18 @@ class AnomalyDetector:
     1. River's HalfSpaceTrees for online anomaly detection
     2. Z-score method as baseline
     3. Rule-based classification
+
+    RELIABILITY: Memory bounded with LRU eviction and TTL to handle
+    thousands of concurrent sessions without memory exhaustion.
+
+    Configuration:
+        - MAX_SESSIONS: Maximum number of sessions to track (default: 10,000)
+        - SESSION_TTL: Time-to-live for session data in seconds (default: 2 hours)
     """
+
+    # Memory bounds configuration
+    MAX_SESSIONS = 10000  # Maximum concurrent sessions
+    SESSION_TTL_SECONDS = 7200  # 2 hours TTL
 
     # Anomaly thresholds
     WARNING_THRESHOLD = 0.6  # Anomaly score threshold for warning
@@ -56,23 +189,40 @@ class AnomalyDetector:
         window_size: int = 30,
         n_trees: int = 10,
         height: int = 8,
-        seed: int = 42
+        seed: int = 42,
+        max_sessions: int = None,
+        session_ttl_seconds: int = None
     ):
         """
-        Initialize the anomaly detector.
+        Initialize the anomaly detector with memory bounds.
 
         Args:
             window_size: Number of historical points to keep for baseline
             n_trees: Number of trees for HalfSpaceTrees
             height: Tree height for HalfSpaceTrees
             seed: Random seed for reproducibility
+            max_sessions: Maximum sessions to track (default: MAX_SESSIONS)
+            session_ttl_seconds: Session TTL in seconds (default: SESSION_TTL_SECONDS)
         """
         self.window_size = window_size
 
-        # Per-session state
-        self.session_detectors: Dict[str, anomaly.HalfSpaceTrees] = {}
-        self.session_scalers: Dict[str, preprocessing.StandardScaler] = {}
-        self.engagement_history: Dict[str, deque] = {}
+        # Memory bounds
+        max_sessions = max_sessions or self.MAX_SESSIONS
+        session_ttl = session_ttl_seconds or self.SESSION_TTL_SECONDS
+
+        # Per-session state with bounded caches
+        self.session_detectors = BoundedTTLCache(
+            maxsize=max_sessions,
+            ttl_seconds=session_ttl
+        )
+        self.session_scalers = BoundedTTLCache(
+            maxsize=max_sessions,
+            ttl_seconds=session_ttl
+        )
+        self.engagement_history = BoundedTTLCache(
+            maxsize=max_sessions,
+            ttl_seconds=session_ttl
+        )
 
         # Configuration for new detectors
         self.n_trees = n_trees
@@ -80,10 +230,16 @@ class AnomalyDetector:
         self.seed = seed
 
         self.logger = logging.getLogger(__name__)
+        self.logger.info(
+            f"AnomalyDetector initialized with memory bounds: "
+            f"max_sessions={max_sessions}, ttl={session_ttl}s"
+        )
 
     def get_or_create_detector(self, session_id: str) -> Tuple[anomaly.HalfSpaceTrees, preprocessing.StandardScaler]:
         """
         Get or create detector and scaler for a session.
+
+        RELIABILITY: Uses bounded cache with LRU eviction.
 
         Args:
             session_id: Session identifier
@@ -91,23 +247,28 @@ class AnomalyDetector:
         Returns:
             Tuple of (detector, scaler)
         """
-        if session_id not in self.session_detectors:
-            self.logger.info(f"🔍 Creating anomaly detector for session {session_id}")
+        detector = self.session_detectors.get(session_id)
+        scaler = self.session_scalers.get(session_id)
+
+        if detector is None or scaler is None:
+            self.logger.info(f"Creating anomaly detector for session {session_id[:8]}...")
 
             # Create HalfSpaceTrees detector
-            self.session_detectors[session_id] = anomaly.HalfSpaceTrees(
+            detector = anomaly.HalfSpaceTrees(
                 n_trees=self.n_trees,
                 height=self.height,
                 seed=self.seed
             )
+            self.session_detectors.set(session_id, detector)
 
             # Create StandardScaler for normalization
-            self.session_scalers[session_id] = preprocessing.StandardScaler()
+            scaler = preprocessing.StandardScaler()
+            self.session_scalers.set(session_id, scaler)
 
             # Create engagement history
-            self.engagement_history[session_id] = deque(maxlen=self.window_size)
+            self.engagement_history.set(session_id, deque(maxlen=self.window_size))
 
-        return self.session_detectors[session_id], self.session_scalers[session_id]
+        return detector, scaler
 
     def detect(
         self,
@@ -130,7 +291,12 @@ class AnomalyDetector:
         """
         # Get or create detector
         detector, scaler = self.get_or_create_detector(session_id)
-        history = self.engagement_history[session_id]
+        history = self.engagement_history.get(session_id)
+
+        # Safety check - history should exist after get_or_create_detector
+        if history is None:
+            history = deque(maxlen=self.window_size)
+            self.engagement_history.set(session_id, history)
 
         # Need at least 5 data points to establish baseline
         if len(history) < 5:
@@ -149,8 +315,9 @@ class AnomalyDetector:
             'poll_participation': signals.get('poll_participation', 0),
         }
 
-        # Scale features
-        scaled_features = scaler.learn_one(features).transform_one(features)
+        # Scale features - River's learn_one may return None in some versions
+        scaler.learn_one(features)
+        scaled_features = scaler.transform_one(features)
 
         # Get anomaly score from detector
         anomaly_score = detector.score_one(scaled_features)
@@ -294,11 +461,33 @@ class AnomalyDetector:
         Args:
             session_id: Session identifier
         """
-        if session_id in self.session_detectors:
-            del self.session_detectors[session_id]
-            del self.session_scalers[session_id]
-            del self.engagement_history[session_id]
-            self.logger.info(f"🧹 Cleaned up anomaly detector for session {session_id}")
+        self.session_detectors.delete(session_id)
+        self.session_scalers.delete(session_id)
+        self.engagement_history.delete(session_id)
+        self.logger.info(f"Cleaned up anomaly detector for session {session_id[:8]}...")
+
+    def cleanup_expired(self) -> int:
+        """
+        Clean up expired sessions from all caches.
+
+        Returns:
+            Number of sessions cleaned up
+        """
+        count = 0
+        count += self.session_detectors.cleanup_expired()
+        count += self.session_scalers.cleanup_expired()
+        count += self.engagement_history.cleanup_expired()
+        if count > 0:
+            self.logger.info(f"Cleaned up {count} expired anomaly detector entries")
+        return count
+
+    def get_cache_stats(self) -> Dict:
+        """Get statistics for all caches."""
+        return {
+            'detectors': self.session_detectors.stats,
+            'scalers': self.session_scalers.stats,
+            'history': self.engagement_history.stats,
+        }
 
 
 # Global instance

@@ -17,9 +17,41 @@ import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { PrismaService } from 'src/prisma.service';
 
 /**
+ * Get allowed CORS origins from environment
+ * SECURITY: Never allow all origins in production
+ */
+function getAllowedOrigins(): string[] | boolean {
+  const origins = process.env.CORS_ORIGINS;
+
+  // In development, allow localhost variants
+  if (process.env.NODE_ENV === 'development') {
+    return [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+    ];
+  }
+
+  // In production, require explicit configuration
+  if (!origins) {
+    console.warn(
+      'SECURITY WARNING: CORS_ORIGINS not configured. ' +
+      'WebSocket connections will be rejected from all origins.'
+    );
+    return false; // Reject all if not configured
+  }
+
+  // Parse comma-separated origins
+  return origins.split(',').map(origin => origin.trim()).filter(Boolean);
+}
+
+/**
  * Engagement Conductor Gateway
  *
  * Forwards agent state events from the agent service to WebSocket clients.
+ *
+ * SECURITY: CORS is restricted to explicitly configured origins only.
  *
  * Events forwarded:
  * - agent.status: Agent status changes (MONITORING, WAITING_APPROVAL, INTERVENING, etc.)
@@ -27,7 +59,11 @@ import { PrismaService } from 'src/prisma.service';
  * - agent.intervention.executed: Intervention is executed
  */
 @WebSocketGateway({
-  cors: { origin: true, credentials: true },
+  cors: {
+    origin: getAllowedOrigins(),
+    credentials: true,
+    methods: ['GET', 'POST'],
+  },
   namespace: '/events',
 })
 export class EngagementConductorGateway

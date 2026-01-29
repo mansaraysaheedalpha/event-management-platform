@@ -643,6 +643,165 @@ class CRUDSponsorLead(CRUDBase[SponsorLead, SponsorLeadCreate, SponsorLeadUpdate
             'avg_intent_score': round(avg_score, 1),
         }
 
+    def get_timeline(
+        self,
+        db: Session,
+        *,
+        sponsor_id: str,
+        period: str = "daily",
+        days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Get leads over time data for charts.
+
+        Returns time-series data of lead captures grouped by day,
+        broken down by intent level.
+        """
+        from sqlalchemy import cast, Date, extract
+
+        # Calculate date range
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        # Query leads grouped by date and intent level
+        query = db.query(
+            cast(self.model.created_at, Date).label('lead_date'),
+            self.model.intent_level,
+            func.count(self.model.id).label('count')
+        ).filter(
+            self.model.sponsor_id == sponsor_id,
+            self.model.is_archived == False,
+            self.model.created_at >= start_date
+        ).group_by(
+            cast(self.model.created_at, Date),
+            self.model.intent_level
+        ).order_by(
+            cast(self.model.created_at, Date)
+        ).all()
+
+        # Build date-indexed dictionary for easy lookup
+        date_data: Dict[str, Dict[str, int]] = {}
+
+        for row in query:
+            date_str = row.lead_date.isoformat() if row.lead_date else None
+            if date_str:
+                if date_str not in date_data:
+                    date_data[date_str] = {'hot': 0, 'warm': 0, 'cold': 0, 'total': 0}
+                intent = row.intent_level or 'cold'
+                date_data[date_str][intent] = row.count
+                date_data[date_str]['total'] += row.count
+
+        # Generate complete date range with zeros for missing dates
+        data_points = []
+        total_leads = 0
+        current_date = start_date.date()
+        end_date_only = end_date.date()
+
+        while current_date <= end_date_only:
+            date_str = current_date.isoformat()
+            if date_str in date_data:
+                entry = date_data[date_str]
+                data_points.append({
+                    'date': date_str,
+                    'total': entry['total'],
+                    'hot': entry.get('hot', 0),
+                    'warm': entry.get('warm', 0),
+                    'cold': entry.get('cold', 0),
+                })
+                total_leads += entry['total']
+            else:
+                data_points.append({
+                    'date': date_str,
+                    'total': 0,
+                    'hot': 0,
+                    'warm': 0,
+                    'cold': 0,
+                })
+            current_date += timedelta(days=1)
+
+        return {
+            'data': data_points,
+            'period': period,
+            'total_leads': total_leads,
+        }
+
+    def get_engagement_timeline(
+        self,
+        db: Session,
+        *,
+        sponsor_id: str,
+        days: int = 7
+    ) -> Dict[str, Any]:
+        """
+        Get engagement timeline showing booth activity patterns by hour.
+
+        Returns interaction counts grouped by hour of day (0-23).
+        """
+        from sqlalchemy import extract
+
+        # Calculate date range
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        # Get leads within date range
+        leads = db.query(self.model).filter(
+            self.model.sponsor_id == sponsor_id,
+            self.model.is_archived == False,
+            self.model.created_at >= start_date
+        ).all()
+
+        # Aggregate interactions by hour
+        hourly_data: Dict[int, Dict[str, Any]] = {h: {'interactions': 0, 'visitors': set()} for h in range(24)}
+
+        for lead in leads:
+            # Count lead creation as an interaction
+            if lead.created_at:
+                hour = lead.created_at.hour
+                hourly_data[hour]['interactions'] += 1
+                hourly_data[hour]['visitors'].add(lead.user_id)
+
+            # Count individual interactions from the interactions JSON array
+            if lead.interactions:
+                for interaction in lead.interactions:
+                    timestamp_str = interaction.get('timestamp')
+                    if timestamp_str:
+                        try:
+                            ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                            if ts >= start_date:
+                                hour = ts.hour
+                                hourly_data[hour]['interactions'] += 1
+                                hourly_data[hour]['visitors'].add(lead.user_id)
+                        except (ValueError, AttributeError):
+                            pass
+
+        # Build response data
+        data_points = []
+        total_interactions = 0
+        peak_hour = 0
+        peak_count = 0
+
+        for hour in range(24):
+            interaction_count = hourly_data[hour]['interactions']
+            unique_visitors = len(hourly_data[hour]['visitors'])
+
+            data_points.append({
+                'hour': hour,
+                'interaction_count': interaction_count,
+                'unique_visitors': unique_visitors,
+                'avg_duration_seconds': None,  # Could be computed if duration data available
+            })
+
+            total_interactions += interaction_count
+            if interaction_count > peak_count:
+                peak_count = interaction_count
+                peak_hour = hour
+
+        return {
+            'data': data_points,
+            'peak_hour': peak_hour,
+            'total_interactions': total_interactions,
+        }
+
 
 # Create singleton instances
 sponsor_tier = CRUDSponsorTier(SponsorTier)

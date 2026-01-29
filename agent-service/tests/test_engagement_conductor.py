@@ -77,117 +77,149 @@ class TestAgentMode:
 
 
 class TestPendingApprovals:
-    """Tests for pending approvals management with TTL"""
+    """Tests for pending approvals management with TTL and Redis persistence"""
 
-    def test_add_pending_approval(self):
+    @pytest.mark.asyncio
+    async def test_add_pending_approval(self):
         """Test adding a pending approval"""
         with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
-
-            session_id = "test-session-123"
-            state = {"session_id": session_id, "status": AgentStatus.WAITING_APPROVAL}
-
-            agent._add_pending_approval(session_id, state)
-
-            assert session_id in agent._pending_approvals
-            stored_state, timestamp = agent._pending_approvals[session_id]
-            assert stored_state == state
-            assert isinstance(timestamp, datetime)
-
-    def test_get_pending_approval_valid(self):
-        """Test getting a valid pending approval"""
-        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
-
-            session_id = "test-session-456"
-            state = {"session_id": session_id, "confidence": 0.8}
-
-            agent._add_pending_approval(session_id, state)
-            result = agent._get_pending_approval(session_id)
-
-            assert result == state
-
-    def test_get_pending_approval_expired(self):
-        """Test that expired approvals return None"""
-        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
-
-            session_id = "test-session-789"
-            state = {"session_id": session_id}
-
-            # Manually add with old timestamp
-            old_time = datetime.now(timezone.utc) - timedelta(seconds=agent.PENDING_APPROVAL_TTL_SECONDS + 100)
-            agent._pending_approvals[session_id] = (state, old_time)
-
-            result = agent._get_pending_approval(session_id)
-
-            assert result is None
-            assert session_id not in agent._pending_approvals
-
-    def test_get_pending_approval_not_found(self):
-        """Test getting non-existent approval returns None"""
-        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
-
-            result = agent._get_pending_approval("non-existent")
-            assert result is None
-
-    def test_remove_pending_approval(self):
-        """Test removing a pending approval"""
-        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
-
-            session_id = "test-session-remove"
-            agent._add_pending_approval(session_id, {"test": True})
-
-            agent._remove_pending_approval(session_id)
-
-            assert session_id not in agent._pending_approvals
-
-    def test_max_pending_approvals_limit(self):
-        """Test that max pending approvals limit is enforced"""
-        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-
-            # Mock the config settings to use a low limit for testing
-            mock_settings = MagicMock()
-            mock_settings.AGENT_MAX_PENDING_APPROVALS = 3
-            mock_settings.AGENT_AUTO_APPROVE_THRESHOLD = 0.75
-            mock_settings.AGENT_PENDING_APPROVAL_TTL_SECONDS = 1800
-
-            with patch('app.agents.engagement_conductor.get_settings', return_value=mock_settings):
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
                 agent = EngagementConductorAgent()
 
-                # Add more than limit
-                for i in range(5):
-                    agent._add_pending_approval(f"session-{i}", {"index": i})
+                session_id = "test-session-123"
+                state = {"session_id": session_id, "status": AgentStatus.WAITING_APPROVAL}
 
-                # Should only have MAX_PENDING_APPROVALS entries
-                assert len(agent._pending_approvals) == 3
+                await agent._add_pending_approval(session_id, state)
 
-                # Should have the most recent ones
-                assert "session-4" in agent._pending_approvals
-                assert "session-3" in agent._pending_approvals
-                assert "session-2" in agent._pending_approvals
+                assert session_id in agent._pending_approvals_cache
+                stored_state, timestamp = agent._pending_approvals_cache[session_id]
+                assert stored_state == state
+                assert isinstance(timestamp, datetime)
 
-    def test_pending_approvals_backwards_compatible_property(self):
+    @pytest.mark.asyncio
+    async def test_get_pending_approval_valid(self):
+        """Test getting a valid pending approval"""
+        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
+                mock_redis.client.get = AsyncMock(return_value=None)
+                agent = EngagementConductorAgent()
+
+                session_id = "test-session-456"
+                state = {"session_id": session_id, "confidence": 0.8}
+
+                await agent._add_pending_approval(session_id, state)
+                result = await agent._get_pending_approval(session_id)
+
+                assert result == state
+
+    @pytest.mark.asyncio
+    async def test_get_pending_approval_expired(self):
+        """Test that expired approvals return None"""
+        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.delete = AsyncMock()
+                mock_redis.client.get = AsyncMock(return_value=None)
+                agent = EngagementConductorAgent()
+
+                session_id = "test-session-789"
+                state = {"session_id": session_id}
+
+                # Manually add with old timestamp
+                old_time = datetime.now(timezone.utc) - timedelta(seconds=agent.PENDING_APPROVAL_TTL_SECONDS + 100)
+                agent._pending_approvals_cache[session_id] = (state, old_time)
+
+                result = await agent._get_pending_approval(session_id)
+
+                assert result is None
+                assert session_id not in agent._pending_approvals_cache
+
+    @pytest.mark.asyncio
+    async def test_get_pending_approval_not_found(self):
+        """Test getting non-existent approval returns None"""
+        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.get = AsyncMock(return_value=None)
+                agent = EngagementConductorAgent()
+
+                result = await agent._get_pending_approval("non-existent")
+                assert result is None
+
+    @pytest.mark.asyncio
+    async def test_remove_pending_approval(self):
+        """Test removing a pending approval"""
+        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
+                mock_redis.client.delete = AsyncMock()
+                agent = EngagementConductorAgent()
+
+                session_id = "test-session-remove"
+                await agent._add_pending_approval(session_id, {"test": True})
+
+                await agent._remove_pending_approval(session_id)
+
+                assert session_id not in agent._pending_approvals_cache
+
+    @pytest.mark.asyncio
+    async def test_max_pending_approvals_limit(self):
+        """Test that max pending approvals limit is enforced"""
+        with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
+                mock_redis.client.delete = AsyncMock()
+
+                # Mock the config settings to use a low limit for testing
+                mock_settings = MagicMock()
+                mock_settings.AGENT_MAX_PENDING_APPROVALS = 3
+                mock_settings.AGENT_AUTO_APPROVE_THRESHOLD = 0.75
+                mock_settings.AGENT_PENDING_APPROVAL_TTL_SECONDS = 1800
+
+                with patch('app.agents.engagement_conductor.get_settings', return_value=mock_settings):
+                    agent = EngagementConductorAgent()
+
+                    # Add more than limit
+                    for i in range(5):
+                        await agent._add_pending_approval(f"session-{i}", {"index": i})
+
+                    # Should only have MAX_PENDING_APPROVALS entries
+                    assert len(agent._pending_approvals_cache) == 3
+
+                    # Should have the most recent ones
+                    assert "session-4" in agent._pending_approvals_cache
+                    assert "session-3" in agent._pending_approvals_cache
+                    assert "session-2" in agent._pending_approvals_cache
+
+    @pytest.mark.asyncio
+    async def test_pending_approvals_backwards_compatible_property(self):
         """Test that pending_approvals property returns dict without timestamps"""
         with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
+                agent = EngagementConductorAgent()
 
-            session_id = "test-compat"
-            state = {"session_id": session_id, "value": 123}
-            agent._add_pending_approval(session_id, state)
+                session_id = "test-compat"
+                state = {"session_id": session_id, "value": 123}
+                await agent._add_pending_approval(session_id, state)
 
-            # Property should return just the state, not the tuple
-            result = agent.pending_approvals
-            assert result[session_id] == state
+                # Property should return just the state, not the tuple
+                result = agent.pending_approvals
+                assert result[session_id] == state
 
 
 class TestCleanupTask:
@@ -228,32 +260,40 @@ class TestApproveIntervention:
     async def test_approve_intervention_not_found(self):
         """Test approving non-existent intervention raises error"""
         with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.get = AsyncMock(return_value=None)
+                agent = EngagementConductorAgent()
 
-            with pytest.raises(ValueError, match="No pending approval"):
-                await agent.approve_intervention("non-existent", approved=True)
+                with pytest.raises(ValueError, match="No pending approval"):
+                    await agent.approve_intervention("non-existent", approved=True)
 
     @pytest.mark.asyncio
     async def test_approve_intervention_dismiss(self):
         """Test dismissing an intervention"""
         with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
+                mock_redis.client.delete = AsyncMock()
+                mock_redis.client.get = AsyncMock(return_value=None)
+                agent = EngagementConductorAgent()
 
-            session_id = "test-dismiss"
-            state = {
-                "session_id": session_id,
-                "approved": False,
-                "selected_intervention": InterventionType.POLL,
-                "confidence": 0.7
-            }
-            agent._add_pending_approval(session_id, state)
+                session_id = "test-dismiss"
+                state = {
+                    "session_id": session_id,
+                    "approved": False,
+                    "selected_intervention": InterventionType.POLL,
+                    "confidence": 0.7
+                }
+                await agent._add_pending_approval(session_id, state)
 
-            result = await agent.approve_intervention(session_id, approved=False)
+                result = await agent.approve_intervention(session_id, approved=False)
 
-            assert result["approved"] is False
-            assert session_id not in agent._pending_approvals
+                assert result["approved"] is False
+                assert session_id not in agent._pending_approvals_cache
 
 
 class TestGetState:
@@ -326,35 +366,40 @@ class TestAgentDecision:
 class TestGetPendingApprovalDecision:
     """Tests for get_pending_approval method"""
 
-    def test_get_pending_approval_returns_decision(self):
+    @pytest.mark.asyncio
+    async def test_get_pending_approval_returns_decision(self):
         """Test get_pending_approval returns AgentDecision"""
         with patch('app.agents.engagement_conductor.get_thompson_sampling') as mock_ts:
-            mock_ts.return_value = MagicMock()
-            agent = EngagementConductorAgent()
+            with patch('app.agents.engagement_conductor.redis_client') as mock_redis:
+                mock_ts.return_value = MagicMock()
+                mock_redis.client = MagicMock()
+                mock_redis.client.setex = AsyncMock()
+                mock_redis.client.get = AsyncMock(return_value=None)
+                agent = EngagementConductorAgent()
 
-            session_id = "test-decision"
-            context = ContextKey(
-                anomaly_type=AnomalyType.GRADUAL_DECLINE,
-                engagement_bucket='critical',
-                session_size_bucket='small'
-            )
-            state = {
-                "session_id": session_id,
-                "selected_intervention": InterventionType.CHAT_PROMPT,
-                "confidence": 0.72,
-                "context": context,
-                "explanation": "Gradual decline detected",
-                "requires_approval": True,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-            agent._add_pending_approval(session_id, state)
+                session_id = "test-decision"
+                context = ContextKey(
+                    anomaly_type=AnomalyType.GRADUAL_DECLINE,
+                    engagement_bucket='critical',
+                    session_size_bucket='small'
+                )
+                state = {
+                    "session_id": session_id,
+                    "selected_intervention": InterventionType.CHAT_PROMPT,
+                    "confidence": 0.72,
+                    "context": context,
+                    "explanation": "Gradual decline detected",
+                    "requires_approval": True,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                await agent._add_pending_approval(session_id, state)
 
-            decision = agent.get_pending_approval(session_id)
+                decision = agent.get_pending_approval(session_id)
 
-            assert decision is not None
-            assert decision.intervention_type == InterventionType.CHAT_PROMPT
-            assert decision.confidence == 0.72
-            assert decision.requires_approval is True
+                assert decision is not None
+                assert decision.intervention_type == InterventionType.CHAT_PROMPT
+                assert decision.confidence == 0.72
+                assert decision.requires_approval is True
 
     def test_get_pending_approval_returns_none_when_not_found(self):
         """Test get_pending_approval returns None when not found"""

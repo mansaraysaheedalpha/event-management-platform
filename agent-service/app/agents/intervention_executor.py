@@ -1,6 +1,9 @@
 """
 Intervention Executor
 Executes interventions and tracks their outcomes
+
+RELIABILITY: Uses circuit breakers to prevent cascade failures from
+external service outages (LLM, Redis, Database).
 """
 import logging
 import json
@@ -15,6 +18,12 @@ from app.agents.poll_intervention_strategy import poll_strategy, PollQuestion
 from app.db.models import Intervention
 from app.core.redis_client import RedisClient
 from app.core.config import get_settings
+from app.core.circuit_breaker import (
+    llm_circuit_breaker,
+    redis_circuit_breaker,
+    database_circuit_breaker,
+    CircuitBreakerError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +119,8 @@ class InterventionExecutor:
         """
         Execute a poll intervention.
 
+        RELIABILITY: Uses circuit breaker for LLM calls to prevent cascade failures.
+
         Args:
             recommendation: Intervention recommendation
             db_session: Database session
@@ -132,26 +143,36 @@ class InterventionExecutor:
                     'error': f'Invalid session_id format: {e}'
                 }
 
-            # Generate poll question using AI with timeout
-            # Falls back to template if LLM times out or fails
+            # Generate poll question using AI with timeout and circuit breaker
+            # Falls back to template if LLM times out, fails, or circuit is open
             timeout = get_llm_timeout()
+            poll = None
+
+            # Try LLM generation with circuit breaker protection
             try:
-                poll = await asyncio.wait_for(
-                    poll_strategy.generate_with_ai(
-                        session_id=session_id,
-                        event_id=event_id,
-                        anomaly_type=anomaly_type,
-                        session_context=session_context or {},
-                        signals=recommendation.context.get('signals', {}),
-                        use_llm=True  # Enable LLM generation
-                    ),
-                    timeout=timeout
+                async with llm_circuit_breaker:
+                    poll = await asyncio.wait_for(
+                        poll_strategy.generate_with_ai(
+                            session_id=session_id,
+                            event_id=event_id,
+                            anomaly_type=anomaly_type,
+                            session_context=session_context or {},
+                            signals=recommendation.context.get('signals', {}),
+                            use_llm=True  # Enable LLM generation
+                        ),
+                        timeout=timeout
+                    )
+            except CircuitBreakerError as e:
+                self.logger.warning(
+                    f"LLM circuit breaker open: {e.message}, using template fallback"
                 )
             except asyncio.TimeoutError:
                 self.logger.warning(
                     f"LLM call timed out after {timeout}s, using template fallback"
                 )
-                # Fall back to template-based generation
+
+            # Fall back to template-based generation if LLM failed
+            if poll is None:
                 poll = await poll_strategy.generate_with_ai(
                     session_id=session_id,
                     event_id=event_id,
@@ -442,7 +463,10 @@ class InterventionExecutor:
         poll: PollQuestion,
         recommendation: InterventionRecommendation
     ):
-        """Publish poll intervention to Redis for real-time service to execute"""
+        """Publish poll intervention to Redis for real-time service to execute.
+
+        RELIABILITY: Uses circuit breaker to prevent blocking on Redis failures.
+        """
         message = {
             'type': 'agent.intervention.poll',
             'intervention_id': intervention_id,
@@ -463,8 +487,13 @@ class InterventionExecutor:
             }
         }
 
-        await self.redis.publish('agent.interventions', json.dumps(message))
-        self.logger.info(f"📤 Published poll intervention to Redis: {intervention_id[:8]}...")
+        try:
+            async with redis_circuit_breaker:
+                await self.redis.publish('agent.interventions', json.dumps(message))
+            self.logger.info(f"Published poll intervention to Redis: {intervention_id[:8]}...")
+        except CircuitBreakerError as e:
+            self.logger.error(f"Redis circuit breaker open, cannot publish poll intervention: {e.message}")
+            raise
 
     async def _publish_chat_intervention(
         self,
@@ -473,7 +502,10 @@ class InterventionExecutor:
         event_id: str,
         prompt: str
     ):
-        """Publish chat prompt intervention to Redis"""
+        """Publish chat prompt intervention to Redis.
+
+        RELIABILITY: Uses circuit breaker to prevent blocking on Redis failures.
+        """
         message = {
             'type': 'agent.intervention.chat',
             'intervention_id': intervention_id,
@@ -483,8 +515,13 @@ class InterventionExecutor:
             'prompt': prompt
         }
 
-        await self.redis.publish('agent.interventions', json.dumps(message))
-        self.logger.info(f"📤 Published chat intervention to Redis: {intervention_id[:8]}...")
+        try:
+            async with redis_circuit_breaker:
+                await self.redis.publish('agent.interventions', json.dumps(message))
+            self.logger.info(f"Published chat intervention to Redis: {intervention_id[:8]}...")
+        except CircuitBreakerError as e:
+            self.logger.error(f"Redis circuit breaker open, cannot publish chat intervention: {e.message}")
+            raise
 
     async def _publish_notification_intervention(
         self,
@@ -495,7 +532,10 @@ class InterventionExecutor:
         target: Optional[str],
         escalate: bool
     ):
-        """Publish notification intervention to Redis"""
+        """Publish notification intervention to Redis.
+
+        RELIABILITY: Uses circuit breaker to prevent blocking on Redis failures.
+        """
         message = {
             'type': 'agent.intervention.notification',
             'intervention_id': intervention_id,
@@ -507,8 +547,13 @@ class InterventionExecutor:
             'escalate': escalate
         }
 
-        await self.redis.publish('agent.interventions', json.dumps(message))
-        self.logger.info(f"📤 Published notification intervention to Redis: {intervention_id[:8]}...")
+        try:
+            async with redis_circuit_breaker:
+                await self.redis.publish('agent.interventions', json.dumps(message))
+            self.logger.info(f"Published notification intervention to Redis: {intervention_id[:8]}...")
+        except CircuitBreakerError as e:
+            self.logger.error(f"Redis circuit breaker open, cannot publish notification: {e.message}")
+            raise
 
     async def record_outcome(
         self,

@@ -42,6 +42,8 @@ from app.schemas.sponsor import (
     SponsorLeadCreate, SponsorLeadResponse, SponsorLeadUpdate, SponsorStats,
     UserSponsorStatusResponse, SponsorSummary, SponsorBoothSettingsUpdate,
     ManualLeadCaptureCreate,
+    LeadTimelineResponse, LeadTimelineDataPoint,
+    EngagementTimelineResponse, EngagementDataPoint,
 )
 from app.schemas.token import TokenPayload
 from app.utils.sponsor_notifications import (
@@ -1108,6 +1110,66 @@ def get_sponsor_lead_stats(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     return sponsor_lead.get_stats(db, sponsor_id=sponsor_id)
+
+
+@router.get("/sponsors/{sponsor_id}/leads/timeline", response_model=LeadTimelineResponse)
+def get_sponsor_leads_timeline(
+    sponsor_id: str,
+    period: str = "daily",  # 'daily' or 'hourly'
+    days: int = 30,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Get leads over time data for charts.
+
+    Returns time-series data of lead captures grouped by day or hour,
+    broken down by intent level (hot, warm, cold).
+
+    Query parameters:
+    - period: 'daily' (default) or 'hourly'
+    - days: Number of days to include (default 30, max 90)
+    """
+    # Verify user is a sponsor representative with view permission
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active or not su.can_view_leads:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Limit days to prevent excessive data
+    days = min(days, 90)
+
+    return sponsor_lead.get_timeline(db, sponsor_id=sponsor_id, period=period, days=days)
+
+
+@router.get("/sponsors/{sponsor_id}/leads/engagement-timeline", response_model=EngagementTimelineResponse)
+def get_sponsor_engagement_timeline(
+    sponsor_id: str,
+    days: int = 7,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """
+    Get engagement timeline data showing booth activity patterns by hour.
+
+    Returns interaction counts grouped by hour of day (0-23),
+    useful for understanding when attendees are most active.
+
+    Query parameters:
+    - days: Number of days to aggregate (default 7, max 30)
+    """
+    # Verify user is a sponsor representative with view permission
+    su = sponsor_user.get_by_user_and_sponsor(
+        db, user_id=current_user.sub, sponsor_id=sponsor_id
+    )
+    if not su or not su.is_active or not su.can_view_leads:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Limit days to prevent excessive data
+    days = min(days, 30)
+
+    return sponsor_lead.get_engagement_timeline(db, sponsor_id=sponsor_id, days=days)
 
 
 @router.get("/sponsors/{sponsor_id}/leads/export")

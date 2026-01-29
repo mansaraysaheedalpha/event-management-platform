@@ -38,8 +38,9 @@ python-jose[cryptography]
 # Monitoring
 prometheus-client
 
-# Development
+# Development & Testing
 pytest
 pytest-asyncio
 black
 ruff
+locust  # For load testing

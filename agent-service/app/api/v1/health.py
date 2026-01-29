@@ -24,6 +24,9 @@ from app.core.config import settings
 # Import cost tracker for metrics
 from app.middleware.rate_limiter import cost_tracker
 from app.orchestrator.agent_manager import get_agent_orchestrator
+from app.core.metrics import get_metrics as get_observability_metrics
+from app.core.circuit_breaker import get_all_circuit_breaker_stats
+from app.core.rate_limiter import get_intervention_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -262,3 +265,47 @@ async def ping():
     Returns "pong" to verify service is responsive.
     """
     return {"status": "ok", "message": "pong", "timestamp": datetime.utcnow().isoformat()}
+
+
+@router.get("/metrics/detailed", tags=["Health"])
+async def get_detailed_metrics():
+    """
+    Get detailed observability metrics including:
+    - Circuit breaker states
+    - Rate limiter statistics
+    - Agent decision metrics
+    - Intervention metrics
+    """
+    metrics = get_observability_metrics()
+
+    # Get circuit breaker stats
+    circuit_breaker_stats = get_all_circuit_breaker_stats()
+
+    # Get rate limiter stats
+    try:
+        rate_limiter = get_intervention_rate_limiter()
+        rate_limiter_stats = rate_limiter.get_stats()
+    except Exception:
+        rate_limiter_stats = {}
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "observability_metrics": metrics.export_metrics(),
+        "circuit_breakers": circuit_breaker_stats,
+        "rate_limiters": rate_limiter_stats,
+        "uptime_seconds": get_uptime(),
+    }
+
+
+@router.get("/metrics/prometheus", tags=["Health"])
+async def get_prometheus_metrics(response: Response):
+    """
+    Get metrics in Prometheus text format.
+
+    Use this endpoint for Prometheus scraping.
+    """
+    metrics = get_observability_metrics()
+    prometheus_text = metrics.export_prometheus_format()
+
+    response.headers["Content-Type"] = "text/plain; charset=utf-8"
+    return Response(content=prometheus_text, media_type="text/plain")

@@ -343,6 +343,37 @@ class SponsorStats(BaseModel):
     avg_intent_score: float
 
 
+class LeadTimelineDataPoint(BaseModel):
+    """Single data point for leads over time chart."""
+    date: str  # ISO date string (YYYY-MM-DD)
+    total: int
+    hot: int
+    warm: int
+    cold: int
+
+
+class LeadTimelineResponse(BaseModel):
+    """Response for leads timeline endpoint."""
+    data: List[LeadTimelineDataPoint]
+    period: str  # 'daily' or 'hourly'
+    total_leads: int
+
+
+class EngagementDataPoint(BaseModel):
+    """Single data point for engagement timeline chart."""
+    hour: int  # 0-23
+    interaction_count: int
+    unique_visitors: int
+    avg_duration_seconds: Optional[float] = None
+
+
+class EngagementTimelineResponse(BaseModel):
+    """Response for engagement timeline endpoint."""
+    data: List[EngagementDataPoint]
+    peak_hour: int
+    total_interactions: int
+
+
 class SponsorLeadExport(BaseModel):
     """Schema for exporting leads to CSV/Excel"""
     name: str
