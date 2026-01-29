@@ -253,6 +253,7 @@ def process_campaign(campaign_id: str, db: Session):
     # Process in batches
     sent_count = 0
     failed_count = 0
+    skipped_unsubscribed = 0
 
     for i in range(0, len(leads), BATCH_SIZE):
         batch = leads[i:i + BATCH_SIZE]
@@ -260,6 +261,14 @@ def process_campaign(campaign_id: str, db: Session):
 
         for lead in batch:
             try:
+                # Check if lead has unsubscribed from this sponsor
+                if campaign_delivery.is_unsubscribed(
+                    db, lead_id=lead.id, sponsor_id=campaign_obj.sponsor_id
+                ):
+                    logger.info(f"Skipping unsubscribed lead: {lead.id}")
+                    skipped_unsubscribed += 1
+                    continue
+
                 # Personalize subject and body
                 personalized_subject = personalize_template(
                     campaign_obj.subject, lead, sender_name, sender_company
@@ -325,13 +334,17 @@ def process_campaign(campaign_id: str, db: Session):
                 failed_count += 1
 
         # Log batch completion
-        logger.info(f"Batch complete: {sent_count} sent, {failed_count} failed so far")
+        logger.info(
+            f"Batch complete: {sent_count} sent, {failed_count} failed, "
+            f"{skipped_unsubscribed} skipped (unsubscribed)"
+        )
 
     # Update campaign stats
     sponsor_campaign.update_delivery_stats(db, campaign_id=campaign_id)
 
-    # Mark campaign as sent
-    if failed_count == len(leads):
+    # Mark campaign as sent (account for skipped unsubscribed leads)
+    eligible_leads = len(leads) - skipped_unsubscribed
+    if eligible_leads > 0 and failed_count == eligible_leads:
         sponsor_campaign.mark_failed(
             db,
             campaign=campaign_obj,
@@ -342,7 +355,7 @@ def process_campaign(campaign_id: str, db: Session):
 
     logger.info(
         f"Campaign {campaign_id} complete: "
-        f"{sent_count} sent, {failed_count} failed"
+        f"{sent_count} sent, {failed_count} failed, {skipped_unsubscribed} skipped (unsubscribed)"
     )
 
 
