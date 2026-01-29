@@ -32,6 +32,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
 from app.crud.crud_sponsor_campaign import sponsor_campaign
 from app.crud.crud_campaign_delivery import campaign_delivery
+from app.crud.crud_sponsor import sponsor_lead
 from app.models.sponsor_campaign import SponsorCampaign
 from app.models.sponsor_lead import SponsorLead
 
@@ -317,6 +318,16 @@ def process_campaign(campaign_id: str, db: Session):
                     )
                     sent_count += 1
                     logger.debug(f"Sent to {lead.user_email}")
+
+                    # Auto-update lead status to "contacted" if currently "new"
+                    # This provides accurate tracking of contacted leads
+                    if lead.follow_up_status == "new":
+                        sponsor_lead.mark_contacted_by_campaign(
+                            db,
+                            lead_id=lead.id,
+                            campaign_id=campaign_obj.id,
+                        )
+                        logger.debug(f"Lead {lead.id} marked as contacted")
                 else:
                     campaign_delivery.mark_failed(
                         db,

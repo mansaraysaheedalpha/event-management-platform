@@ -603,6 +603,37 @@ class CRUDSponsorLead(CRUDBase[SponsorLead, SponsorLeadCreate, SponsorLeadUpdate
             db.refresh(lead)
         return lead
 
+    def mark_contacted_by_campaign(
+        self,
+        db: Session,
+        *,
+        lead_id: str,
+        campaign_id: str,
+    ) -> Optional[SponsorLead]:
+        """
+        Mark a lead as contacted when they receive a campaign email.
+
+        Only updates leads with 'new' status to 'contacted'.
+        This is called automatically by the campaign email worker.
+        """
+        lead = self.get(db, id=lead_id)
+        if lead and lead.follow_up_status == "new":
+            lead.follow_up_status = "contacted"
+            lead.followed_up_at = datetime.now(timezone.utc)
+            # Note: We don't set followed_up_by_user_id since this is automated
+            lead.updated_at = datetime.now(timezone.utc)
+
+            # Append a note about the automated status change
+            campaign_note = f"[Auto] Contacted via campaign {campaign_id}"
+            if lead.follow_up_notes:
+                lead.follow_up_notes = f"{lead.follow_up_notes}\n\n{campaign_note}"
+            else:
+                lead.follow_up_notes = campaign_note
+
+            db.commit()
+            db.refresh(lead)
+        return lead
+
     def get_stats(self, db: Session, *, sponsor_id: str) -> Dict[str, Any]:
         """
         Get lead statistics for a sponsor.
