@@ -270,7 +270,7 @@ def main():
     logger.info("Starting campaign email worker...")
     logger.info(f"Kafka topic: {KAFKA_TOPIC}")
     logger.info(f"Consumer group: {KAFKA_GROUP_ID}")
-    logger.info(f"Batch size: {BATCH_SIZE}, Delay: {BATCH_DELAY_MS}ms")
+    logger.info(f"Batch size: {BATCH_SIZE}, Email delay: {EMAIL_DELAY_MS}ms")
 
     # Validate Resend API key
     if not settings.RESEND_API_KEY:
