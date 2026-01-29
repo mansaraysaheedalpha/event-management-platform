@@ -11,7 +11,7 @@ Production features:
 
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, Integer
 from app.models.sponsor_campaign import SponsorCampaign
 from app.models.campaign_delivery import CampaignDelivery
 from app.models.sponsor_lead import SponsorLead
@@ -215,11 +215,11 @@ class CRUDSponsorCampaign:
         # Aggregate delivery stats
         stats = db.query(
             func.count(CampaignDelivery.id).label('total'),
-            func.sum(func.cast(CampaignDelivery.status == 'sent', func.Integer())).label('sent'),
-            func.sum(func.cast(CampaignDelivery.status == 'delivered', func.Integer())).label('delivered'),
-            func.sum(func.cast(CampaignDelivery.status.in_(['failed', 'bounced']), func.Integer())).label('failed'),
-            func.sum(func.cast(CampaignDelivery.opened_at.isnot(None), func.Integer())).label('opened'),
-            func.sum(func.cast(CampaignDelivery.first_click_at.isnot(None), func.Integer())).label('clicked'),
+            func.sum(func.cast(CampaignDelivery.status == 'sent', Integer)).label('sent'),
+            func.sum(func.cast(CampaignDelivery.status == 'delivered', Integer)).label('delivered'),
+            func.sum(func.cast(CampaignDelivery.status.in_(['failed', 'bounced']), Integer)).label('failed'),
+            func.sum(func.cast(CampaignDelivery.opened_at.isnot(None), Integer)).label('opened'),
+            func.sum(func.cast(CampaignDelivery.first_click_at.isnot(None), Integer)).label('clicked'),
         ).filter(CampaignDelivery.campaign_id == campaign_id).first()
 
         # Update campaign

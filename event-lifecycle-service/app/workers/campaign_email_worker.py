@@ -104,7 +104,7 @@ def send_email_via_resend(
     recipient_email: str,
     subject: str,
     html_body: str,
-    from_email: str = "Event Dynamics <noreply@eventdynamics.io>"
+    from_email: str = f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>"
 ) -> Dict[str, Any]:
     """
     Send email via Resend API.
