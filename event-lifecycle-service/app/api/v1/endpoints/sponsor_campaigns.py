@@ -561,3 +561,125 @@ async def generate_subject_variations(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Generation failed: {str(e)}"
         )
+
+
+# ============================================================================
+# Email Unsubscribe & Preferences Endpoints
+# These are public endpoints accessed from email footer links
+# ============================================================================
+
+class EmailPreferencesUpdate(BaseModel):
+    """Request schema for updating email preferences."""
+    sponsor_emails: bool = True
+    event_updates: bool = True
+    platform_news: bool = True
+
+
+class EmailPreferencesResponse(BaseModel):
+    """Response schema for email preferences."""
+    sponsor_emails: bool
+    event_updates: bool
+    platform_news: bool
+    sponsor_name: Optional[str] = None
+
+
+@router.post("/unsubscribe/{delivery_id}")
+async def unsubscribe_from_emails(
+    delivery_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Unsubscribe from sponsor emails (public endpoint).
+
+    This endpoint is called from the unsubscribe link in campaign emails.
+    It marks the recipient as unsubscribed from the sponsor's mailing list.
+    """
+    # Get the delivery record
+    delivery = campaign_delivery.get(db, delivery_id=delivery_id)
+    if not delivery:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid unsubscribe link"
+        )
+
+    # Mark as unsubscribed
+    try:
+        campaign_delivery.mark_unsubscribed(db, delivery_id=delivery_id)
+        logger.info(f"User unsubscribed via delivery {delivery_id}")
+        return {"message": "Successfully unsubscribed"}
+    except Exception as e:
+        logger.error(f"Unsubscribe failed for {delivery_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process unsubscribe request"
+        )
+
+
+@router.get("/email-preferences/{delivery_id}", response_model=EmailPreferencesResponse)
+async def get_email_preferences(
+    delivery_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Get current email preferences for a recipient (public endpoint).
+
+    Returns the recipient's current email preferences based on the delivery record.
+    """
+    # Get the delivery record
+    delivery = campaign_delivery.get(db, delivery_id=delivery_id)
+    if not delivery:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid preferences link"
+        )
+
+    # Get sponsor name from the campaign
+    sponsor_name = None
+    if delivery.campaign and delivery.campaign.sponsor:
+        sponsor_name = delivery.campaign.sponsor.company_name
+
+    # Return current preferences (defaults to opted-in for now)
+    # In a full implementation, you'd store these preferences per-lead
+    return EmailPreferencesResponse(
+        sponsor_emails=not delivery.unsubscribed_at,  # False if unsubscribed
+        event_updates=True,
+        platform_news=True,
+        sponsor_name=sponsor_name,
+    )
+
+
+@router.put("/email-preferences/{delivery_id}")
+async def update_email_preferences(
+    delivery_id: str,
+    preferences: EmailPreferencesUpdate,
+    db: Session = Depends(get_db),
+):
+    """
+    Update email preferences for a recipient (public endpoint).
+
+    Allows recipients to manage their email preferences from the email footer link.
+    """
+    # Get the delivery record
+    delivery = campaign_delivery.get(db, delivery_id=delivery_id)
+    if not delivery:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid preferences link"
+        )
+
+    try:
+        # If sponsor_emails is disabled, mark as unsubscribed
+        if not preferences.sponsor_emails:
+            campaign_delivery.mark_unsubscribed(db, delivery_id=delivery_id)
+        else:
+            # If re-subscribing, clear the unsubscribed flag
+            campaign_delivery.clear_unsubscribed(db, delivery_id=delivery_id)
+
+        logger.info(f"Email preferences updated for delivery {delivery_id}")
+        return {"message": "Preferences updated successfully"}
+    except Exception as e:
+        logger.error(f"Failed to update preferences for {delivery_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update preferences"
+        )

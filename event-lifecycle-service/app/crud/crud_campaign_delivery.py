@@ -182,6 +182,43 @@ class CRUDCampaignDelivery:
             .all()
         )
 
+    def mark_unsubscribed(self, db: Session, *, delivery_id: str):
+        """Mark recipient as unsubscribed from sponsor emails."""
+        delivery = self.get(db, delivery_id)
+        if delivery:
+            delivery.unsubscribed_at = datetime.utcnow()
+            db.commit()
+            db.refresh(delivery)
+        return delivery
+
+    def clear_unsubscribed(self, db: Session, *, delivery_id: str):
+        """Clear unsubscribed flag (re-subscribe)."""
+        delivery = self.get(db, delivery_id)
+        if delivery:
+            delivery.unsubscribed_at = None
+            db.commit()
+            db.refresh(delivery)
+        return delivery
+
+    def is_unsubscribed(self, db: Session, *, lead_id: str, sponsor_id: str) -> bool:
+        """Check if a lead has unsubscribed from a sponsor's emails."""
+        from app.models.sponsor_campaign import SponsorCampaign
+
+        # Check if any delivery from this sponsor to this lead has unsubscribed
+        result = (
+            db.query(CampaignDelivery)
+            .join(SponsorCampaign, CampaignDelivery.campaign_id == SponsorCampaign.id)
+            .filter(
+                and_(
+                    CampaignDelivery.lead_id == lead_id,
+                    SponsorCampaign.sponsor_id == sponsor_id,
+                    CampaignDelivery.unsubscribed_at.isnot(None)
+                )
+            )
+            .first()
+        )
+        return result is not None
+
 
 # Create singleton instance
 campaign_delivery = CRUDCampaignDelivery()

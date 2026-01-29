@@ -56,6 +56,9 @@ class CampaignDelivery(Base):
     sent_at = Column(DateTime(timezone=True), nullable=True)
     delivered_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Unsubscribe Tracking
+    unsubscribed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Relationships
     campaign = relationship("SponsorCampaign", back_populates="deliveries")
     lead = relationship("SponsorLead")
