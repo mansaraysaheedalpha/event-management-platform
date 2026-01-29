@@ -1027,10 +1027,17 @@ export class ExpoGateway
         staffId: user.sub,
       });
 
-      // Get pending video requests
-      const pendingRequests = await this.expoService.getPendingVideoRequests(
+      // Get pending video requests and map to include sessionId for frontend compatibility
+      const rawPendingRequests = await this.expoService.getPendingVideoRequests(
         dto.boothId,
       );
+      const pendingRequests = rawPendingRequests.map((req) => ({
+        sessionId: req.id,
+        attendeeId: req.attendeeId,
+        attendeeName: req.attendeeName,
+        message: req.staffNotes,
+        requestedAt: req.requestedAt,
+      }));
 
       // Broadcast staff availability update
       const staffPresence = await this.expoService.getBoothStaffPresence(
