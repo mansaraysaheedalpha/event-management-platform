@@ -50,9 +50,9 @@ logger = logging.getLogger(__name__)
 KAFKA_TOPIC = "sponsor.campaigns.v1"
 KAFKA_GROUP_ID = "campaign-email-worker"
 
-# Email rate limiting (Resend allows 10 req/sec)
+# Email rate limiting (Resend free tier: 2 req/sec)
 BATCH_SIZE = 50  # Process 50 emails per batch
-BATCH_DELAY_MS = 100  # 100ms delay between batches = 10 batches/sec max
+EMAIL_DELAY_MS = 550  # 550ms delay between emails = ~1.8 req/sec (safe margin for 2/sec limit)
 
 # Initialize Resend
 resend.api_key = settings.RESEND_API_KEY
@@ -236,14 +236,15 @@ def process_campaign(campaign_id: str, db: Session):
                     failed_count += 1
                     logger.error(f"Failed to send to {lead.user_email}: {result.get('error')}")
 
+                # Rate limiting: delay between emails (Resend free tier: 2 req/sec)
+                time.sleep(EMAIL_DELAY_MS / 1000.0)
+
             except Exception as e:
                 logger.error(f"Error processing lead {lead.id}: {e}")
                 failed_count += 1
 
-        # Rate limiting: delay between batches
-        if i + BATCH_SIZE < len(leads):
-            time.sleep(BATCH_DELAY_MS / 1000.0)
-            logger.debug(f"Rate limit delay: {BATCH_DELAY_MS}ms")
+        # Log batch completion
+        logger.info(f"Batch complete: {sent_count} sent, {failed_count} failed so far")
 
     # Update campaign stats
     sponsor_campaign.update_delivery_stats(db, campaign_id=campaign_id)
