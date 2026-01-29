@@ -446,16 +446,28 @@ class CRUDSponsorInvitation(CRUDBase[SponsorInvitation, SponsorInvitationCreate,
 
 class CRUDSponsorLead(CRUDBase[SponsorLead, SponsorLeadCreate, SponsorLeadUpdate]):
     # Scoring weights for different interaction types
+    # Higher scores indicate higher purchase intent
     INTERACTION_SCORES = {
+        # Booth interactions
         'booth_visit': 10,
-        'content_download': 15,
-        'content_view': 5,
-        'demo_watched': 20,
-        'demo_request': 30,
-        'direct_request': 35,
-        'qr_scan': 10,
-        'session_attendance': 15,
-        'repeat_visit': 5,
+        'booth_contact_form': 25,  # Filling out contact form shows intent
+        'repeat_visit': 5,  # Bonus for returning visitors
+
+        # Content engagement
+        'content_download': 15,  # Downloaded a resource
+        'content_view': 5,       # Viewed content (passive)
+
+        # High-intent actions
+        'demo_watched': 20,      # Watched a demo video to completion
+        'demo_request': 30,      # Explicitly requested a demo
+        'direct_request': 35,    # Direct contact request
+        'cta_click': 10,         # Clicked a call-to-action button
+
+        # Other interactions
+        'qr_scan': 10,           # Scanned booth QR code
+        'session_attendance': 15, # Attended sponsor session
+        'video_session': 8,      # Started video (not completed)
+        'chat_message': 12,      # Sent a chat message
     }
 
     def get_by_sponsor(

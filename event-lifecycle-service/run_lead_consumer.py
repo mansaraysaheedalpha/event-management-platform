@@ -89,15 +89,129 @@ def publish_to_redis_stream(event_type: str, sponsor_id: str, lead_data: dict, b
         return False
 
 
+def process_lead_interaction_event(event_data: dict) -> bool:
+    """
+    Process a lead interaction event for intent score updates.
+
+    This handles ongoing engagement (resource downloads, CTA clicks, video views)
+    for existing leads, updating their intent scores accordingly.
+
+    Args:
+        event_data: Kafka message payload
+
+    Returns:
+        True if processed successfully, False otherwise
+    """
+    sponsor_id = event_data.get("sponsorId")
+    event_id = event_data.get("eventId")
+    user_id = event_data.get("userId")
+    booth_id = event_data.get("boothId")
+    interaction_type = event_data.get("interactionType")
+    interaction_metadata = event_data.get("interactionMetadata", {})
+
+    if not all([sponsor_id, event_id, user_id, interaction_type]):
+        logger.error(f"Missing required fields in lead interaction event: {event_data}")
+        return False
+
+    logger.info(f"Processing lead interaction: {interaction_type} for sponsor {sponsor_id}, user {user_id}")
+
+    try:
+        db = get_db_session()
+
+        try:
+            # Check if this user is already a lead for this sponsor
+            existing_lead = sponsor_lead.get_by_user_and_sponsor(
+                db, user_id=user_id, sponsor_id=sponsor_id
+            )
+
+            if not existing_lead:
+                # User is not a lead yet - just log and skip
+                # (They need to fill out a form first to become a lead)
+                logger.debug(f"User {user_id} is not a lead for sponsor {sponsor_id}, skipping intent update")
+                return True
+
+            old_intent_level = existing_lead.intent_level
+            old_intent_score = existing_lead.intent_score
+
+            # Create interaction update
+            lead_in = SponsorLeadCreate(
+                user_id=user_id,
+                interaction_type=interaction_type,
+                interaction_metadata={
+                    **interaction_metadata,
+                    "booth_id": booth_id,
+                    "source": "kafka_interaction",
+                }
+            )
+
+            # Update the lead (this adds interaction and recalculates score)
+            lead = sponsor_lead.capture_lead(
+                db,
+                lead_in=lead_in,
+                sponsor_id=sponsor_id,
+                event_id=event_id,
+            )
+
+            # Check if intent changed
+            intent_changed = (
+                lead.intent_score != old_intent_score or
+                lead.intent_level != old_intent_level
+            )
+
+            if intent_changed:
+                logger.info(
+                    f"Lead intent updated: {lead.id} - {old_intent_level}({old_intent_score}) -> {lead.intent_level}({lead.intent_score})"
+                )
+
+                # Convert to dict for Redis Stream
+                lead_data = {
+                    "id": lead.id,
+                    "event_id": event_id,
+                    "user_id": lead.user_id,
+                    "user_name": lead.user_name,
+                    "user_email": lead.user_email,
+                    "user_company": lead.user_company,
+                    "user_title": lead.user_title,
+                    "intent_score": lead.intent_score,
+                    "intent_level": lead.intent_level,
+                    "interaction_type": interaction_type,
+                    "interaction_count": lead.interaction_count,
+                    "first_interaction_at": lead.first_interaction_at.isoformat() if lead.first_interaction_at else None,
+                    "last_interaction_at": lead.last_interaction_at.isoformat() if lead.last_interaction_at else None,
+                    "created_at": lead.created_at.isoformat() if lead.created_at else None,
+                }
+
+                # Publish LEAD_INTENT_UPDATED event to Redis Stream
+                publish_to_redis_stream("LEAD_INTENT_UPDATED", sponsor_id, lead_data, booth_id)
+
+                # Send email notification if lead upgraded to hot
+                if lead.intent_level == "hot" and old_intent_level != "hot":
+                    send_hot_lead_notification(db, sponsor_id, lead, event_id)
+            else:
+                logger.debug(f"Lead {lead.id} intent unchanged, no broadcast needed")
+
+            return True
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Failed to process lead interaction event: {e}", exc_info=True)
+        return False
+
+
 def process_lead_capture_event(event_data: dict) -> bool:
     """
     Process a lead capture event from real-time-service.
 
     Steps:
     1. Validate the event payload
-    2. Create/update SponsorLead record in PostgreSQL
-    3. Publish to Redis Stream for real-time notification
-    4. Optionally send email notification
+    2. Check if lead already exists (to determine new vs update)
+    3. Create/update SponsorLead record in PostgreSQL
+    4. Publish appropriate event to Redis Stream:
+       - LEAD_CAPTURED for new leads
+       - LEAD_INTENT_UPDATED for existing leads with score changes
+    5. Optionally send email notification
 
     Args:
         event_data: Kafka message payload
@@ -127,6 +241,15 @@ def process_lead_capture_event(event_data: dict) -> bool:
         db = get_db_session()
 
         try:
+            # Check if lead already exists BEFORE calling capture_lead
+            # This allows us to determine if it's a new lead or an intent update
+            existing_lead = sponsor_lead.get_by_user_and_sponsor(
+                db, user_id=user_id, sponsor_id=sponsor_id
+            )
+            is_new_lead = existing_lead is None
+            old_intent_level = existing_lead.intent_level if existing_lead else None
+            old_intent_score = existing_lead.intent_score if existing_lead else 0
+
             # Create SponsorLeadCreate schema
             lead_in = SponsorLeadCreate(
                 user_id=user_id,
@@ -153,7 +276,7 @@ def process_lead_capture_event(event_data: dict) -> bool:
                 event_id=event_id,
             )
 
-            logger.info(f"Lead captured: {lead.id} (intent: {lead.intent_level}, score: {lead.intent_score})")
+            logger.info(f"Lead {'created' if is_new_lead else 'updated'}: {lead.id} (intent: {lead.intent_level}, score: {lead.intent_score})")
 
             # Convert to dict for Redis Stream
             lead_data = {
@@ -173,11 +296,18 @@ def process_lead_capture_event(event_data: dict) -> bool:
                 "created_at": lead.created_at.isoformat() if lead.created_at else None,
             }
 
-            # Publish to Redis Stream for real-time notification
-            publish_to_redis_stream("LEAD_CAPTURED", sponsor_id, lead_data, booth_id)
+            # Publish appropriate event type to Redis Stream
+            if is_new_lead:
+                # New lead - broadcast as LEAD_CAPTURED
+                publish_to_redis_stream("LEAD_CAPTURED", sponsor_id, lead_data, booth_id)
+            else:
+                # Existing lead - broadcast as LEAD_INTENT_UPDATED
+                # This triggers the handleIntentUpdated handler on the frontend
+                publish_to_redis_stream("LEAD_INTENT_UPDATED", sponsor_id, lead_data, booth_id)
+                logger.info(f"Intent changed for lead {lead.id}: {old_intent_level}({old_intent_score}) -> {lead.intent_level}({lead.intent_score})")
 
-            # Optional: Send email notification for hot leads
-            if lead.intent_level == "hot":
+            # Optional: Send email notification for hot leads (only for new hot leads or upgrades to hot)
+            if lead.intent_level == "hot" and (is_new_lead or old_intent_level != "hot"):
                 send_hot_lead_notification(db, sponsor_id, lead, event_id)
 
             return True
@@ -279,10 +409,17 @@ def run_consumer():
 
                 logger.info(f"Received lead event: {event_type} for sponsor {sponsor_id}")
 
-                success = process_lead_capture_event(event_data)
+                # Route to appropriate handler based on event type
+                if event_type == "LEAD_CAPTURED":
+                    success = process_lead_capture_event(event_data)
+                elif event_type == "LEAD_INTERACTION":
+                    success = process_lead_interaction_event(event_data)
+                else:
+                    logger.debug(f"Ignoring unknown event type: {event_type}")
+                    success = True
 
                 if not success:
-                    logger.error(f"Failed to process lead event for sponsor {sponsor_id}")
+                    logger.error(f"Failed to process {event_type} event for sponsor {sponsor_id}")
                     # Message will still be committed due to enable_auto_commit
                     # In production, you might want to implement a dead letter queue
 

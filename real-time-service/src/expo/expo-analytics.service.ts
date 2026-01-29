@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../shared/redis.constants';
-import { KafkaService, LeadCaptureEvent } from '../shared/kafka/kafka.service';
+import { KafkaService, LeadCaptureEvent, LeadInteractionEvent } from '../shared/kafka/kafka.service';
 
 interface EngagementAction {
   action: string;
@@ -63,6 +63,7 @@ export class ExpoAnalyticsService {
   /**
    * Tracks a resource download.
    * Gracefully handles errors to prevent blocking user actions.
+   * Also sends interaction event to update lead intent score.
    */
   async trackResourceDownload(
     userId: string,
@@ -88,6 +89,11 @@ export class ExpoAnalyticsService {
       // Broadcast analytics update
       await this.publishAnalyticsUpdate(boothId, 'RESOURCE_DOWNLOAD');
 
+      // Send interaction event to update lead intent score
+      await this.sendInteractionEvent(userId, boothId, 'content_download', {
+        resourceId,
+      });
+
       this.logger.log(
         `Resource ${resourceId} downloaded from booth ${boothId} by ${userId}`,
       );
@@ -100,6 +106,7 @@ export class ExpoAnalyticsService {
   /**
    * Tracks a CTA button click.
    * Gracefully handles errors to prevent blocking user actions.
+   * Also sends interaction event to update lead intent score.
    */
   async trackCtaClick(
     userId: string,
@@ -122,6 +129,11 @@ export class ExpoAnalyticsService {
 
       // Broadcast analytics update
       await this.publishAnalyticsUpdate(boothId, 'CTA_CLICK');
+
+      // Send interaction event to update lead intent score
+      await this.sendInteractionEvent(userId, boothId, 'cta_click', {
+        ctaId,
+      });
 
       this.logger.log(`CTA ${ctaId} clicked in booth ${boothId} by ${userId}`);
     } catch (error) {
@@ -347,10 +359,54 @@ export class ExpoAnalyticsService {
   }
 
   /**
+   * Sends an interaction event to Kafka for lead intent score updates.
+   * This updates the intent score of existing leads based on engagement.
+   */
+  private async sendInteractionEvent(
+    userId: string,
+    boothId: string,
+    interactionType: LeadInteractionEvent['interactionType'],
+    metadata: LeadInteractionEvent['interactionMetadata'],
+  ): Promise<void> {
+    if (!this.useKafkaForLeadSync) {
+      return; // Skip if Kafka sync is disabled
+    }
+
+    try {
+      const booth = await this.prisma.expoBooth.findUnique({
+        where: { id: boothId },
+        include: { expoHall: true },
+      });
+
+      if (!booth || !booth.expoHall || !booth.sponsorId) {
+        return; // Can't send without sponsor/event context
+      }
+
+      const interactionEvent: LeadInteractionEvent = {
+        type: 'LEAD_INTERACTION',
+        sponsorId: booth.sponsorId,
+        eventId: booth.expoHall.eventId,
+        userId,
+        boothId,
+        interactionType,
+        interactionMetadata: metadata,
+        timestamp: new Date().toISOString(),
+      };
+
+      await this.kafkaService.sendLeadInteractionEvent(interactionEvent);
+    } catch (error) {
+      // Log but don't throw - interaction tracking should not block user actions
+      this.logger.error(`Failed to send interaction event: ${error}`);
+    }
+  }
+
+  /**
    * Tracks a video session completion.
    * Gracefully handles errors.
+   * Also sends interaction event to update lead intent score.
    */
   async trackVideoSession(
+    userId: string,
     boothId: string,
     durationSeconds: number,
     completed: boolean,
@@ -362,6 +418,17 @@ export class ExpoAnalyticsService {
         await this.incrementAnalytics(boothId, 'completedVideoSessions');
         await this.updateAvgVideoDuration(boothId, durationSeconds);
       }
+
+      // Broadcast analytics update
+      await this.publishAnalyticsUpdate(boothId, 'VIDEO_SESSION');
+
+      // Send interaction event to update lead intent score
+      // Use 'demo_watched' for completed videos (high intent), 'video_session' otherwise
+      const interactionType = completed ? 'demo_watched' : 'content_view';
+      await this.sendInteractionEvent(userId, boothId, interactionType, {
+        videoDurationSeconds: durationSeconds,
+        videoCompleted: completed,
+      });
 
       this.logger.log(
         `Video session tracked for booth ${boothId} (${durationSeconds}s, completed: ${completed})`,

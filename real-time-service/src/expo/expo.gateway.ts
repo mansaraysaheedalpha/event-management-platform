@@ -833,8 +833,9 @@ export class ExpoGateway
         user.sub,
       );
 
-      // Track video session completion
+      // Track video session completion (also updates lead intent score)
       await this.analyticsService.trackVideoSession(
+        user.sub,
         session.boothId,
         session.durationSeconds,
         true,

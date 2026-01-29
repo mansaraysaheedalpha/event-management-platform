@@ -29,6 +29,26 @@ export interface LeadCaptureEvent {
   timestamp: string;
 }
 
+// Lead interaction event for ongoing engagement (updates intent score for existing leads)
+export interface LeadInteractionEvent {
+  type: 'LEAD_INTERACTION';
+  sponsorId: string;
+  eventId: string;
+  userId: string;
+  boothId: string;
+  interactionType: 'content_download' | 'content_view' | 'cta_click' | 'demo_watched' | 'video_session' | 'chat_message' | 'booth_visit';
+  interactionMetadata: {
+    resourceId?: string;
+    resourceName?: string;
+    ctaId?: string;
+    ctaLabel?: string;
+    videoDurationSeconds?: number;
+    videoCompleted?: boolean;
+    visitDurationSeconds?: number;
+  };
+  timestamp: string;
+}
+
 // Giveaway event types
 export interface GiveawayWinnerEmailEvent {
   type: 'GIVEAWAY_WINNER_SINGLE_POLL' | 'GIVEAWAY_WINNER_QUIZ';
@@ -168,6 +188,37 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       return true;
     } catch (error) {
       this.logger.error('Failed to send lead capture event:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Send a lead interaction event to Kafka
+   * This updates intent scores for existing leads based on engagement
+   */
+  async sendLeadInteractionEvent(event: LeadInteractionEvent): Promise<boolean> {
+    if (!this.isConnected) {
+      this.logger.warn('Kafka not connected, skipping lead interaction event');
+      return false;
+    }
+
+    try {
+      await this.producer.send({
+        topic: KAFKA_TOPICS.LEAD_CAPTURE_EVENTS, // Same topic, different event type
+        messages: [
+          {
+            key: event.sponsorId,
+            value: JSON.stringify(event),
+          },
+        ],
+      });
+
+      this.logger.log(
+        `Lead interaction event sent: ${event.interactionType} for sponsor ${event.sponsorId}, user ${event.userId}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to send lead interaction event:', error);
       return false;
     }
   }
