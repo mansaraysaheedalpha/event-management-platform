@@ -40,15 +40,20 @@ def prepare_asyncpg_url(url: str) -> tuple[str, dict]:
 
     return clean_url, connect_args
 
-DATABASE_URL, connect_args = prepare_asyncpg_url(settings.DATABASE_URL)
+# Database is optional - service can run without it using Redis for state
+engine = None
+AsyncSessionLocal = None
 
-# Create async engine
-engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True, connect_args=connect_args)
-
-# Create async session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+if settings.DATABASE_URL:
+    DATABASE_URL, connect_args = prepare_asyncpg_url(settings.DATABASE_URL)
+    # Create async engine
+    engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True, connect_args=connect_args)
+    # Create async session factory
+    AsyncSessionLocal = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+else:
+    logger.warning("DATABASE_URL not configured. Database features will be disabled.")
 
 # Base class for models
 Base = declarative_base()
@@ -56,6 +61,10 @@ Base = declarative_base()
 
 async def init_db():
     """Initialize database and create tables"""
+    if engine is None:
+        logger.warning("Database engine not initialized. Skipping database setup.")
+        return
+
     # Import models to register them with Base.metadata
     from app.db import models  # noqa: F401
     from app.models import anomaly  # noqa: F401
@@ -88,5 +97,7 @@ async def init_db():
 
 async def get_db():
     """Dependency for getting database session"""
+    if AsyncSessionLocal is None:
+        raise RuntimeError("Database not configured. Set DATABASE_URL environment variable.")
     async with AsyncSessionLocal() as session:
         yield session

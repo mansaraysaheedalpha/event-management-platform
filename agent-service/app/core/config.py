@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str
 
-    # TimescaleDB
-    DATABASE_URL: str
+    # TimescaleDB (optional - service can run without it using Redis for state)
+    DATABASE_URL: Optional[str] = None
 
     # Anthropic
     ANTHROPIC_API_KEY: str
