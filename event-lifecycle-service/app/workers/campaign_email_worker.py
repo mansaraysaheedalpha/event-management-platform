@@ -18,8 +18,10 @@ import sys
 import time
 import logging
 import json
+import re
 from typing import Dict, Any
 from pathlib import Path
+from urllib.parse import quote
 from jinja2 import Template, TemplateError
 import resend
 
@@ -73,6 +75,27 @@ def load_email_template() -> str:
         return "{{ content }}{{ tracking_pixel }}"
 
 
+def wrap_urls_with_tracking(content: str, delivery_id: str, api_base_url: str) -> str:
+    """
+    Find URLs in the content and wrap them with click tracking.
+
+    This converts plain URLs to clickable links that go through our tracking endpoint.
+    Example: https://example.com -> <a href="/track/click/{delivery_id}?url=https://example.com">https://example.com</a>
+    """
+    # Regex to match URLs (http/https)
+    url_pattern = r'(https?://[^\s<>"\']+)'
+
+    def replace_url(match):
+        original_url = match.group(1)
+        # URL-encode the target URL for the query parameter
+        encoded_url = quote(original_url, safe='')
+        tracking_url = f"{api_base_url}/api/v1/sponsors-campaigns/campaigns/track/click/{delivery_id}?url={encoded_url}"
+        # Return as a clickable link with the original URL as display text
+        return f'<a href="{tracking_url}" style="color: #2563eb; text-decoration: underline;">{original_url}</a>'
+
+    return re.sub(url_pattern, replace_url, content)
+
+
 def render_email_html(
     content: str,
     subject: str,
@@ -93,10 +116,10 @@ def render_email_html(
     template_str = load_email_template()
     template = Template(template_str)
 
-    # Generate URLs
-    base_url = settings.NEXT_PUBLIC_APP_URL or "https://eventdynamics.io"
-    unsubscribe_url = f"{base_url}/unsubscribe/{delivery_id}"
-    preferences_url = f"{base_url}/email-preferences/{delivery_id}"
+    # Generate URLs - use API_BASE_URL for backend endpoints
+    api_base = settings.API_BASE_URL or "http://localhost:8000"
+    unsubscribe_url = f"{api_base}/api/v1/sponsors-campaigns/unsubscribe/{delivery_id}"
+    preferences_url = f"{api_base}/api/v1/sponsors-campaigns/email-preferences/{delivery_id}"
 
     # Convert plain text line breaks to HTML paragraphs
     # Split by double newlines for paragraphs, single newlines for line breaks
@@ -290,11 +313,16 @@ def process_campaign(campaign_id: str, db: Session):
                 )
 
                 # Build tracking pixel with real delivery ID
-                tracking_pixel = f'<img src="{settings.NEXT_PUBLIC_APP_URL}/api/v1/sponsors-campaigns/campaigns/track/open/{delivery.id}.png" width="1" height="1" alt="" style="display:block;width:1px;height:1px;" />'
+                # Use API_BASE_URL (backend) instead of NEXT_PUBLIC_APP_URL (frontend)
+                api_base = settings.API_BASE_URL or "http://localhost:8000"
+                tracking_pixel = f'<img src="{api_base}/api/v1/sponsors-campaigns/campaigns/track/open/{delivery.id}.png" width="1" height="1" alt="" style="display:block;width:1px;height:1px;" />'
+
+                # Wrap URLs in the body with click tracking
+                tracked_body = wrap_urls_with_tracking(personalized_body, delivery.id, api_base)
 
                 # Render full HTML email with template
                 html_email = render_email_html(
-                    content=personalized_body,
+                    content=tracked_body,
                     subject=personalized_subject,
                     sender_company=sender_company,
                     tracking_pixel=tracking_pixel,

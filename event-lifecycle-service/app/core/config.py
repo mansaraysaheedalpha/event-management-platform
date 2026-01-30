@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # App URL for tracking links
     NEXT_PUBLIC_APP_URL: Optional[str] = "http://localhost:3000"
 
+    # Backend API URL for email tracking pixels and click redirects
+    # This should be the publicly accessible URL of the event-lifecycle-service API
+    API_BASE_URL: Optional[str] = "http://localhost:8000"
+
     # Stripe Payment Configuration
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
