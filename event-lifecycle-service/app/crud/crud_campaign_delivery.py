@@ -139,27 +139,41 @@ class CRUDCampaignDelivery:
             db.refresh(delivery)
         return delivery
 
-    def track_open(self, db: Session, *, delivery_id: str):
-        """Track email open."""
+    def track_open(self, db: Session, *, delivery_id: str) -> tuple[Optional["CampaignDelivery"], bool]:
+        """
+        Track email open.
+
+        Returns:
+            tuple: (delivery, is_first_open) - delivery record and whether this was the first open
+        """
         delivery = self.get(db, delivery_id)
+        is_first_open = False
         if delivery:
             if not delivery.opened_at:
                 delivery.opened_at = datetime.utcnow()
+                is_first_open = True
             delivery.opened_count += 1
             db.commit()
             db.refresh(delivery)
-        return delivery
+        return delivery, is_first_open
 
-    def track_click(self, db: Session, *, delivery_id: str):
-        """Track link click."""
+    def track_click(self, db: Session, *, delivery_id: str) -> tuple[Optional["CampaignDelivery"], bool]:
+        """
+        Track link click.
+
+        Returns:
+            tuple: (delivery, is_first_click) - delivery record and whether this was the first click
+        """
         delivery = self.get(db, delivery_id)
+        is_first_click = False
         if delivery:
             if not delivery.first_click_at:
                 delivery.first_click_at = datetime.utcnow()
+                is_first_click = True
             delivery.click_count += 1
             db.commit()
             db.refresh(delivery)
-        return delivery
+        return delivery, is_first_click
 
     def get_pending_deliveries(
         self,

@@ -233,6 +233,22 @@ class CRUDSponsorCampaign:
             campaign.updated_at = datetime.utcnow()
             db.commit()
 
+    def increment_opened_count(self, db: Session, *, campaign_id: str):
+        """Increment campaign opened count by 1 (called on first-time open)."""
+        campaign = self.get(db, campaign_id)
+        if campaign:
+            campaign.opened_count = (campaign.opened_count or 0) + 1
+            campaign.updated_at = datetime.utcnow()
+            db.commit()
+
+    def increment_clicked_count(self, db: Session, *, campaign_id: str):
+        """Increment campaign clicked count by 1 (called on first-time click)."""
+        campaign = self.get(db, campaign_id)
+        if campaign:
+            campaign.clicked_count = (campaign.clicked_count or 0) + 1
+            campaign.updated_at = datetime.utcnow()
+            db.commit()
+
     def get_stats(self, db: Session, *, campaign_id: str) -> Dict[str, Any]:
         """Get comprehensive campaign statistics."""
         campaign = self.get(db, campaign_id)
