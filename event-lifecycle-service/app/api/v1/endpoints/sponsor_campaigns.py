@@ -388,21 +388,24 @@ async def track_email_open(
     """
     from fastapi.responses import Response
 
-    logger.info(f"Open tracking request for delivery: {delivery_id}")
+    print(f"[TRACKING] Open tracking request for delivery: {delivery_id}")
 
-    # Track the open - returns (delivery, is_first_open)
-    delivery, is_first_open = campaign_delivery.track_open(db, delivery_id=delivery_id)
+    try:
+        # Track the open - returns (delivery, is_first_open)
+        delivery, is_first_open = campaign_delivery.track_open(db, delivery_id=delivery_id)
 
-    if delivery:
-        logger.info(f"Open tracked for delivery {delivery_id}, first_open={is_first_open}")
-        # Update campaign stats if this is the first open
-        if is_first_open:
-            sponsor_campaign.increment_opened_count(db, campaign_id=delivery.campaign_id)
-            logger.info(f"Campaign {delivery.campaign_id} opened_count incremented")
-    else:
-        logger.warning(f"Delivery not found for open tracking: {delivery_id}")
+        if delivery:
+            print(f"[TRACKING] Open tracked for delivery {delivery_id}, first_open={is_first_open}, campaign={delivery.campaign_id}")
+            # Update campaign stats if this is the first open
+            if is_first_open:
+                sponsor_campaign.increment_opened_count(db, campaign_id=delivery.campaign_id)
+                print(f"[TRACKING] Campaign {delivery.campaign_id} opened_count incremented")
+        else:
+            print(f"[TRACKING] WARNING: Delivery not found for open tracking: {delivery_id}")
+    except Exception as e:
+        print(f"[TRACKING] ERROR tracking open for {delivery_id}: {e}")
 
-    # Return 1x1 transparent PNG
+    # Return 1x1 transparent PNG (always return pixel even if tracking fails)
     transparent_pixel = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6300010000050001ad7a0ac00000000049454e44ae426082')
 
     return Response(content=transparent_pixel, media_type="image/png")
@@ -422,21 +425,24 @@ async def track_email_click(
     """
     from fastapi.responses import RedirectResponse
 
-    logger.info(f"Click tracking request for delivery: {delivery_id}, url: {url}")
+    print(f"[TRACKING] Click tracking request for delivery: {delivery_id}, url: {url}")
 
-    # Track the click - returns (delivery, is_first_click)
-    delivery, is_first_click = campaign_delivery.track_click(db, delivery_id=delivery_id)
+    try:
+        # Track the click - returns (delivery, is_first_click)
+        delivery, is_first_click = campaign_delivery.track_click(db, delivery_id=delivery_id)
 
-    if delivery:
-        logger.info(f"Click tracked for delivery {delivery_id}, first_click={is_first_click}")
-        # Update campaign stats if this is the first click
-        if is_first_click:
-            sponsor_campaign.increment_clicked_count(db, campaign_id=delivery.campaign_id)
-            logger.info(f"Campaign {delivery.campaign_id} clicked_count incremented")
-    else:
-        logger.warning(f"Delivery not found for click tracking: {delivery_id}")
+        if delivery:
+            print(f"[TRACKING] Click tracked for delivery {delivery_id}, first_click={is_first_click}, campaign={delivery.campaign_id}")
+            # Update campaign stats if this is the first click
+            if is_first_click:
+                sponsor_campaign.increment_clicked_count(db, campaign_id=delivery.campaign_id)
+                print(f"[TRACKING] Campaign {delivery.campaign_id} clicked_count incremented")
+        else:
+            print(f"[TRACKING] WARNING: Delivery not found for click tracking: {delivery_id}")
+    except Exception as e:
+        print(f"[TRACKING] ERROR tracking click for {delivery_id}: {e}")
 
-    # Redirect to target URL
+    # Redirect to target URL (always redirect even if tracking fails)
     return RedirectResponse(url=url)
 
 
