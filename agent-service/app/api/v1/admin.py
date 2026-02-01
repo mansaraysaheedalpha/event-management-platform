@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.post("/db/create-tables")
+@router.get("/db/create-tables")
 async def create_tables():
     """
     Manually create all database tables.
