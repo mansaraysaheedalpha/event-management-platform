@@ -146,7 +146,7 @@ def handle_app_error(error: AppError, request: Request) -> JSONResponse:
         f"Application error: {error.category}",
         extra={
             "category": error.category,
-            "message": error.message,
+            "error_message": error.message,
             "status_code": error.status_code,
             "path": request.url.path,
             "method": request.method,
