@@ -118,10 +118,11 @@ app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 # Include routers
-from app.api.v1 import interventions, health, agent
+from app.api.v1 import interventions, health, agent, admin
 app.include_router(health.router, tags=["Health"])
 app.include_router(interventions.router, prefix="/api/v1", tags=["Interventions"])
 app.include_router(agent.router, prefix="/api/v1", tags=["Agent"])
+app.include_router(admin.router, prefix="/api/v1", tags=["Admin"])
 
 
 @app.get("/")
