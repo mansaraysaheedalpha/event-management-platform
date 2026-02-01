@@ -3,7 +3,7 @@ Session Tracker
 Maintains per-session state and tracks engagement signals over time
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from collections import deque
 import logging
@@ -11,13 +11,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> datetime:
+    """Helper function for timezone-aware UTC datetime (for dataclass defaults)."""
+    return datetime.now(timezone.utc)
+
+
 @dataclass
 class SessionState:
     """State for a single session"""
     session_id: str
     event_id: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utc_now)
+    last_updated: datetime = field(default_factory=_utc_now)
 
     # Current signal values
     chat_msgs_per_min: float = 0.0
@@ -43,7 +48,7 @@ class SessionState:
 
     def update_timestamp(self):
         """Update last_updated timestamp"""
-        self.last_updated = datetime.utcnow()
+        self.last_updated = datetime.now(timezone.utc)
 
 
 class SessionTracker:
@@ -92,7 +97,7 @@ class SessionTracker:
             event_id: Event identifier
         """
         session = self.get_or_create_session(session_id, event_id)
-        session.chat_messages.append(datetime.utcnow())
+        session.chat_messages.append(datetime.now(timezone.utc))
         session.update_timestamp()
 
         # Recalculate chat rate
@@ -107,7 +112,7 @@ class SessionTracker:
             event_id: Event identifier
         """
         session = self.get_or_create_session(session_id, event_id)
-        session.reactions.append(datetime.utcnow())
+        session.reactions.append(datetime.now(timezone.utc))
         session.update_timestamp()
 
         # Recalculate reaction rate
@@ -124,7 +129,7 @@ class SessionTracker:
         """
         session = self.get_or_create_session(session_id, event_id)
         session.connected_users.add(user_id)
-        session.user_joins.append(datetime.utcnow())
+        session.user_joins.append(datetime.now(timezone.utc))
         session.update_timestamp()
 
         # Update user counts
@@ -141,7 +146,7 @@ class SessionTracker:
         """
         session = self.get_or_create_session(session_id, event_id)
         session.connected_users.discard(user_id)
-        session.user_leaves.append(datetime.utcnow())
+        session.user_leaves.append(datetime.now(timezone.utc))
         session.update_timestamp()
 
         # Update user counts and leave rate
@@ -173,7 +178,7 @@ class SessionTracker:
 
     def _update_chat_rate(self, session: SessionState):
         """Calculate messages per minute from rolling window"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=60)
 
         # Count messages in last 60 seconds
@@ -182,7 +187,7 @@ class SessionTracker:
 
     def _update_reaction_rate(self, session: SessionState):
         """Calculate reactions per minute from rolling window"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=60)
 
         recent_reactions = sum(1 for ts in session.reactions if ts >= cutoff)
@@ -190,7 +195,7 @@ class SessionTracker:
 
     def _update_user_counts(self, session: SessionState):
         """Update active and total user counts"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=60)
 
         # Active users: those who have activity in last 60 seconds
@@ -200,7 +205,7 @@ class SessionTracker:
 
     def _update_leave_rate(self, session: SessionState):
         """Calculate user leave rate (leaves per minute / total users)"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=60)
 
         recent_leaves = sum(1 for ts in session.user_leaves if ts >= cutoff)
@@ -245,7 +250,7 @@ class SessionTracker:
 
     def cleanup_inactive_sessions(self):
         """Remove sessions that haven't been updated recently"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         inactive_sessions = [
             session_id
             for session_id, session in self.sessions.items()

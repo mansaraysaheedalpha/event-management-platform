@@ -405,7 +405,7 @@ class EngagementSignalCollector:
         try:
             async with AsyncSessionLocal() as db:
                 metric = EngagementMetric(
-                    time=datetime.utcnow(),
+                    time=datetime.now(timezone.utc),
                     session_id=session_id,
                     event_id=session.event_id,
                     engagement_score=score,
@@ -455,7 +455,7 @@ class EngagementSignalCollector:
         """
         try:
             payload = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "sessionId": session_id,
                 "eventId": event_id,
                 "score": score,
@@ -603,7 +603,7 @@ class EngagementSignalCollector:
             session_context = {
                 'session_id': anomaly_event.session_id,
                 'event_id': anomaly_event.event_id,
-                'duration': (datetime.utcnow() - session_state.last_activity).total_seconds() if session_state else 0,
+                'duration': (datetime.now(timezone.utc) - session_state.last_activity).total_seconds() if session_state else 0,
                 'connected_users': len(session_state.connected_users) if session_state else 0,
                 'signals': signals
             }
@@ -676,7 +676,7 @@ class EngagementSignalCollector:
                 session_context = {
                     'session_id': anomaly_event.session_id,
                     'event_id': anomaly_event.event_id,
-                    'duration': (datetime.utcnow() - session_state.last_activity).total_seconds() if session_state else 0,
+                    'duration': (datetime.now(timezone.utc) - session_state.last_activity).total_seconds() if session_state else 0,
                     'connected_users': len(session_state.connected_users) if session_state else 0,
                     'signals': signals
                 }
@@ -725,21 +725,19 @@ class EngagementSignalCollector:
         """
         try:
             from app.agents.engagement_conductor import AgentMode
+            from app.models.event_agent_settings import EventAgentSettings
+            from sqlalchemy import select
 
             async with AsyncSessionLocal() as db:
-                # Try to fetch event settings from database
-                result = await db.execute(
-                    """
-                    SELECT agent_enabled, agent_mode
-                    FROM event_agent_settings
-                    WHERE event_id = :event_id
-                    """,
-                    {"event_id": event_id}
+                # Use SQLAlchemy ORM to fetch event settings
+                stmt = select(EventAgentSettings).where(
+                    EventAgentSettings.event_id == event_id
                 )
-                row = result.fetchone()
+                result = await db.execute(stmt)
+                settings = result.scalar_one_or_none()
 
-                if row and row.agent_enabled:
-                    mode_str = row.agent_mode or 'SEMI_AUTO'
+                if settings and settings.agent_enabled:
+                    mode_str = settings.agent_mode or 'SEMI_AUTO'
                     return AgentMode(mode_str)
 
                 # Default to SEMI_AUTO for production

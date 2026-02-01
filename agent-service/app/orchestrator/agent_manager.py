@@ -12,7 +12,7 @@ Handles:
 import asyncio
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import logging
 
@@ -28,6 +28,11 @@ from app.models.anomaly import Anomaly
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> datetime:
+    """Helper function for timezone-aware UTC datetime (for dataclass defaults)."""
+    return datetime.now(timezone.utc)
+
+
 @dataclass
 class SessionAgentConfig:
     """Configuration for a session's agent"""
@@ -35,8 +40,8 @@ class SessionAgentConfig:
     event_id: str
     agent_mode: AgentMode
     enabled: bool = True
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_activity: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utc_now)
+    last_activity: datetime = field(default_factory=_utc_now)
 
 
 @dataclass
@@ -281,7 +286,7 @@ class AgentOrchestrator:
             return None
 
         # Update last activity
-        config.last_activity = datetime.utcnow()
+        config.last_activity = datetime.now(timezone.utc)
 
         # Get or create agent for this session
         if session_id not in self.agents:
@@ -292,7 +297,7 @@ class AgentOrchestrator:
         agent = self.agents[session_id]
 
         # Run agent
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         try:
             final_state = await agent.run(
                 session_id=session_id,
@@ -360,7 +365,7 @@ class AgentOrchestrator:
         # Count interventions
         if state.get("selected_intervention"):
             metrics.total_interventions += 1
-            metrics.last_intervention_at = datetime.utcnow()
+            metrics.last_intervention_at = datetime.now(timezone.utc)
 
             # Track approval method
             if state.get("requires_approval") and state.get("approved"):
@@ -382,7 +387,7 @@ class AgentOrchestrator:
             )
 
         # Update response time
-        response_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        response_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
         total = metrics.total_interventions or 1
         metrics.average_response_time_ms = (
             (metrics.average_response_time_ms * (total - 1) + response_time) / total

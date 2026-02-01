@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from collections import deque, OrderedDict
 import statistics
@@ -302,7 +302,7 @@ class AnomalyDetector:
         if len(history) < 5:
             history.append({
                 'score': engagement_score,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'signals': signals
             })
             return None
@@ -335,7 +335,7 @@ class AnomalyDetector:
         # Add current point to history
         history.append({
             'score': engagement_score,
-            'timestamp': datetime.utcnow(),
+            'timestamp': datetime.now(timezone.utc),
             'signals': signals
         })
 
@@ -358,7 +358,7 @@ class AnomalyDetector:
         anomaly_event = AnomalyEvent(
             session_id=session_id,
             event_id=event_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             anomaly_type=anomaly_type,
             severity=severity,
             anomaly_score=combined_score,

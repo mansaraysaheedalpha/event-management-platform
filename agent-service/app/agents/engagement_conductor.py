@@ -120,6 +120,8 @@ class AgentState(TypedDict):
     # Learning
     success: bool
     reward: float
+    pre_intervention_engagement: float  # Engagement score before intervention
+    post_intervention_engagement: Optional[float]  # Engagement score after delay
 
     # Status
     status: AgentStatus
@@ -173,6 +175,10 @@ class EngagementConductorAgent:
         """Maximum pending approvals to prevent memory exhaustion (from config)"""
         return get_settings().AGENT_MAX_PENDING_APPROVALS
 
+    # Delayed reward measurement configuration
+    REWARD_MEASUREMENT_DELAY_SECONDS = 60  # Wait 60 seconds after intervention to measure impact
+    REWARD_MEASUREMENT_TTL_SECONDS = 300   # Max time to wait for reward measurement (5 minutes)
+
     def __init__(
         self,
         thompson_sampling: Optional[ThompsonSampling] = None,
@@ -199,8 +205,15 @@ class EngagementConductorAgent:
         # Format: {session_id: (AgentState, created_at)}
         self._pending_approvals_cache: Dict[str, Tuple[AgentState, datetime]] = {}
 
+        # Pending reward measurements - interventions awaiting engagement delta calculation
+        # Format: {intervention_id: (AgentState, scheduled_measurement_time)}
+        self._pending_rewards: Dict[str, Tuple[AgentState, datetime]] = {}
+
         # Start background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
+
+        # Background task for delayed reward measurement
+        self._reward_measurement_task: Optional[asyncio.Task] = None
 
         # Store current agent mode (default to MANUAL)
         self._current_mode: AgentMode = AgentMode.MANUAL
@@ -220,6 +233,9 @@ class EngagementConductorAgent:
             self._cleanup_task = asyncio.create_task(self._cleanup_expired_approvals())
             logger.info("Started pending approvals cleanup task")
 
+        # Also start reward measurement task
+        await self.start_reward_measurement_task()
+
     async def stop_cleanup_task(self):
         """Stop the background cleanup task."""
         if self._cleanup_task and not self._cleanup_task.done():
@@ -229,6 +245,199 @@ class EngagementConductorAgent:
             except asyncio.CancelledError:
                 pass
             logger.info("Stopped pending approvals cleanup task")
+
+        # Also stop reward measurement task
+        if self._reward_measurement_task and not self._reward_measurement_task.done():
+            self._reward_measurement_task.cancel()
+            try:
+                await self._reward_measurement_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Stopped reward measurement task")
+
+    async def start_reward_measurement_task(self):
+        """Start the background task for delayed reward measurement."""
+        if self._reward_measurement_task is None or self._reward_measurement_task.done():
+            self._reward_measurement_task = asyncio.create_task(self._measure_delayed_rewards())
+            logger.info("Started delayed reward measurement task")
+
+    async def _measure_delayed_rewards(self):
+        """
+        Background task that measures engagement delta after interventions.
+
+        Waits for REWARD_MEASUREMENT_DELAY_SECONDS after each intervention,
+        then fetches the current engagement score and calculates the reward.
+        """
+        while True:
+            try:
+                await asyncio.sleep(10)  # Check every 10 seconds
+                now = datetime.now(timezone.utc)
+                completed = []
+
+                for intervention_id, (state, scheduled_time) in list(self._pending_rewards.items()):
+                    # Check if it's time to measure
+                    if now >= scheduled_time:
+                        try:
+                            await self._complete_reward_measurement(intervention_id, state)
+                            completed.append(intervention_id)
+                        except Exception as e:
+                            logger.error(f"Error measuring reward for {intervention_id}: {e}")
+                            # Check if expired
+                            age = (now - scheduled_time).total_seconds()
+                            if age > self.REWARD_MEASUREMENT_TTL_SECONDS:
+                                logger.warning(f"Reward measurement expired for {intervention_id}, removing")
+                                completed.append(intervention_id)
+
+                # Remove completed measurements
+                for intervention_id in completed:
+                    if intervention_id in self._pending_rewards:
+                        del self._pending_rewards[intervention_id]
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in reward measurement loop: {e}")
+
+    async def _complete_reward_measurement(self, intervention_id: str, state: AgentState):
+        """
+        Complete reward measurement by fetching current engagement and updating Thompson Sampling.
+
+        Reward calculation:
+        - If post_engagement > pre_engagement: reward = min(delta / 0.2, 1.0) (normalized improvement)
+        - If engagement maintained (delta >= -0.05): reward = 0.5 (partial success)
+        - If engagement declined: reward = 0.0 (failure)
+
+        Args:
+            intervention_id: ID of the intervention
+            state: Agent state containing pre-intervention data
+        """
+        session_id = state["session_id"]
+        pre_engagement = state.get("pre_intervention_engagement", state["engagement_score"])
+
+        # Fetch current engagement from Redis
+        post_engagement = await self._fetch_current_engagement(session_id)
+
+        if post_engagement is None:
+            logger.warning(f"Could not fetch engagement for session {session_id}, using execution success only")
+            # Fall back to binary reward based on execution success
+            reward = 1.0 if state.get("success", False) else 0.0
+        else:
+            # Calculate engagement delta
+            delta = post_engagement - pre_engagement
+
+            if delta > 0:
+                # Improvement - normalize to 0-1 range (assume 20% improvement = max reward)
+                reward = min(delta / 0.2, 1.0)
+                logger.info(
+                    f"[REWARD] Session {session_id}: Engagement improved by {delta:.2%}, "
+                    f"reward={reward:.2f}"
+                )
+            elif delta >= -0.05:
+                # Engagement maintained (within 5% tolerance) - partial success
+                reward = 0.5
+                logger.info(
+                    f"[REWARD] Session {session_id}: Engagement maintained (delta={delta:.2%}), "
+                    f"reward=0.5"
+                )
+            else:
+                # Engagement declined despite intervention
+                reward = 0.0
+                logger.info(
+                    f"[REWARD] Session {session_id}: Engagement declined by {abs(delta):.2%}, "
+                    f"reward=0.0"
+                )
+
+        # Update Thompson Sampling with actual reward
+        context = state.get("context")
+        intervention_type = state.get("selected_intervention")
+
+        if context and intervention_type:
+            self.thompson_sampling.update(
+                context=context,
+                intervention_type=intervention_type,
+                success=reward > 0.3,  # Consider success if reward > 0.3
+                reward=reward
+            )
+
+            logger.info(
+                f"[REWARD] Updated Thompson Sampling for {intervention_type.value}: "
+                f"reward={reward:.2f}, success={reward > 0.3}"
+            )
+
+            # Persist Thompson Sampling stats
+            try:
+                await self.thompson_sampling.save_to_redis()
+            except Exception as e:
+                logger.error(f"Failed to persist Thompson Sampling after reward update: {e}")
+
+        # Publish reward measurement event
+        await self._publish_agent_event(
+            event_type="agent.reward.measured",
+            session_id=session_id,
+            data={
+                "intervention_id": intervention_id,
+                "pre_engagement": pre_engagement,
+                "post_engagement": post_engagement,
+                "reward": reward,
+                "delta": post_engagement - pre_engagement if post_engagement else None
+            }
+        )
+
+    async def _fetch_current_engagement(self, session_id: str) -> Optional[float]:
+        """
+        Fetch the current engagement score for a session from Redis.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Current engagement score (0-1) or None if not available
+        """
+        try:
+            if redis_client is None:
+                return None
+
+            # Try to get latest engagement from Redis stream
+            key = f"engagement:{session_id}:latest"
+            data = await redis_client.client.get(key)
+
+            if data:
+                engagement_data = json.loads(data)
+                return engagement_data.get("score")
+
+            # Fallback: try to get from engagement update channel
+            # This might be stale, but better than nothing
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching engagement for session {session_id}: {e}")
+            return None
+
+    def _schedule_reward_measurement(self, state: AgentState):
+        """
+        Schedule delayed reward measurement for an intervention.
+
+        Args:
+            state: Agent state after intervention execution
+        """
+        intervention_id = state.get("intervention_id")
+        if not intervention_id:
+            logger.warning("Cannot schedule reward measurement: no intervention_id in state")
+            return
+
+        # Store pre-intervention engagement in state
+        state["pre_intervention_engagement"] = state["engagement_score"]
+
+        # Schedule measurement after delay
+        scheduled_time = datetime.now(timezone.utc) + timedelta(
+            seconds=self.REWARD_MEASUREMENT_DELAY_SECONDS
+        )
+        self._pending_rewards[intervention_id] = (state.copy(), scheduled_time)
+
+        logger.info(
+            f"[REWARD] Scheduled reward measurement for intervention {intervention_id[:8]}... "
+            f"at {scheduled_time.isoformat()}"
+        )
 
     async def _load_pending_approvals_from_redis(self):
         """Load pending approvals from Redis on startup for crash recovery."""
@@ -789,44 +998,57 @@ class EngagementConductorAgent:
     @traceable(name="learn", project_name=LANGSMITH_PROJECT)
     async def _learn_node(self, state: AgentState) -> AgentState:
         """
-        LEARN: Update Thompson Sampling statistics based on outcome.
+        LEARN: Schedule delayed reward measurement based on engagement delta.
 
-        This completes the reinforcement learning loop by updating our
-        belief about which interventions work best.
+        Instead of immediate reward calculation, this schedules a delayed measurement
+        to capture the actual impact of the intervention on engagement.
+
+        The reward will be calculated after REWARD_MEASUREMENT_DELAY_SECONDS by
+        comparing pre-intervention and post-intervention engagement scores.
         """
-        logger.info(f"[LEARN] Session {state['session_id']}: Updating statistics")
+        logger.info(f"[LEARN] Session {state['session_id']}: Scheduling reward measurement")
 
         state["status"] = AgentStatus.LEARNING
 
-        # Calculate reward based on outcome
-        # TODO: In production, measure actual engagement delta after intervention
-        if state["success"]:
-            # Simple reward: 1.0 for success, 0.0 for failure
-            # In practice, this should be the engagement improvement (0-1)
-            reward = 1.0
+        # Store pre-intervention engagement for later comparison
+        state["pre_intervention_engagement"] = state["engagement_score"]
+        state["post_intervention_engagement"] = None  # Will be filled by delayed measurement
+
+        if state["success"] and state.get("intervention_id"):
+            # Schedule delayed reward measurement for successful interventions
+            # The actual Thompson Sampling update happens after the delay
+            self._schedule_reward_measurement(state)
+
+            logger.info(
+                f"[LEARN] Scheduled delayed reward measurement for intervention "
+                f"{state['intervention_id'][:8]}... (delay: {self.REWARD_MEASUREMENT_DELAY_SECONDS}s)"
+            )
+
+            # Set provisional reward (will be updated by delayed measurement)
+            state["reward"] = 0.5  # Provisional - actual reward determined later
         else:
-            reward = 0.0
+            # Intervention failed to execute - immediate negative feedback
+            state["reward"] = 0.0
 
-        state["reward"] = reward
+            # Update Thompson Sampling immediately for failures
+            if state.get("context") and state.get("selected_intervention"):
+                self.thompson_sampling.update(
+                    context=state["context"],
+                    intervention_type=state["selected_intervention"],
+                    success=False,
+                    reward=0.0
+                )
 
-        # Update Thompson Sampling
-        self.thompson_sampling.update(
-            context=state["context"],
-            intervention_type=state["selected_intervention"],
-            success=state["success"],
-            reward=reward
-        )
+                logger.info(
+                    f"[LEARN] Updated Thompson Sampling with failure: "
+                    f"intervention={state['selected_intervention'].value}, reward=0.0"
+                )
 
-        logger.info(
-            f"[LEARN] Updated statistics: success={state['success']}, "
-            f"reward={reward:.2f}"
-        )
-
-        # Persist Thompson Sampling stats to Redis for long-term learning
-        try:
-            await self.thompson_sampling.save_to_redis()
-        except Exception as e:
-            logger.error(f"[LEARN] Failed to persist Thompson Sampling stats: {e}")
+                # Persist Thompson Sampling stats
+                try:
+                    await self.thompson_sampling.save_to_redis()
+                except Exception as e:
+                    logger.error(f"[LEARN] Failed to persist Thompson Sampling stats: {e}")
 
         return state
 
@@ -895,6 +1117,8 @@ class EngagementConductorAgent:
             "execution_result": None,
             "success": False,
             "reward": 0.0,
+            "pre_intervention_engagement": engagement_score,  # Store for delta calculation
+            "post_intervention_engagement": None,  # Filled by delayed measurement
             "status": AgentStatus.IDLE,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "explanation": ""

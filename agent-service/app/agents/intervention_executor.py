@@ -409,6 +409,13 @@ class InterventionExecutor:
         """
         Execute a gamification intervention.
 
+        Gamification types:
+        - achievement_unlock: Unlock a special achievement for active participants
+        - points_boost: Award bonus points for current engagement
+        - leaderboard_highlight: Highlight top contributors on leaderboard
+        - challenge_start: Start a timed engagement challenge
+        - streak_bonus: Award streak bonus for consistent participation
+
         Args:
             recommendation: Intervention recommendation
             db_session: Database session
@@ -420,18 +427,35 @@ class InterventionExecutor:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
             gamification_type = recommendation.context.get('gamification_type', 'achievement_unlock')
+            anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
+
+            # Validate session_id as UUID
+            try:
+                session_uuid = uuid.UUID(session_id)
+            except ValueError as e:
+                return {
+                    'success': False,
+                    'error': f'Invalid session_id format: {e}'
+                }
+
+            # Generate gamification content based on type
+            gamification_content = self._generate_gamification_content(
+                gamification_type=gamification_type,
+                anomaly_type=anomaly_type
+            )
 
             # Create intervention record
             intervention_id = str(uuid.uuid4())
             intervention = Intervention(
                 id=uuid.UUID(intervention_id),
-                session_id=uuid.UUID(session_id),
+                session_id=session_uuid,
                 timestamp=datetime.now(timezone.utc),
                 type='GAMIFICATION',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
                 metadata={
                     'gamification_type': gamification_type,
+                    'content': gamification_content,
                     'estimated_impact': recommendation.estimated_impact,
                     'priority': recommendation.priority
                 }
@@ -440,12 +464,34 @@ class InterventionExecutor:
             db_session.add(intervention)
             await db_session.commit()
 
-            self.logger.info(f"✅ Gamification intervention executed: {gamification_type}")
+            # Publish gamification intervention to Redis
+            await self._publish_gamification_intervention(
+                intervention_id=intervention_id,
+                session_id=session_id,
+                event_id=event_id,
+                gamification_type=gamification_type,
+                content=gamification_content,
+                recommendation=recommendation
+            )
+
+            # Track as pending
+            self.pending_interventions[intervention_id] = {
+                'type': 'GAMIFICATION',
+                'session_id': session_id,
+                'timestamp': datetime.now(timezone.utc),
+                'recommendation': recommendation
+            }
+
+            self.logger.info(
+                f"✅ Gamification intervention executed: {gamification_type} - "
+                f"'{gamification_content.get('title', '')}' (ID: {intervention_id[:8]}...)"
+            )
 
             return {
                 'success': True,
                 'intervention_id': intervention_id,
-                'gamification_type': gamification_type
+                'gamification_type': gamification_type,
+                'content': gamification_content
             }
 
         except Exception as e:
@@ -454,6 +500,76 @@ class InterventionExecutor:
                 'success': False,
                 'error': str(e)
             }
+
+    def _generate_gamification_content(
+        self,
+        gamification_type: str,
+        anomaly_type: str
+    ) -> Dict[str, Any]:
+        """
+        Generate gamification content based on type and context.
+
+        Args:
+            gamification_type: Type of gamification action
+            anomaly_type: Type of engagement anomaly detected
+
+        Returns:
+            Dictionary with gamification content
+        """
+        import random
+
+        # Achievement templates
+        achievements = {
+            'achievement_unlock': {
+                'SUDDEN_DROP': [
+                    {'title': 'Rally Champion', 'description': 'Help bring the energy back! Participate now to earn this badge.', 'icon': '🏆', 'points': 50},
+                    {'title': 'Engagement Hero', 'description': 'Be part of the comeback! Join the conversation to unlock.', 'icon': '🦸', 'points': 75},
+                ],
+                'GRADUAL_DECLINE': [
+                    {'title': 'Steady Contributor', 'description': 'Keep the momentum going! Stay active to earn this badge.', 'icon': '⭐', 'points': 40},
+                    {'title': 'Session Star', 'description': 'Your participation matters! Keep engaging to unlock.', 'icon': '🌟', 'points': 50},
+                ],
+                'LOW_ENGAGEMENT': [
+                    {'title': 'Ice Breaker', 'description': 'Be the first to spark a conversation!', 'icon': '🧊', 'points': 60},
+                    {'title': 'Conversation Starter', 'description': 'Help kick off the discussion and earn this badge.', 'icon': '💬', 'points': 45},
+                ],
+                'MASS_EXIT': [
+                    {'title': 'Loyal Attendee', 'description': 'Thank you for staying! Your dedication is appreciated.', 'icon': '❤️', 'points': 100},
+                    {'title': 'True Fan', 'description': 'Staying through thick and thin earns you this special badge.', 'icon': '🎯', 'points': 80},
+                ],
+            },
+            'points_boost': {
+                'default': {'multiplier': 2, 'duration_seconds': 300, 'message': '🎉 Double points activated for the next 5 minutes!'},
+            },
+            'leaderboard_highlight': {
+                'default': {'highlight_top_n': 5, 'message': '🏅 Shoutout to our top contributors! Keep it up!'},
+            },
+            'challenge_start': {
+                'SUDDEN_DROP': {'challenge': 'Quick Fire Round', 'goal': 'Send 3 messages in the next 2 minutes', 'reward_points': 30, 'duration_seconds': 120},
+                'GRADUAL_DECLINE': {'challenge': 'Engagement Sprint', 'goal': 'React to 5 messages in the next 3 minutes', 'reward_points': 25, 'duration_seconds': 180},
+                'LOW_ENGAGEMENT': {'challenge': 'First Mover', 'goal': 'Be the first to ask a question', 'reward_points': 50, 'duration_seconds': 60},
+                'default': {'challenge': 'Participation Challenge', 'goal': 'Engage with the session', 'reward_points': 20, 'duration_seconds': 120},
+            },
+            'streak_bonus': {
+                'default': {'streak_threshold': 3, 'bonus_points': 15, 'message': '🔥 Keep your streak going! Bonus points for consistent participation.'},
+            },
+        }
+
+        # Get content for the gamification type
+        type_content = achievements.get(gamification_type, {})
+
+        if gamification_type == 'achievement_unlock':
+            # Get anomaly-specific achievements or fall back to SUDDEN_DROP
+            anomaly_achievements = type_content.get(anomaly_type, type_content.get('SUDDEN_DROP', []))
+            if anomaly_achievements:
+                return random.choice(anomaly_achievements)
+            return {'title': 'Participation Badge', 'description': 'Thanks for being here!', 'icon': '🎖️', 'points': 30}
+
+        elif gamification_type == 'challenge_start':
+            return type_content.get(anomaly_type, type_content.get('default', {}))
+
+        else:
+            return type_content.get('default', {'message': 'Gamification event triggered!'})
 
     async def _publish_poll_intervention(
         self,
@@ -553,6 +669,51 @@ class InterventionExecutor:
             self.logger.info(f"Published notification intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
             self.logger.error(f"Redis circuit breaker open, cannot publish notification: {e.message}")
+            raise
+
+    async def _publish_gamification_intervention(
+        self,
+        intervention_id: str,
+        session_id: str,
+        event_id: str,
+        gamification_type: str,
+        content: Dict[str, Any],
+        recommendation: InterventionRecommendation
+    ):
+        """Publish gamification intervention to Redis.
+
+        RELIABILITY: Uses circuit breaker to prevent blocking on Redis failures.
+
+        Args:
+            intervention_id: Unique intervention ID
+            session_id: Session ID
+            event_id: Event ID
+            gamification_type: Type of gamification (achievement_unlock, points_boost, etc.)
+            content: Gamification content dictionary
+            recommendation: Original recommendation
+        """
+        message = {
+            'type': 'agent.intervention.gamification',
+            'intervention_id': intervention_id,
+            'session_id': session_id,
+            'event_id': event_id,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'gamification_type': gamification_type,
+            'content': content,
+            'metadata': {
+                'reason': recommendation.reason,
+                'confidence': recommendation.confidence,
+                'priority': recommendation.priority,
+                'estimated_impact': recommendation.estimated_impact
+            }
+        }
+
+        try:
+            async with redis_circuit_breaker:
+                await self.redis.publish('agent.interventions', json.dumps(message))
+            self.logger.info(f"Published gamification intervention to Redis: {intervention_id[:8]}...")
+        except CircuitBreakerError as e:
+            self.logger.error(f"Redis circuit breaker open, cannot publish gamification: {e.message}")
             raise
 
     async def record_outcome(

@@ -8,7 +8,8 @@ SECURITY: All endpoints require authentication and verify user permissions
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
-from datetime import datetime
+from datetime import datetime, timezone
+import uuid
 
 from app.orchestrator import agent_manager
 from app.middleware import AppError, ErrorCategory
@@ -16,6 +17,31 @@ from app.middleware.auth import verify_token, verify_organizer, AuthUser
 from app.agents.engagement_conductor import AgentMode
 
 router = APIRouter()
+
+
+def validate_uuid(value: str, field_name: str = "id") -> str:
+    """
+    Validate that a string is a valid UUID.
+
+    Args:
+        value: String to validate
+        field_name: Name of the field for error messages
+
+    Returns:
+        The validated UUID string
+
+    Raises:
+        AppError: If the string is not a valid UUID
+    """
+    try:
+        uuid.UUID(value)
+        return value
+    except ValueError:
+        raise AppError(
+            message=f"Invalid {field_name} format: '{value}' is not a valid UUID",
+            category=ErrorCategory.VALIDATION,
+            status_code=400
+        )
 
 
 # Request/Response Models
@@ -104,7 +130,7 @@ async def change_agent_mode(
         return {
             "session_id": session_id,
             "mode": request.mode,
-            "changed_at": datetime.utcnow().isoformat(),
+            "changed_at": datetime.now(timezone.utc).isoformat(),
             "message": f"Agent mode changed to {request.mode}"
         }
 
@@ -198,7 +224,7 @@ async def register_session(
             session_id=request.session_id,
             event_id=request.event_id,
             agent_mode="MANUAL",  # Default mode
-            registered_at=datetime.utcnow().isoformat(),
+            registered_at=datetime.now(timezone.utc).isoformat(),
             message=f"Session {request.session_id} registered with agent orchestrator"
         )
 
@@ -228,7 +254,7 @@ async def unregister_session(
 
         return {
             "session_id": session_id,
-            "unregistered_at": datetime.utcnow().isoformat(),
+            "unregistered_at": datetime.now(timezone.utc).isoformat(),
             "message": f"Session {session_id} unregistered from agent orchestrator"
         }
 
@@ -254,6 +280,9 @@ async def approve_decision(
     This triggers the agent to execute the intervention
     """
     try:
+        # Validate decision_id is a valid UUID
+        validate_uuid(decision_id, "decision_id")
+
         agent = agent_manager.get_agent(session_id)
 
         if not agent:
@@ -269,7 +298,7 @@ async def approve_decision(
         return {
             "session_id": session_id,
             "decision_id": decision_id,
-            "approved_at": datetime.utcnow().isoformat(),
+            "approved_at": datetime.now(timezone.utc).isoformat(),
             "execution_result": result,
             "message": "Decision approved and executed"
         }
@@ -299,6 +328,9 @@ async def reject_decision(
     This discards the suggestion and provides feedback to the learning system
     """
     try:
+        # Validate decision_id is a valid UUID
+        validate_uuid(decision_id, "decision_id")
+
         agent = agent_manager.get_agent(session_id)
 
         if not agent:
@@ -314,7 +346,7 @@ async def reject_decision(
         return {
             "session_id": session_id,
             "decision_id": decision_id,
-            "rejected_at": datetime.utcnow().isoformat(),
+            "rejected_at": datetime.now(timezone.utc).isoformat(),
             "reason": reason,
             "message": "Decision rejected"
         }
