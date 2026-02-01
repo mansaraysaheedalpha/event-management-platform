@@ -75,9 +75,29 @@ async function startServer(): Promise<void> {
 
   // Configure CORS - allow multiple client URLs
   // CLIENT_URL can be comma-separated: "https://example.com,https://www.example.com"
+  // Supports wildcards: "https://*.vercel.app"
   const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:3000")
     .split(",")
     .map((origin) => origin.trim());
+
+  // Helper to check if origin matches allowed patterns (supports wildcards)
+  const isOriginAllowed = (origin: string): boolean => {
+    return allowedOrigins.some((pattern) => {
+      // Exact match
+      if (pattern === origin) return true;
+
+      // Wildcard match: convert pattern to regex
+      if (pattern.includes("*")) {
+        const regexPattern = pattern
+          .replace(/\./g, "\\.")  // Escape dots
+          .replace(/\*/g, ".*");  // Replace * with .*
+        const regex = new RegExp(`^${regexPattern}$`);
+        return regex.test(origin);
+      }
+
+      return false;
+    });
+  };
 
   const corsOptions: cors.CorsOptions = {
     origin: (origin, callback) => {
@@ -86,8 +106,8 @@ async function startServer(): Promise<void> {
         callback(null, true);
         return;
       }
-      // Check if the origin is in our allowed list
-      if (allowedOrigins.includes(origin)) {
+      // Check if the origin matches allowed patterns
+      if (isOriginAllowed(origin)) {
         callback(null, origin); // Return only the matching origin
       } else {
         console.warn(`CORS blocked origin: ${origin}`);
