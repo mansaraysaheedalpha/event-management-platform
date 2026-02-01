@@ -206,20 +206,23 @@ export class EngagementConductorGateway
   }
 
   async handleConnection(@ConnectedSocket() client: AuthenticatedSocket) {
-    const user = getAuthenticatedUser(client);
-    if (!user) {
+    try {
+      const user = getAuthenticatedUser(client);
+      this.logger.log(`Client ${client.id} connected (user: ${user.sub})`);
+    } catch {
+      // getAuthenticatedUser throws UnauthorizedException for unauthenticated clients
       this.logger.warn(`Unauthenticated client ${client.id} attempted to connect`);
       client.disconnect();
-      return;
     }
-
-    this.logger.log(`Client ${client.id} connected (user: ${user.sub})`);
   }
 
   async handleDisconnect(@ConnectedSocket() client: AuthenticatedSocket) {
-    const user = getAuthenticatedUser(client);
-    if (user) {
+    try {
+      const user = getAuthenticatedUser(client);
       this.logger.log(`Client ${client.id} disconnected (user: ${user.sub})`);
+    } catch {
+      // Unauthenticated client disconnected - no action needed
+      this.logger.debug(`Unauthenticated client ${client.id} disconnected`);
     }
   }
 
@@ -277,8 +280,10 @@ export class EngagementConductorGateway
     @ConnectedSocket() client: AuthenticatedSocket,
     payload: { sessionId: string },
   ) {
-    const user = getAuthenticatedUser(client);
-    if (!user) {
+    let user;
+    try {
+      user = getAuthenticatedUser(client);
+    } catch {
       return { success: false, error: 'Unauthorized' };
     }
 
@@ -343,8 +348,10 @@ export class EngagementConductorGateway
     @ConnectedSocket() client: AuthenticatedSocket,
     payload: { sessionId: string },
   ) {
-    const user = getAuthenticatedUser(client);
-    if (!user) {
+    let user;
+    try {
+      user = getAuthenticatedUser(client);
+    } catch {
       return { success: false, error: 'Unauthorized' };
     }
 
