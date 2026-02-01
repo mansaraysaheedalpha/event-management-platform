@@ -184,7 +184,7 @@ def process_lead_interaction_event(event_data: dict) -> bool:
                 # Publish LEAD_INTENT_UPDATED event to Redis Stream
                 publish_to_redis_stream("LEAD_INTENT_UPDATED", sponsor_id, lead_data, booth_id)
 
-                # Send email notification if lead upgraded to hot
+                # Send hot lead notification if lead upgraded to hot (respects notify_hot_leads preference)
                 if lead.intent_level == "hot" and old_intent_level != "hot":
                     send_hot_lead_notification(db, sponsor_id, lead, event_id)
             else:
@@ -300,13 +300,16 @@ def process_lead_capture_event(event_data: dict) -> bool:
             if is_new_lead:
                 # New lead - broadcast as LEAD_CAPTURED
                 publish_to_redis_stream("LEAD_CAPTURED", sponsor_id, lead_data, booth_id)
+
+                # Send new lead notification (respects notify_new_leads preference)
+                send_new_lead_notification(db, sponsor_id, lead, event_id)
             else:
                 # Existing lead - broadcast as LEAD_INTENT_UPDATED
                 # This triggers the handleIntentUpdated handler on the frontend
                 publish_to_redis_stream("LEAD_INTENT_UPDATED", sponsor_id, lead_data, booth_id)
                 logger.info(f"Intent changed for lead {lead.id}: {old_intent_level}({old_intent_score}) -> {lead.intent_level}({lead.intent_score})")
 
-            # Optional: Send email notification for hot leads (only for new hot leads or upgrades to hot)
+            # Send hot lead notification if lead became hot (respects notify_hot_leads preference)
             if lead.intent_level == "hot" and (is_new_lead or old_intent_level != "hot"):
                 send_hot_lead_notification(db, sponsor_id, lead, event_id)
 
@@ -320,30 +323,137 @@ def process_lead_capture_event(event_data: dict) -> bool:
         return False
 
 
-def send_hot_lead_notification(db, sponsor_id: str, lead, event_id: str):
-    """Send email notification for hot leads."""
+def send_new_lead_notification(db, sponsor_id: str, lead, event_id: str):
+    """
+    Send email notification for new leads to sponsor users who have enabled new lead notifications.
+
+    This function:
+    1. Gets all active sponsor users for the sponsor
+    2. Checks each user's notify_new_leads preference
+    3. Sends email to users who have opted in (defaults to True)
+    """
     try:
         from app.utils.sponsor_notifications import send_lead_notification_email
+        from app.crud.crud_sponsor import sponsor_user
 
-        # Get sponsor details for email
+        # Get sponsor details
         sponsor_obj = sponsor.get(db, id=sponsor_id)
-        if not sponsor_obj or not sponsor_obj.notification_email:
+        if not sponsor_obj:
+            logger.warning(f"Sponsor {sponsor_id} not found for new lead notification")
+            return
+
+        # Get all active sponsor users
+        sponsor_users = sponsor_user.get_by_sponsor(db, sponsor_id=sponsor_id, active_only=True)
+
+        if not sponsor_users:
+            logger.info(f"No active users found for sponsor {sponsor_id}")
             return
 
         # Get event name (simplified - you might want to fetch from events table)
         event_name = "Event"
 
-        send_lead_notification_email(
-            notification_email=sponsor_obj.notification_email,
-            sponsor_name=sponsor_obj.company_name,
-            lead_name=lead.user_name or "Anonymous",
-            lead_company=lead.user_company,
-            lead_title=lead.user_title,
-            intent_level=lead.intent_level,
-            interaction_type="booth_contact_form",
-            event_name=event_name,
-        )
-        logger.info(f"Sent hot lead notification to {sponsor_obj.notification_email}")
+        sent_count = 0
+        for sp_user in sponsor_users:
+            # Check if user has enabled new lead notifications (defaults to True)
+            if not sp_user.notify_new_leads:
+                logger.debug(f"User {sp_user.user_id} has disabled new lead notifications")
+                continue
+
+            # Determine which email to use - custom notification email or user's account email
+            notification_email = sp_user.notification_email or sp_user.user_id
+
+            if not notification_email:
+                logger.warning(f"No notification email for sponsor user {sp_user.id}")
+                continue
+
+            try:
+                send_lead_notification_email(
+                    notification_email=notification_email,
+                    sponsor_name=sponsor_obj.company_name,
+                    lead_name=lead.user_name or "Anonymous",
+                    lead_company=lead.user_company,
+                    lead_title=lead.user_title,
+                    intent_level=lead.intent_level,
+                    interaction_type="booth_contact_form",
+                    event_name=event_name,
+                )
+                sent_count += 1
+                logger.info(f"Sent new lead notification to {notification_email}")
+            except Exception as email_error:
+                logger.error(f"Failed to send email to {notification_email}: {email_error}")
+
+        if sent_count > 0:
+            logger.info(f"Sent new lead notifications to {sent_count} users for sponsor {sponsor_id}")
+        else:
+            logger.info(f"No new lead notifications sent - all users have disabled notifications for sponsor {sponsor_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to send new lead notification: {e}")
+
+
+def send_hot_lead_notification(db, sponsor_id: str, lead, event_id: str):
+    """
+    Send email notification for hot leads to sponsor users who have enabled hot lead notifications.
+
+    This function:
+    1. Gets all active sponsor users for the sponsor
+    2. Checks each user's notify_hot_leads preference
+    3. Sends email to users who have opted in (defaults to True)
+    """
+    try:
+        from app.utils.sponsor_notifications import send_lead_notification_email
+        from app.crud.crud_sponsor import sponsor_user
+
+        # Get sponsor details
+        sponsor_obj = sponsor.get(db, id=sponsor_id)
+        if not sponsor_obj:
+            logger.warning(f"Sponsor {sponsor_id} not found for hot lead notification")
+            return
+
+        # Get all active sponsor users
+        sponsor_users = sponsor_user.get_by_sponsor(db, sponsor_id=sponsor_id, active_only=True)
+
+        if not sponsor_users:
+            logger.info(f"No active users found for sponsor {sponsor_id}")
+            return
+
+        # Get event name (simplified - you might want to fetch from events table)
+        event_name = "Event"
+
+        sent_count = 0
+        for sp_user in sponsor_users:
+            # Check if user has enabled hot lead notifications (defaults to True)
+            if not sp_user.notify_hot_leads:
+                logger.debug(f"User {sp_user.user_id} has disabled hot lead notifications")
+                continue
+
+            # Determine which email to use - custom notification email or user's account email
+            notification_email = sp_user.notification_email or sp_user.user_id
+
+            if not notification_email:
+                logger.warning(f"No notification email for sponsor user {sp_user.id}")
+                continue
+
+            try:
+                send_lead_notification_email(
+                    notification_email=notification_email,
+                    sponsor_name=sponsor_obj.company_name,
+                    lead_name=lead.user_name or "Anonymous",
+                    lead_company=lead.user_company,
+                    lead_title=lead.user_title,
+                    intent_level=lead.intent_level,
+                    interaction_type="booth_contact_form",
+                    event_name=event_name,
+                )
+                sent_count += 1
+                logger.info(f"Sent hot lead notification to {notification_email}")
+            except Exception as email_error:
+                logger.error(f"Failed to send email to {notification_email}: {email_error}")
+
+        if sent_count > 0:
+            logger.info(f"Sent hot lead notifications to {sent_count} users for sponsor {sponsor_id}")
+        else:
+            logger.info(f"No hot lead notifications sent - all users have disabled notifications for sponsor {sponsor_id}")
 
     except Exception as e:
         logger.error(f"Failed to send hot lead notification: {e}")

@@ -148,7 +148,6 @@ class SponsorUserBase(BaseModel):
     notify_hot_leads: bool = Field(default=True)
     notify_daily_summary: bool = Field(default=True)
     notify_event_updates: bool = Field(default=False)
-    notify_marketing: bool = Field(default=False)
     can_view_leads: bool = Field(default=True)
     can_export_leads: bool = Field(default=False)
     can_message_attendees: bool = Field(default=False)
@@ -168,7 +167,6 @@ class SponsorUserUpdate(BaseModel):
     notify_hot_leads: Optional[bool] = None
     notify_daily_summary: Optional[bool] = None
     notify_event_updates: Optional[bool] = None
-    notify_marketing: Optional[bool] = None
     can_view_leads: Optional[bool] = None
     can_export_leads: Optional[bool] = None
     can_message_attendees: Optional[bool] = None
@@ -189,7 +187,6 @@ class SponsorUserPreferencesUpdate(BaseModel):
     notify_hot_leads: Optional[bool] = Field(None, description="Immediate alerts for high-intent leads")
     notify_daily_summary: Optional[bool] = Field(None, description="Daily email with lead capture summary")
     notify_event_updates: Optional[bool] = Field(None, description="Updates about the event schedule")
-    notify_marketing: Optional[bool] = Field(None, description="Receive tips and best practices")
 
 
 class SponsorUserResponse(SponsorUserBase):
