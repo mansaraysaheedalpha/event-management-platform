@@ -70,16 +70,31 @@ async def change_agent_mode(
     - MANUAL: Agent only suggests, requires human approval for all interventions
     - SEMI_AUTO: Agent auto-executes high-confidence decisions, asks for low-confidence
     - AUTO: Agent fully autonomous, auto-executes all decisions
+
+    Note: If session doesn't exist, it will be auto-created with the specified mode
     """
     try:
         # Get agent instance for session
         agent = agent_manager.get_agent(session_id)
 
+        # Auto-create agent if it doesn't exist
         if not agent:
-            raise AppError(
-                message=f"No active agent found for session {session_id}",
-                category=ErrorCategory.NOT_FOUND,
-                status_code=404
+            # Extract event_id from session_id (format: event_{event_id}_{stream_id})
+            parts = session_id.split("_")
+            if len(parts) < 2 or parts[0] != "event":
+                raise AppError(
+                    message=f"Invalid session_id format: {session_id}",
+                    category=ErrorCategory.VALIDATION,
+                    status_code=400
+                )
+
+            event_id = "_".join(parts[1:-1])  # Reconstruct event_id (may contain underscores)
+
+            # Create agent instance
+            agent = await agent_manager.create_agent(
+                session_id=session_id,
+                event_id=event_id,
+                metadata={"auto_created": True, "created_by": "mode_change"}
             )
 
         # Change mode
