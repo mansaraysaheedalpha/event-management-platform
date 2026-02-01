@@ -141,12 +141,10 @@ async def get_intervention_history(
     **Authentication Required**: Must be event organizer
     """
     try:
-        session_uuid = uuid.UUID(session_id)
-
-        # Query interventions
+        # Query interventions (session_id is now a string, not UUID)
         stmt = (
             select(Intervention)
-            .where(Intervention.session_id == session_uuid)
+            .where(Intervention.session_id == session_id)
             .order_by(desc(Intervention.timestamp))
             .limit(limit)
             .offset(offset)
@@ -160,7 +158,7 @@ async def get_intervention_history(
         count_stmt = (
             select(func.count())
             .select_from(Intervention)
-            .where(Intervention.session_id == session_uuid)
+            .where(Intervention.session_id == session_id)
         )
         total_result = await db.execute(count_stmt)
         total = total_result.scalar()
@@ -169,7 +167,7 @@ async def get_intervention_history(
         history_items = [
             InterventionHistoryItem(
                 id=str(i.id),
-                session_id=str(i.session_id),
+                session_id=i.session_id,
                 timestamp=i.timestamp,
                 type=i.type,
                 confidence=i.confidence,
@@ -181,12 +179,10 @@ async def get_intervention_history(
         ]
 
         return InterventionHistoryResponse(
-            total=total,
+            total=total or 0,
             interventions=history_items
         )
 
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id format")
     except Exception as e:
         logger.error(f"Failed to fetch intervention history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -270,10 +266,8 @@ async def get_intervention_stats(
     **Authentication Required**: Must be event organizer
     """
     try:
-        session_uuid = uuid.UUID(session_id)
-
-        # Query all interventions for session
-        stmt = select(Intervention).where(Intervention.session_id == session_uuid)
+        # Query all interventions for session (session_id is now a string)
+        stmt = select(Intervention).where(Intervention.session_id == session_id)
         result = await db.execute(stmt)
         interventions = result.scalars().all()
 
@@ -314,8 +308,6 @@ async def get_intervention_stats(
             'successful_interventions': successful
         }
 
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session_id format")
     except Exception as e:
         logger.error(f"Failed to calculate intervention stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

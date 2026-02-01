@@ -10,8 +10,8 @@ class EngagementMetric(Base):
     __tablename__ = "engagement_metrics"
 
     time = Column(TIMESTAMP, primary_key=True, default=datetime.utcnow)
-    session_id = Column(UUID(as_uuid=True), primary_key=True)
-    event_id = Column(UUID(as_uuid=True), nullable=False)
+    session_id = Column(String(255), primary_key=True)
+    event_id = Column(String(255), nullable=False)
     engagement_score = Column(Float, nullable=False)
     chat_msgs_per_min = Column(Float)
     poll_participation = Column(Float)
@@ -31,13 +31,13 @@ class Intervention(Base):
     __tablename__ = "interventions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=False)
+    session_id = Column(String(255), nullable=False)
     timestamp = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
     type = Column(String(50), nullable=False)  # POLL, CHAT_PROMPT, NUDGE, etc.
     confidence = Column(Float, nullable=False)
     reasoning = Column(String, nullable=True)
     outcome = Column(JSON, nullable=True)  # success, engagement_delta, etc.
-    extra_data = Column(JSON, nullable=True)
+    metadata = Column(JSON, nullable=True)
 
     __table_args__ = (
         Index('idx_intervention_session', 'session_id', 'timestamp'),
@@ -54,7 +54,7 @@ class AgentPerformance(Base):
     success = Column(Boolean, nullable=False)
     engagement_delta = Column(Float, nullable=True)
     confidence = Column(Float, nullable=True)
-    session_id = Column(UUID(as_uuid=True), nullable=True)
+    session_id = Column(String(255), nullable=True)
     extra_data = Column(JSON, nullable=True)
 
     __table_args__ = (
