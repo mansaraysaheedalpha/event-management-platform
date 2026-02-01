@@ -1,7 +1,7 @@
 """add sponsor user profile and notification preferences
 
 Revision ID: sp004
-Revises: merge001_unify_all_heads
+Revises: merge001_unify_heads
 Create Date: 2026-01-30 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'sp004'
-down_revision = 'merge001_unify_all_heads'
+down_revision = 'merge001_unify_heads'
 branch_labels = None
 depends_on = None
 
