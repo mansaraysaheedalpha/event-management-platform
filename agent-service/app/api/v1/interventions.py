@@ -173,7 +173,7 @@ async def get_intervention_history(
                 confidence=i.confidence,
                 reasoning=i.reasoning,
                 outcome=i.outcome,
-                metadata=i.metadata
+                metadata=i.extra_data
             )
             for i in interventions
         ]
@@ -231,13 +231,13 @@ async def get_event_intervention_history(
         history_items = [
             InterventionHistoryItem(
                 id=str(i.id),
-                session_id=str(i.session_id),
+                session_id=i.session_id,
                 timestamp=i.timestamp,
                 type=i.type,
                 confidence=i.confidence,
                 reasoning=i.reasoning,
                 outcome=i.outcome,
-                metadata=i.metadata
+                metadata=i.extra_data
             )
             for i in interventions
         ]

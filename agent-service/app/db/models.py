@@ -37,7 +37,7 @@ class Intervention(Base):
     confidence = Column(Float, nullable=False)
     reasoning = Column(String, nullable=True)
     outcome = Column(JSON, nullable=True)  # success, engagement_delta, etc.
-    metadata = Column(JSON, nullable=True)
+    extra_data = Column(JSON, nullable=True)
 
     __table_args__ = (
         Index('idx_intervention_session', 'session_id', 'timestamp'),
