@@ -13,6 +13,7 @@ from datetime import datetime
 from app.orchestrator import agent_manager
 from app.middleware import AppError, ErrorCategory
 from app.middleware.auth import verify_token, verify_organizer, AuthUser
+from app.agents.engagement_conductor import AgentMode
 
 router = APIRouter()
 
@@ -97,8 +98,8 @@ async def change_agent_mode(
                 metadata={"auto_created": True, "created_by": "mode_change"}
             )
 
-        # Change mode
-        await agent.set_mode(request.mode)
+        # Change mode (convert string to enum)
+        await agent.set_mode(AgentMode(request.mode))
 
         return {
             "session_id": session_id,
