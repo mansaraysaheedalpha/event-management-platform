@@ -184,6 +184,14 @@ async def get_intervention_history(
         )
 
     except Exception as e:
+        # If table doesn't exist, return empty list instead of crashing
+        error_msg = str(e)
+        if "does not exist" in error_msg or "UndefinedTable" in error_msg:
+            logger.warning(f"Interventions table does not exist. Returning empty history.")
+            return InterventionHistoryResponse(
+                total=0,
+                interventions=[]
+            )
         logger.error(f"Failed to fetch intervention history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
