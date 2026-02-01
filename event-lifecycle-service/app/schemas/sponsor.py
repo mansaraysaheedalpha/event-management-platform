@@ -142,6 +142,13 @@ class SponsorWithTierResponse(SponsorResponse):
 
 class SponsorUserBase(BaseModel):
     role: str = Field(default="representative", pattern=r'^(admin|representative|booth_staff|viewer)$')
+    job_title: Optional[str] = Field(None, max_length=100)
+    notification_email: Optional[str] = None
+    notify_new_leads: bool = Field(default=True)
+    notify_hot_leads: bool = Field(default=True)
+    notify_daily_summary: bool = Field(default=True)
+    notify_event_updates: bool = Field(default=False)
+    notify_marketing: bool = Field(default=False)
     can_view_leads: bool = Field(default=True)
     can_export_leads: bool = Field(default=False)
     can_message_attendees: bool = Field(default=False)
@@ -155,12 +162,34 @@ class SponsorUserCreate(SponsorUserBase):
 
 class SponsorUserUpdate(BaseModel):
     role: Optional[str] = Field(None, pattern=r'^(admin|representative|booth_staff|viewer)$')
+    job_title: Optional[str] = Field(None, max_length=100)
+    notification_email: Optional[str] = None
+    notify_new_leads: Optional[bool] = None
+    notify_hot_leads: Optional[bool] = None
+    notify_daily_summary: Optional[bool] = None
+    notify_event_updates: Optional[bool] = None
+    notify_marketing: Optional[bool] = None
     can_view_leads: Optional[bool] = None
     can_export_leads: Optional[bool] = None
     can_message_attendees: Optional[bool] = None
     can_manage_booth: Optional[bool] = None
     can_invite_others: Optional[bool] = None
     is_active: Optional[bool] = None
+
+
+class SponsorUserProfileUpdate(BaseModel):
+    """Schema for users updating their own profile in settings."""
+    job_title: Optional[str] = Field(None, max_length=100, description="Job title within the company")
+
+
+class SponsorUserPreferencesUpdate(BaseModel):
+    """Schema for users updating their notification preferences."""
+    notification_email: Optional[str] = Field(None, description="Email for receiving notifications")
+    notify_new_leads: Optional[bool] = Field(None, description="Get notified when a new lead is captured")
+    notify_hot_leads: Optional[bool] = Field(None, description="Immediate alerts for high-intent leads")
+    notify_daily_summary: Optional[bool] = Field(None, description="Daily email with lead capture summary")
+    notify_event_updates: Optional[bool] = Field(None, description="Updates about the event schedule")
+    notify_marketing: Optional[bool] = Field(None, description="Receive tips and best practices")
 
 
 class SponsorUserResponse(SponsorUserBase):

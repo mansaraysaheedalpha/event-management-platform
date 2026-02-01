@@ -32,6 +32,17 @@ class SponsorUser(Base):
     role = Column(String(50), nullable=False, server_default=text("'representative'"))
     # Options: 'admin', 'representative', 'booth_staff', 'viewer'
 
+    # Profile information
+    job_title = Column(String(100), nullable=True)
+    notification_email = Column(String(255), nullable=True)  # Custom email for notifications (if different from login email)
+
+    # Notification preferences
+    notify_new_leads = Column(Boolean, nullable=False, server_default=text("true"))
+    notify_hot_leads = Column(Boolean, nullable=False, server_default=text("true"))
+    notify_daily_summary = Column(Boolean, nullable=False, server_default=text("true"))
+    notify_event_updates = Column(Boolean, nullable=False, server_default=text("false"))
+    notify_marketing = Column(Boolean, nullable=False, server_default=text("false"))
+
     # Permissions (can override sponsor tier settings)
     can_view_leads = Column(Boolean, nullable=False, server_default=text("true"))
     can_export_leads = Column(Boolean, nullable=False, server_default=text("false"))
