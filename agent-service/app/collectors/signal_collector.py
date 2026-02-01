@@ -98,15 +98,22 @@ class CollectorMetrics:
 
 class EngagementSignalCollector:
     """
-    Collects engagement signals from Redis Pub/Sub channels.
+    Collects engagement signals from Redis Streams.
     Calculates engagement scores and stores them in TimescaleDB.
+
+    NOTE: This collector reads from Redis Streams (XREADGROUP), NOT Pub/Sub.
+    The real-time-service publishes to streams using XADD.
     """
 
-    # Redis channels to subscribe to
-    CHAT_CHANNEL = "platform.events.chat.message.v1"
-    POLL_VOTE_CHANNEL = "platform.events.poll.vote.v1"
-    POLL_CLOSED_CHANNEL = "platform.events.poll.closed.v1"
-    SYNC_CHANNEL = "sync-events"
+    # Redis Streams to read from (must match what real-time-service publishes to)
+    CHAT_STREAM = "platform.events.chat.message.v1"
+    POLL_VOTE_STREAM = "platform.events.poll.vote.v1"
+    POLL_CLOSED_STREAM = "platform.events.poll.closed.v1"
+    SYNC_STREAM = "sync-events"
+
+    # Consumer group configuration
+    CONSUMER_GROUP = "engagement-conductor"
+    CONSUMER_NAME = "signal-collector"
 
     def __init__(
         self,
@@ -119,7 +126,7 @@ class EngagementSignalCollector:
         Initialize the signal collector.
 
         Args:
-            redis_client: Redis client for Pub/Sub
+            redis_client: Redis client for Streams
             tracker: Session tracker (uses global if None)
             calculator: Engagement calculator (uses global if None)
             calculation_interval: Seconds between engagement calculations
@@ -133,6 +140,9 @@ class EngagementSignalCollector:
         self.tasks = []
         self.metrics = CollectorMetrics()
 
+        # Track last read IDs for each stream
+        self._stream_ids: Dict[str, str] = {}
+
     async def start(self):
         """Start collecting signals and calculating engagement"""
         if self.running:
@@ -143,19 +153,29 @@ class EngagementSignalCollector:
         self.metrics.started_at = datetime.now(timezone.utc)
         logger.info("🚀 Starting Engagement Signal Collector...")
 
-        # Subscribe to Redis channels
-        pubsub = await self.redis.subscribe(
-            self.CHAT_CHANNEL,
-            self.POLL_VOTE_CHANNEL,
-            self.POLL_CLOSED_CHANNEL,
-            self.SYNC_CHANNEL,
-        )
+        # List of streams to read from
+        streams = [
+            self.CHAT_STREAM,
+            self.POLL_VOTE_STREAM,
+            self.POLL_CLOSED_STREAM,
+            self.SYNC_STREAM,
+        ]
 
-        logger.info(f"📡 Subscribed to {len([self.CHAT_CHANNEL, self.POLL_VOTE_CHANNEL, self.POLL_CLOSED_CHANNEL, self.SYNC_CHANNEL])} channels")
+        # Create consumer groups for each stream (if they don't exist)
+        for stream in streams:
+            await self.redis.create_consumer_group(
+                stream=stream,
+                group=self.CONSUMER_GROUP,
+                start_id="$"  # Only read new messages from now
+            )
+            # Initialize stream ID for reading new messages
+            self._stream_ids[stream] = ">"
+
+        logger.info(f"📡 Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams)} streams")
 
         # Start background tasks
         self.tasks = [
-            asyncio.create_task(self._listen_to_events(pubsub)),
+            asyncio.create_task(self._listen_to_streams()),
             asyncio.create_task(self._calculate_engagement_loop()),
             asyncio.create_task(self._cleanup_loop()),
         ]
@@ -202,49 +222,77 @@ class EngagementSignalCollector:
 
         return True
 
-    async def _listen_to_events(self, pubsub):
+    async def _listen_to_streams(self):
         """
-        Listen to Redis Pub/Sub events and process them.
+        Listen to Redis Streams and process events.
+        Uses consumer groups for reliable message delivery.
+        """
+        logger.info("👂 Listening for platform events via Redis Streams...")
 
-        Args:
-            pubsub: Redis pubsub object
-        """
-        logger.info("👂 Listening for platform events...")
+        streams_to_read = {
+            self.CHAT_STREAM: ">",
+            self.POLL_VOTE_STREAM: ">",
+            self.POLL_CLOSED_STREAM: ">",
+            self.SYNC_STREAM: ">",
+        }
 
         try:
-            async for message in pubsub.listen():
-                if not self.running:
-                    break
-
-                if message["type"] != "message":
-                    continue
-
-                channel = message["channel"]
-                data = message["data"]
-
+            while self.running:
                 try:
-                    # Parse JSON data
-                    event_data = json.loads(data) if isinstance(data, str) else data
+                    # Read from streams using consumer group
+                    results = await self.redis.xreadgroup_streams(
+                        group=self.CONSUMER_GROUP,
+                        consumer=self.CONSUMER_NAME,
+                        streams=streams_to_read,
+                        count=100,
+                        block=1000  # Block for 1 second
+                    )
 
-                    # Route to appropriate handler
-                    if channel == self.CHAT_CHANNEL:
-                        await self._handle_chat_message(event_data)
-                    elif channel == self.POLL_VOTE_CHANNEL:
-                        await self._handle_poll_vote(event_data)
-                    elif channel == self.POLL_CLOSED_CHANNEL:
-                        await self._handle_poll_closed(event_data)
-                    elif channel == self.SYNC_CHANNEL:
-                        await self._handle_sync_event(event_data)
+                    if not results:
+                        continue
 
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse event data: {e}")
+                    # Process each stream's messages
+                    for stream_name, messages in results:
+                        for message_id, data in messages:
+                            try:
+                                # Parse the message data
+                                event_data = self.redis.parse_stream_message(data)
+                                if not event_data:
+                                    continue
+
+                                # Route to appropriate handler based on stream
+                                if stream_name == self.CHAT_STREAM:
+                                    await self._handle_chat_message(event_data)
+                                elif stream_name == self.POLL_VOTE_STREAM:
+                                    await self._handle_poll_vote(event_data)
+                                elif stream_name == self.POLL_CLOSED_STREAM:
+                                    await self._handle_poll_closed(event_data)
+                                elif stream_name == self.SYNC_STREAM:
+                                    await self._handle_sync_event(event_data)
+
+                                # Acknowledge the message
+                                await self.redis.xack(
+                                    stream_name,
+                                    self.CONSUMER_GROUP,
+                                    message_id
+                                )
+
+                            except Exception as e:
+                                logger.error(
+                                    f"Error processing message {message_id} from {stream_name}: {e}",
+                                    exc_info=True
+                                )
+                                self.metrics.consecutive_errors += 1
+
                 except Exception as e:
-                    logger.error(f"Error processing event: {e}", exc_info=True)
+                    logger.error(f"Error reading from streams: {e}", exc_info=True)
+                    self.metrics.consecutive_errors += 1
+                    await asyncio.sleep(1)  # Brief pause before retry
 
         except asyncio.CancelledError:
-            logger.info("Event listener cancelled")
+            logger.info("Stream listener cancelled")
         except Exception as e:
-            logger.error(f"Event listener error: {e}", exc_info=True)
+            logger.error(f"Stream listener error: {e}", exc_info=True)
 
     async def _handle_chat_message(self, event_data: dict):
         """
