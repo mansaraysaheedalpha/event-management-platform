@@ -454,41 +454,48 @@ class EngagementSignalCollector:
         # Calculate engagement score
         score = self.calculator.calculate(signals)
 
-        # Store in database
-        try:
-            async with AsyncSessionLocal() as db:
-                metric = EngagementMetric(
-                    time=datetime.now(timezone.utc),
-                    session_id=session_id,
-                    event_id=session.event_id,
-                    engagement_score=score,
-                    chat_msgs_per_min=signals.chat_msgs_per_min,
-                    poll_participation=signals.poll_participation,
-                    active_users=signals.active_users,
-                    reactions_per_min=signals.reactions_per_min,
-                    user_leave_rate=signals.user_leave_rate,
-                    metadata={
-                        "total_users": signals.total_users,
-                        "category": self.calculator.categorize_engagement(score),
-                    }
-                )
+        # Always publish to Redis for real-time dashboard (works without DB)
+        await self._publish_engagement_update(session_id, session.event_id, score, signals_dict)
 
-                db.add(metric)
-                await db.commit()
+        # Check for anomalies (works without DB)
+        await self._detect_and_publish_anomaly(session_id, session.event_id, score, signals_dict)
 
-                logger.debug(
-                    f"✅ Engagement stored: {session_id[:8]}... = {score:.2f} "
-                    f"({self.calculator.categorize_engagement(score)})"
-                )
+        # Store in database (optional - gracefully handle missing tables)
+        if AsyncSessionLocal is not None:
+            try:
+                async with AsyncSessionLocal() as db:
+                    metric = EngagementMetric(
+                        time=datetime.now(timezone.utc),
+                        session_id=session_id,
+                        event_id=session.event_id,
+                        engagement_score=score,
+                        chat_msgs_per_min=signals.chat_msgs_per_min,
+                        poll_participation=signals.poll_participation,
+                        active_users=signals.active_users,
+                        reactions_per_min=signals.reactions_per_min,
+                        user_leave_rate=signals.user_leave_rate,
+                        metadata={
+                            "total_users": signals.total_users,
+                            "category": self.calculator.categorize_engagement(score),
+                        }
+                    )
 
-                # Publish to Redis for real-time dashboard
-                await self._publish_engagement_update(session_id, session.event_id, score, signals_dict)
+                    db.add(metric)
+                    await db.commit()
 
-                # Check for anomalies
-                await self._detect_and_publish_anomaly(session_id, session.event_id, score, signals_dict)
-
-        except Exception as e:
-            logger.error(f"Failed to store engagement metric: {e}", exc_info=True)
+                    logger.debug(
+                        f"✅ Engagement stored: {session_id[:8]}... = {score:.2f} "
+                        f"({self.calculator.categorize_engagement(score)})"
+                    )
+            except Exception as db_error:
+                # Log but don't crash - engagement still works via Redis
+                if "does not exist" in str(db_error):
+                    logger.warning(
+                        f"Database table missing - run migrations. "
+                        f"Engagement still works via Redis. Error: {db_error}"
+                    )
+                else:
+                    logger.error(f"Failed to store engagement metric: {db_error}")
 
     async def _publish_engagement_update(
         self,
