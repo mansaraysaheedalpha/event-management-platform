@@ -13,8 +13,8 @@ class Anomaly(Base):
     __tablename__ = "anomalies"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=False)
-    event_id = Column(UUID(as_uuid=True), nullable=False)
+    session_id = Column(String(255), nullable=False)  # Match SQL migration (VARCHAR)
+    event_id = Column(String(255), nullable=False)    # Match SQL migration (VARCHAR)
     timestamp = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
 
     # Anomaly classification
@@ -29,7 +29,7 @@ class Anomaly(Base):
 
     # Context
     signals = Column(JSON, nullable=True)
-    extra_data = Column(JSON, nullable=True)
+    metadata = Column(JSON, nullable=True)  # Match SQL migration column name
 
     __table_args__ = (
         Index('idx_anomaly_session', 'session_id', 'timestamp'),

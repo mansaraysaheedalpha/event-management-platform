@@ -465,7 +465,7 @@ class EngagementSignalCollector:
             try:
                 async with AsyncSessionLocal() as db:
                     metric = EngagementMetric(
-                        time=datetime.now(timezone.utc),
+                        time=datetime.utcnow(),  # Use naive datetime for TIMESTAMP WITHOUT TIME ZONE column
                         session_id=session_id,
                         event_id=session.event_id,
                         engagement_score=score,
@@ -474,7 +474,7 @@ class EngagementSignalCollector:
                         active_users=signals.active_users,
                         reactions_per_min=signals.reactions_per_min,
                         user_leave_rate=signals.user_leave_rate,
-                        metadata={
+                        extra_data={  # Column name is extra_data, not metadata
                             "total_users": signals.total_users,
                             "category": self.calculator.categorize_engagement(score),
                         }
@@ -659,11 +659,11 @@ class EngagementSignalCollector:
                 )
                 return
             # Get session context
-            session_state = self.tracker.get_session_state(anomaly_event.session_id)
+            session_state = self.tracker.sessions.get(anomaly_event.session_id)
             session_context = {
                 'session_id': anomaly_event.session_id,
                 'event_id': anomaly_event.event_id,
-                'duration': (datetime.now(timezone.utc) - session_state.last_activity).total_seconds() if session_state else 0,
+                'duration': (datetime.now(timezone.utc) - session_state.last_updated).total_seconds() if session_state else 0,
                 'connected_users': len(session_state.connected_users) if session_state else 0,
                 'signals': signals
             }
@@ -674,12 +674,12 @@ class EngagementSignalCollector:
                 event_id=anomaly_event.event_id,
                 anomaly_type=anomaly_event.anomaly_type,
                 severity=anomaly_event.severity,
-                detected_at=anomaly_event.timestamp,
-                current_value=anomaly_event.current_engagement,
-                baseline_value=anomaly_event.expected_engagement,
+                timestamp=anomaly_event.timestamp,
+                anomaly_score=anomaly_event.anomaly_score,
+                current_engagement=anomaly_event.current_engagement,
+                expected_engagement=anomaly_event.expected_engagement,
                 deviation=anomaly_event.deviation,
-                confidence=0.95,  # Anomaly detection confidence
-                context=signals
+                signals=signals
             )
 
             # Auto-register session if not already registered (PRODUCTION-READY)
@@ -732,11 +732,11 @@ class EngagementSignalCollector:
             # Fallback to Phase 3 intervention selector if agent fails
             logger.info(f"Falling back to Phase 3 intervention selector")
             try:
-                session_state = self.tracker.get_session_state(anomaly_event.session_id)
+                session_state = self.tracker.sessions.get(anomaly_event.session_id)
                 session_context = {
                     'session_id': anomaly_event.session_id,
                     'event_id': anomaly_event.event_id,
-                    'duration': (datetime.now(timezone.utc) - session_state.last_activity).total_seconds() if session_state else 0,
+                    'duration': (datetime.now(timezone.utc) - session_state.last_updated).total_seconds() if session_state else 0,
                     'connected_users': len(session_state.connected_users) if session_state else 0,
                     'signals': signals
                 }

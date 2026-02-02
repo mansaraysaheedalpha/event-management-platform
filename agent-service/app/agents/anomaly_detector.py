@@ -302,7 +302,7 @@ class AnomalyDetector:
         if len(history) < 5:
             history.append({
                 'score': engagement_score,
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.utcnow(),  # Use naive datetime
                 'signals': signals
             })
             return None
@@ -335,7 +335,7 @@ class AnomalyDetector:
         # Add current point to history
         history.append({
             'score': engagement_score,
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.utcnow(),  # Use naive datetime
             'signals': signals
         })
 
@@ -358,7 +358,7 @@ class AnomalyDetector:
         anomaly_event = AnomalyEvent(
             session_id=session_id,
             event_id=event_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.utcnow(),  # Use naive datetime for TIMESTAMP WITHOUT TIME ZONE
             anomaly_type=anomaly_type,
             severity=severity,
             anomaly_score=combined_score,
