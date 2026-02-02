@@ -140,10 +140,8 @@ class RateLimiter:
         Returns:
             True if request is allowed, False if rate limited
         """
-        # Run sync version in thread pool to avoid blocking
-        return await asyncio.get_event_loop().run_in_executor(
-            None, self.is_allowed_sync, key
-        )
+        # Run sync version in thread pool to avoid blocking (Python 3.9+)
+        return await asyncio.to_thread(self.is_allowed_sync, key)
 
     def get_wait_time(self, key: str) -> float:
         """
