@@ -8,8 +8,10 @@ import os
 from app.core.config import get_settings
 from app.core.redis_client import RedisClient
 from app.core.worker_pool import init_worker_pool, shutdown_worker_pool
+from app.core.rate_limiter import get_intervention_rate_limiter
 from app.db.timescale import init_db
 from app.collectors.signal_collector import EngagementSignalCollector
+from app.agents.engagement_conductor import get_engagement_conductor
 from app.middleware import (
     error_handler_middleware,
     app_error_handler,
@@ -69,6 +71,18 @@ async def lifespan(app: FastAPI):
         signal_collector = EngagementSignalCollector(redis_module.redis_client)
         await signal_collector.start()
 
+        # Start rate limiter cleanup tasks (prevents memory leaks from old windows)
+        rate_limiter = get_intervention_rate_limiter()
+        await rate_limiter.short_term.start_cleanup_task()
+        await rate_limiter.medium_term.start_cleanup_task()
+        await rate_limiter.long_term.start_cleanup_task()
+        logger.info("Rate limiter cleanup tasks started")
+
+        # Start engagement conductor cleanup task (cleans expired pending approvals)
+        engagement_conductor = get_engagement_conductor()
+        await engagement_conductor.start_cleanup_task()
+        logger.info("Engagement conductor cleanup task started")
+
         logger.info("Agent service ready")
     except Exception as e:
         logger.error(f"Startup failed: {e}")
@@ -81,6 +95,24 @@ async def lifespan(app: FastAPI):
 
     if signal_collector:
         await signal_collector.stop()
+
+    # Stop engagement conductor cleanup task
+    try:
+        engagement_conductor = get_engagement_conductor()
+        await engagement_conductor.stop_cleanup_task()
+        logger.info("Engagement conductor cleanup task stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping engagement conductor cleanup: {e}")
+
+    # Stop rate limiter cleanup tasks
+    try:
+        rate_limiter = get_intervention_rate_limiter()
+        await rate_limiter.short_term.stop_cleanup_task()
+        await rate_limiter.medium_term.stop_cleanup_task()
+        await rate_limiter.long_term.stop_cleanup_task()
+        logger.info("Rate limiter cleanup tasks stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping rate limiter cleanup: {e}")
 
     # Shutdown worker pool gracefully
     await shutdown_worker_pool()
