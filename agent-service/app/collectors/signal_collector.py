@@ -528,6 +528,19 @@ class EngagementSignalCollector:
                 json.dumps(payload)
             )
 
+            # Also publish agent status to let frontend know agent is monitoring
+            # This ensures status isn't stuck on "IDLE"
+            status_event = {
+                "type": "agent.status",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "data": {"status": "MONITORING"}
+            }
+            await self.redis.publish(
+                f"session:{session_id}:events",
+                json.dumps(status_event)
+            )
+
         except Exception as e:
             logger.error(f"Failed to publish engagement update: {e}")
 
