@@ -363,16 +363,6 @@ def invite_sponsor_representative(
             detail="An invitation is already pending for this sponsor. Only one admin invitation can be sent."
         )
 
-    # Check for existing pending invitation to this specific email (edge case)
-    existing = sponsor_invitation.get_pending_by_email(
-        db, email=invitation_in.email, sponsor_id=sponsor_id
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An invitation is already pending for this email"
-        )
-
     # Force role to admin for first invitation from organizer
     # The sponsor admin can then invite other roles from the sponsor portal
     invitation_in.role = "admin"
