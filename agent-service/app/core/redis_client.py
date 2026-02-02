@@ -3,16 +3,33 @@ from typing import Optional, List, Dict, Any, Tuple
 import logging
 import json
 
+from app.core.circuit_breaker import (
+    redis_circuit_breaker,
+    CircuitBreakerError,
+    CircuitState
+)
+
 logger = logging.getLogger(__name__)
 
 
 class RedisClient:
-    """Redis client for Pub/Sub, Streams, and state management"""
+    """Redis client for Pub/Sub, Streams, and state management with circuit breaker protection"""
 
     def __init__(self, url: str = "redis://localhost:6379"):
         self.url = url
         self._client: Optional[redis.Redis] = None
         self._pubsub: Optional[redis.client.PubSub] = None
+        self._circuit_breaker = redis_circuit_breaker
+
+    @property
+    def circuit_state(self) -> CircuitState:
+        """Get current circuit breaker state"""
+        return self._circuit_breaker.state
+
+    @property
+    def circuit_breaker_stats(self) -> Dict:
+        """Get circuit breaker statistics"""
+        return self._circuit_breaker.stats.to_dict()
 
     async def connect(self):
         """Connect to Redis"""
@@ -23,6 +40,8 @@ class RedisClient:
                 decode_responses=True
             )
             await self._client.ping()
+            # Reset circuit breaker on successful connection
+            self._circuit_breaker.reset()
             logger.info("✅ Connected to Redis")
         except Exception as e:
             logger.error(f"❌ Failed to connect to Redis: {e}")
@@ -42,14 +61,16 @@ class RedisClient:
         return self._client
 
     async def subscribe(self, *channels: str):
-        """Subscribe to Pub/Sub channels"""
-        self._pubsub = self._client.pubsub()
-        await self._pubsub.subscribe(*channels)
-        return self._pubsub
+        """Subscribe to Pub/Sub channels with circuit breaker protection"""
+        async with self._circuit_breaker:
+            self._pubsub = self._client.pubsub()
+            await self._pubsub.subscribe(*channels)
+            return self._pubsub
 
     async def publish(self, channel: str, message: str):
-        """Publish message to Pub/Sub channel"""
-        await self._client.publish(channel, message)
+        """Publish message to Pub/Sub channel with circuit breaker protection"""
+        async with self._circuit_breaker:
+            await self._client.publish(channel, message)
 
     # ==================== Redis Streams Methods ====================
 
@@ -60,23 +81,27 @@ class RedisClient:
         start_id: str = "0"
     ) -> bool:
         """
-        Create a consumer group for a stream.
+        Create a consumer group for a stream with circuit breaker protection.
         Returns True if created, False if already exists.
         """
         try:
-            await self._client.xgroup_create(
-                stream,
-                group,
-                id=start_id,
-                mkstream=True  # Create stream if it doesn't exist
-            )
+            async with self._circuit_breaker:
+                await self._client.xgroup_create(
+                    stream,
+                    group,
+                    id=start_id,
+                    mkstream=True  # Create stream if it doesn't exist
+                )
             logger.info(f"Created consumer group '{group}' for stream '{stream}'")
             return True
         except redis.ResponseError as e:
             if "BUSYGROUP" in str(e):
-                # Group already exists
+                # Group already exists - not a circuit breaker failure
                 logger.debug(f"Consumer group '{group}' already exists for stream '{stream}'")
                 return False
+            raise
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for create_consumer_group: {e}")
             raise
 
     async def xread_streams(
@@ -86,7 +111,7 @@ class RedisClient:
         block: int = 1000
     ) -> List[Tuple[str, List[Tuple[str, Dict[str, str]]]]]:
         """
-        Read from multiple streams (without consumer groups).
+        Read from multiple streams (without consumer groups) with circuit breaker protection.
 
         Args:
             streams: Dict mapping stream names to last IDs (use '$' for new messages only)
@@ -97,12 +122,16 @@ class RedisClient:
             List of (stream_name, [(message_id, {field: value}), ...])
         """
         try:
-            result = await self._client.xread(
-                streams=streams,
-                count=count,
-                block=block
-            )
-            return result or []
+            async with self._circuit_breaker:
+                result = await self._client.xread(
+                    streams=streams,
+                    count=count,
+                    block=block
+                )
+                return result or []
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for xread_streams: {e}")
+            return []
         except Exception as e:
             logger.error(f"Error reading from streams: {e}")
             return []
@@ -116,7 +145,7 @@ class RedisClient:
         block: int = 1000
     ) -> List[Tuple[str, List[Tuple[str, Dict[str, str]]]]]:
         """
-        Read from streams using consumer groups (reliable delivery).
+        Read from streams using consumer groups (reliable delivery) with circuit breaker protection.
 
         Args:
             group: Consumer group name
@@ -129,22 +158,30 @@ class RedisClient:
             List of (stream_name, [(message_id, {field: value}), ...])
         """
         try:
-            result = await self._client.xreadgroup(
-                groupname=group,
-                consumername=consumer,
-                streams=streams,
-                count=count,
-                block=block
-            )
-            return result or []
+            async with self._circuit_breaker:
+                result = await self._client.xreadgroup(
+                    groupname=group,
+                    consumername=consumer,
+                    streams=streams,
+                    count=count,
+                    block=block
+                )
+                return result or []
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for xreadgroup_streams: {e}")
+            return []
         except Exception as e:
             logger.error(f"Error reading from consumer group: {e}")
             return []
 
     async def xack(self, stream: str, group: str, *message_ids: str) -> int:
-        """Acknowledge messages in a consumer group"""
+        """Acknowledge messages in a consumer group with circuit breaker protection"""
         try:
-            return await self._client.xack(stream, group, *message_ids)
+            async with self._circuit_breaker:
+                return await self._client.xack(stream, group, *message_ids)
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for xack: {e}")
+            return 0
         except Exception as e:
             logger.error(f"Error acknowledging messages: {e}")
             return 0

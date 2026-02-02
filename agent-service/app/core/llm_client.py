@@ -1,14 +1,20 @@
 """
 LLM Client for Anthropic Claude
-Handles API communication with prompt caching support
+Handles API communication with prompt caching support and circuit breaker protection
 """
 import logging
+import time
 from typing import Dict, Any, Optional, List
 import asyncio
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
 from app.core.config import get_settings
+from app.core.circuit_breaker import (
+    llm_circuit_breaker,
+    CircuitBreakerError,
+    CircuitState
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -16,17 +22,18 @@ settings = get_settings()
 
 class LLMClient:
     """
-    Async client for Anthropic Claude API with prompt caching support.
+    Async client for Anthropic Claude API with prompt caching support and circuit breaker.
 
     Supports:
     - Claude Sonnet 4.5 (primary)
     - Claude Haiku (fallback)
     - Prompt caching for cost optimization
+    - Circuit breaker for resilience
     """
 
     # Model identifiers
-    SONNET_4_5 = "claude-sonnet-4-5-20241022"
-    HAIKU = "claude-3-5-haiku-20241022"
+    SONNET_4_5 = "claude-sonnet-4-5-20250929"
+    HAIKU = "claude-haiku-4-5-20251001"
 
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -42,7 +49,24 @@ class LLMClient:
         else:
             self.client = AsyncAnthropic(api_key=self.api_key)
 
+        self._circuit_breaker = llm_circuit_breaker
         self.logger = logging.getLogger(__name__)
+
+    @property
+    def circuit_state(self) -> CircuitState:
+        """Get current circuit breaker state"""
+        return self._circuit_breaker.state
+
+    @property
+    def circuit_breaker_stats(self) -> Dict:
+        """Get circuit breaker statistics"""
+        return self._circuit_breaker.stats.to_dict()
+
+    def is_available(self) -> bool:
+        """Check if LLM client is available (API key present and circuit not open)"""
+        if not self.client:
+            return False
+        return self._circuit_breaker.state != CircuitState.OPEN
 
     async def generate(
         self,
@@ -55,7 +79,7 @@ class LLMClient:
         timeout: float = 10.0
     ) -> Dict[str, Any]:
         """
-        Generate text using Claude with prompt caching.
+        Generate text using Claude with prompt caching and circuit breaker protection.
 
         Args:
             system_prompt: System instructions (will be cached)
@@ -75,46 +99,52 @@ class LLMClient:
                 - tokens_cache_read: Cached tokens read (if cache hit)
                 - tokens_cache_write: Tokens written to cache
                 - latency_ms: Generation latency
+
+        Raises:
+            CircuitBreakerError: If circuit breaker is open (service unhealthy)
+            TimeoutError: If request times out
+            Exception: For other API errors
         """
         if not self.client:
             raise Exception("LLM client not initialized - API key missing")
 
-        import time
         start_time = time.time()
 
         try:
-            # Build messages with prompt caching
-            system_messages = []
+            # Circuit breaker wraps the entire API call
+            async with self._circuit_breaker:
+                # Build messages with prompt caching
+                system_messages = []
 
-            if use_cache:
-                # Mark system prompt for caching
-                system_messages.append({
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"}
-                })
-            else:
-                system_messages.append({
-                    "type": "text",
-                    "text": system_prompt
-                })
+                if use_cache:
+                    # Mark system prompt for caching
+                    system_messages.append({
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"}
+                    })
+                else:
+                    system_messages.append({
+                        "type": "text",
+                        "text": system_prompt
+                    })
 
-            # Call Claude API with timeout
-            response: Message = await asyncio.wait_for(
-                self.client.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system=system_messages,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": user_prompt
-                        }
-                    ]
-                ),
-                timeout=timeout
-            )
+                # Call Claude API with timeout
+                response: Message = await asyncio.wait_for(
+                    self.client.messages.create(
+                        model=model,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        system=system_messages,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": user_prompt
+                            }
+                        ]
+                    ),
+                    timeout=timeout
+                )
 
             latency_ms = (time.time() - start_time) * 1000
 
@@ -150,6 +180,11 @@ class LLMClient:
 
             return result
 
+        except CircuitBreakerError as e:
+            latency_ms = (time.time() - start_time) * 1000
+            self.logger.warning(f"⚡ LLM circuit breaker open: {e} ({latency_ms:.0f}ms)")
+            raise
+
         except asyncio.TimeoutError:
             latency_ms = (time.time() - start_time) * 1000
             self.logger.error(f"⏱️ LLM timeout after {latency_ms:.0f}ms: {model}")
@@ -172,6 +207,8 @@ class LLMClient:
         Generate with automatic fallback to faster model.
 
         Tries primary model first, falls back to fallback model if timeout/error.
+        Circuit breaker errors trigger immediate fallback without counting against
+        the circuit breaker.
 
         Args:
             system_prompt: System instructions
@@ -192,6 +229,24 @@ class LLMClient:
                 **kwargs
             )
             result['fallback_used'] = False
+            return result
+
+        except CircuitBreakerError as e:
+            # Circuit is open - fail fast and try fallback
+            self.logger.warning(f"Circuit breaker open for primary model, trying fallback {fallback_model}")
+
+            # Try fallback model (circuit breaker allows limited requests in half-open)
+            fallback_timeout = kwargs.get('timeout', 10.0) * 0.6
+            kwargs['timeout'] = fallback_timeout
+
+            result = await self.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=fallback_model,
+                **kwargs
+            )
+            result['fallback_used'] = True
+            result['fallback_reason'] = f"Circuit breaker open: {e}"
             return result
 
         except (TimeoutError, Exception) as e:
