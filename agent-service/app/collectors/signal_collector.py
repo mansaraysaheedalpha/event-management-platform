@@ -143,6 +143,11 @@ class EngagementSignalCollector:
         # Track last read IDs for each stream
         self._stream_ids: Dict[str, str] = {}
 
+        # Track sessions that have received MONITORING status (avoid spam)
+        self._monitoring_published: set = set()
+        # Track last status per session for change detection
+        self._last_status: Dict[str, str] = {}
+
     async def start(self):
         """Start collecting signals and calculating engagement"""
         if self.running:
@@ -528,21 +533,62 @@ class EngagementSignalCollector:
                 json.dumps(payload)
             )
 
-            # Also publish agent status to let frontend know agent is monitoring
-            # This ensures status isn't stuck on "IDLE"
+            # Publish MONITORING status only once per session (enterprise optimization)
+            # Subsequent status changes are published when anomalies/interventions occur
+            if session_id not in self._monitoring_published:
+                status_event = {
+                    "type": "agent.status",
+                    "session_id": session_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "data": {"status": "MONITORING"}
+                }
+                await self.redis.publish(
+                    f"session:{session_id}:events",
+                    json.dumps(status_event)
+                )
+                self._monitoring_published.add(session_id)
+                self._last_status[session_id] = "MONITORING"
+                logger.info(f"📡 Session {session_id[:8]}... now being monitored")
+
+        except Exception as e:
+            logger.error(f"Failed to publish engagement update: {e}")
+
+    async def _publish_status_change(
+        self,
+        session_id: str,
+        new_status: str
+    ):
+        """
+        Publish agent status change only if status actually changed.
+
+        Enterprise optimization: Reduces Redis traffic by only publishing
+        when there's an actual state transition.
+
+        Args:
+            session_id: Session identifier
+            new_status: New status (MONITORING, ANOMALY_DETECTED, INTERVENING, etc.)
+        """
+        current_status = self._last_status.get(session_id)
+
+        # Only publish if status changed
+        if current_status == new_status:
+            return
+
+        try:
             status_event = {
                 "type": "agent.status",
                 "session_id": session_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "data": {"status": "MONITORING"}
+                "data": {"status": new_status}
             }
             await self.redis.publish(
                 f"session:{session_id}:events",
                 json.dumps(status_event)
             )
-
+            self._last_status[session_id] = new_status
+            logger.info(f"📊 Status change: {session_id[:8]}... {current_status} → {new_status}")
         except Exception as e:
-            logger.error(f"Failed to publish engagement update: {e}")
+            logger.error(f"Failed to publish status change: {e}")
 
     async def _detect_and_publish_anomaly(
         self,
@@ -598,8 +644,14 @@ class EngagementSignalCollector:
             # Publish anomaly to Redis for frontend
             await self._publish_anomaly_event(anomaly_event)
 
+            # Update status to ANOMALY_DETECTED (only publishes if changed)
+            await self._publish_status_change(session_id, "ANOMALY_DETECTED")
+
             # Trigger intervention based on anomaly
             await self._trigger_intervention(anomaly_event, signals)
+
+            # After intervention attempt, return to MONITORING
+            await self._publish_status_change(session_id, "MONITORING")
 
         except Exception as e:
             logger.error(f"Failed to detect/store anomaly: {e}", exc_info=True)
@@ -829,6 +881,19 @@ class EngagementSignalCollector:
                 cleaned = self.tracker.cleanup_inactive_sessions()
                 if cleaned > 0:
                     logger.info(f"🧹 Cleaned up {cleaned} inactive sessions")
+
+                # Clean up status tracking for sessions that no longer exist
+                active_sessions = set(self.tracker.sessions.keys())
+                stale_monitoring = self._monitoring_published - active_sessions
+                stale_status = set(self._last_status.keys()) - active_sessions
+
+                for session_id in stale_monitoring:
+                    self._monitoring_published.discard(session_id)
+                for session_id in stale_status:
+                    self._last_status.pop(session_id, None)
+
+                if stale_monitoring or stale_status:
+                    logger.debug(f"🧹 Cleaned up status tracking for {len(stale_monitoring | stale_status)} stale sessions")
 
         except asyncio.CancelledError:
             logger.info("Cleanup loop cancelled")
