@@ -332,7 +332,12 @@ def invite_sponsor_representative(
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
-    """Invite a user to be a sponsor representative."""
+    """
+    Invite a sponsor admin.
+
+    Organizers can only invite ONE person per sponsor - the initial admin.
+    After the admin accepts, they manage their own team from the sponsor portal.
+    """
     if current_user.org_id != org_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
@@ -340,7 +345,25 @@ def invite_sponsor_representative(
     if not sponsor_obj or sponsor_obj.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sponsor not found")
 
-    # Check for existing pending invitation
+    # Check if sponsor already has team members or pending invitations
+    # Organizers can only invite the FIRST admin - after that, sponsor admin manages team
+    current_count = sponsor_user.count_by_sponsor(db, sponsor_id=sponsor_id)
+    pending_invitations = sponsor_invitation.get_by_sponsor(db, sponsor_id=sponsor_id, status='pending')
+    pending_count = len(pending_invitations)
+
+    if current_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This sponsor already has team members. The sponsor admin manages team invitations from their portal."
+        )
+
+    if pending_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An invitation is already pending for this sponsor. Only one admin invitation can be sent."
+        )
+
+    # Check for existing pending invitation to this specific email (edge case)
     existing = sponsor_invitation.get_pending_by_email(
         db, email=invitation_in.email, sponsor_id=sponsor_id
     )
@@ -350,21 +373,14 @@ def invite_sponsor_representative(
             detail="An invitation is already pending for this email"
         )
 
-    # Check max representatives limit
-    if sponsor_obj.tier:
-        current_count = sponsor_user.count_by_sponsor(db, sponsor_id=sponsor_id)
-        pending_count = len(sponsor_invitation.get_by_sponsor(db, sponsor_id=sponsor_id, status='pending'))
-        if current_count + pending_count >= sponsor_obj.tier.max_representatives:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Maximum representatives ({sponsor_obj.tier.max_representatives}) reached"
-            )
+    # Force role to admin for first invitation from organizer
+    # The sponsor admin can then invite other roles from the sponsor portal
+    invitation_in.role = "admin"
 
-    # Apply role-based permissions automatically
-    # This ensures consistent permissions across all roles
+    # Apply role-based permissions automatically (admin gets all permissions)
     from app.core.sponsor_roles import apply_role_permissions
 
-    role_permissions = apply_role_permissions(invitation_in.role)
+    role_permissions = apply_role_permissions("admin")
 
     # Update invitation with role-based permissions
     # Organizers can still override these by explicitly setting permissions in the request
