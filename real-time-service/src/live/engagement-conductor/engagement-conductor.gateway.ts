@@ -3,6 +3,7 @@ import {
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
+  MessageBody,
   OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -259,13 +260,19 @@ export class EngagementConductorGateway
   @SubscribeMessage('agent:subscribe')
   async handleSubscribeToAgentEvents(
     @ConnectedSocket() client: AuthenticatedSocket,
-    payload: { sessionId: string },
+    @MessageBody() payload: { sessionId: string },
   ) {
     let user;
     try {
       user = getAuthenticatedUser(client);
     } catch {
       return { success: false, error: 'Unauthorized' };
+    }
+
+    // Handle undefined payload gracefully
+    if (!payload || typeof payload !== 'object') {
+      this.logger.warn(`Client ${client.id} sent invalid payload to agent:subscribe`);
+      return { success: false, error: 'Invalid payload: sessionId is required' };
     }
 
     const { sessionId } = payload;
@@ -333,13 +340,18 @@ export class EngagementConductorGateway
   @SubscribeMessage('agent:unsubscribe')
   async handleUnsubscribeFromAgentEvents(
     @ConnectedSocket() client: AuthenticatedSocket,
-    payload: { sessionId: string },
+    @MessageBody() payload: { sessionId: string },
   ) {
     let user;
     try {
       user = getAuthenticatedUser(client);
     } catch {
       return { success: false, error: 'Unauthorized' };
+    }
+
+    // Handle undefined payload gracefully
+    if (!payload || typeof payload !== 'object') {
+      return { success: false, error: 'Invalid payload: sessionId is required' };
     }
 
     const { sessionId } = payload;
