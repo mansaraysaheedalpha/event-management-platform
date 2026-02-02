@@ -175,12 +175,30 @@ class RedisClient:
             return []
 
     async def xack(self, stream: str, group: str, *message_ids: str) -> int:
-        """Acknowledge messages in a consumer group with circuit breaker protection"""
+        """
+        Acknowledge messages in a consumer group with circuit breaker protection.
+
+        IMPORTANT: If circuit breaker is open, returns 0 and messages will NOT be
+        acknowledged. This means messages will be redelivered when circuit recovers
+        (at-least-once semantics). Ensure your message handlers are idempotent.
+
+        Args:
+            stream: Stream name
+            group: Consumer group name
+            *message_ids: Message IDs to acknowledge
+
+        Returns:
+            Number of messages successfully acknowledged (0 if circuit open)
+        """
         try:
             async with self._circuit_breaker:
                 return await self._client.xack(stream, group, *message_ids)
         except CircuitBreakerError as e:
-            logger.warning(f"Circuit breaker open for xack: {e}")
+            # Messages will be redelivered when circuit recovers - at-least-once semantics
+            logger.warning(
+                f"Circuit breaker open for xack: {e}. "
+                f"{len(message_ids)} message(s) will be redelivered when circuit recovers."
+            )
             return 0
         except Exception as e:
             logger.error(f"Error acknowledging messages: {e}")
