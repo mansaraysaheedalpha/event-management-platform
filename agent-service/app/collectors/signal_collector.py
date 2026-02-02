@@ -668,19 +668,9 @@ class EngagementSignalCollector:
                 'signals': signals
             }
 
-            # Convert anomaly_event to Anomaly model for agent
-            anomaly = Anomaly(
-                session_id=anomaly_event.session_id,
-                event_id=anomaly_event.event_id,
-                anomaly_type=anomaly_event.anomaly_type,
-                severity=anomaly_event.severity,
-                timestamp=anomaly_event.timestamp,
-                anomaly_score=anomaly_event.anomaly_score,
-                current_engagement=anomaly_event.current_engagement,
-                expected_engagement=anomaly_event.expected_engagement,
-                deviation=anomaly_event.deviation,
-                signals=signals
-            )
+            # Use the AnomalyEvent dataclass directly - it's serializable by LangGraph
+            # (unlike SQLAlchemy models which aren't msgpack serializable)
+            anomaly = anomaly_event
 
             # Auto-register session if not already registered (PRODUCTION-READY)
             if anomaly_event.session_id not in agent_manager.configs:
