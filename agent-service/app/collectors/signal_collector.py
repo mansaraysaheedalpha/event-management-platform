@@ -572,7 +572,7 @@ class EngagementSignalCollector:
                     expected_engagement=anomaly_event.expected_engagement,
                     deviation=anomaly_event.deviation,
                     signals=anomaly_event.signals,
-                    metadata=anomaly_event.metadata
+                    extra_data=anomaly_event.metadata  # Python attr is extra_data, DB column is metadata
                 )
 
                 db.add(anomaly_record)

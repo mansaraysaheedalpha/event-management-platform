@@ -29,7 +29,7 @@ class Anomaly(Base):
 
     # Context
     signals = Column(JSON, nullable=True)
-    metadata = Column(JSON, nullable=True)  # Match SQL migration column name
+    extra_data = Column("metadata", JSON, nullable=True)  # Column named 'metadata' in DB, but 'extra_data' in Python
 
     __table_args__ = (
         Index('idx_anomaly_session', 'session_id', 'timestamp'),
