@@ -62,13 +62,13 @@ class InterventionExecutor:
         if self._redis is not None:
             return self._redis
         # Import global redis_client lazily to avoid circular imports
-        from app.core.redis_client import redis_client as global_redis
-        if global_redis is None:
+        from app.core import redis_client as redis_module
+        if redis_module.redis_client is None:
             raise RuntimeError(
                 "Redis client not initialized. Either pass redis_client to constructor "
                 "or ensure global redis_client is initialized before use."
             )
-        return global_redis
+        return redis_module.redis_client
 
     async def execute(
         self,

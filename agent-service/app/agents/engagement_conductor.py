@@ -50,7 +50,7 @@ from app.agents.intervention_selector import InterventionRecommendation
 from app.agents.intervention_executor import InterventionExecutor
 from app.models.anomaly import Anomaly
 from app.db.timescale import AsyncSessionLocal
-from app.core.redis_client import redis_client
+from app.core import redis_client as redis_module
 from app.core.config import get_settings
 import json
 
@@ -394,12 +394,12 @@ class EngagementConductorAgent:
             Current engagement score (0-1) or None if not available
         """
         try:
-            if redis_client is None:
+            if redis_module.redis_client is None:
                 return None
 
             # Try to get latest engagement from Redis stream
             key = f"engagement:{session_id}:latest"
-            data = await redis_client.client.get(key)
+            data = await redis_module.redis_client.client.get(key)
 
             if data:
                 engagement_data = json.loads(data)
@@ -442,17 +442,17 @@ class EngagementConductorAgent:
     async def _load_pending_approvals_from_redis(self):
         """Load pending approvals from Redis on startup for crash recovery."""
         try:
-            if redis_client is None:
+            if redis_module.redis_client is None:
                 logger.warning("Redis client not available, skipping pending approvals recovery")
                 return
 
             # Get all pending approval keys
-            keys = await redis_client.client.keys(f"{self.PENDING_APPROVAL_KEY_PREFIX}*")
+            keys = await redis_module.redis_client.client.keys(f"{self.PENDING_APPROVAL_KEY_PREFIX}*")
             loaded_count = 0
 
             for key in keys:
                 try:
-                    data = await redis_client.client.get(key)
+                    data = await redis_module.redis_client.client.get(key)
                     if data:
                         approval_data = json.loads(data)
                         session_id = approval_data.get("session_id")
@@ -466,7 +466,7 @@ class EngagementConductorAgent:
                             loaded_count += 1
                         else:
                             # Expired, delete from Redis
-                            await redis_client.client.delete(key)
+                            await redis_module.redis_client.client.delete(key)
 
                 except Exception as e:
                     logger.error(f"Error loading pending approval from Redis key {key}: {e}")
@@ -584,7 +584,7 @@ class EngagementConductorAgent:
     ):
         """Persist pending approval to Redis."""
         try:
-            if redis_client is None:
+            if redis_module.redis_client is None:
                 return
 
             key = f"{self.PENDING_APPROVAL_KEY_PREFIX}{session_id}"
@@ -595,7 +595,7 @@ class EngagementConductorAgent:
             }
 
             # Set with TTL
-            await redis_client.client.setex(
+            await redis_module.redis_client.client.setex(
                 key,
                 self.PENDING_APPROVAL_TTL_SECONDS,
                 json.dumps(data, default=str)
@@ -608,11 +608,11 @@ class EngagementConductorAgent:
     async def _remove_pending_approval_from_redis(self, session_id: str):
         """Remove pending approval from Redis."""
         try:
-            if redis_client is None:
+            if redis_module.redis_client is None:
                 return
 
             key = f"{self.PENDING_APPROVAL_KEY_PREFIX}{session_id}"
-            await redis_client.client.delete(key)
+            await redis_module.redis_client.client.delete(key)
             logger.debug(f"Removed pending approval from Redis: {session_id}")
 
         except Exception as e:
@@ -636,9 +636,9 @@ class EngagementConductorAgent:
 
         # Not in cache, try Redis (in case another instance added it)
         try:
-            if redis_client is not None:
+            if redis_module.redis_client is not None:
                 key = f"{self.PENDING_APPROVAL_KEY_PREFIX}{session_id}"
-                data = await redis_client.client.get(key)
+                data = await redis_module.redis_client.client.get(key)
                 if data:
                     approval_data = json.loads(data)
                     created_at = datetime.fromisoformat(approval_data.get("created_at"))
@@ -651,7 +651,7 @@ class EngagementConductorAgent:
                         return state
                     else:
                         # Expired, delete from Redis
-                        await redis_client.client.delete(key)
+                        await redis_module.redis_client.client.delete(key)
 
         except Exception as e:
             logger.error(f"Error fetching pending approval from Redis: {e}")
@@ -686,6 +686,10 @@ class EngagementConductorAgent:
             data: Event data
         """
         try:
+            if redis_module.redis_client is None:
+                logger.warning(f"Redis client not available, skipping event publish: {event_type}")
+                return
+
             event = {
                 "type": event_type,
                 "session_id": session_id,
@@ -695,7 +699,7 @@ class EngagementConductorAgent:
 
             # Publish to Redis channel for real-time service
             channel = f"session:{session_id}:events"
-            await redis_client.publish(channel, json.dumps(event))
+            await redis_module.redis_client.publish(channel, json.dumps(event))
 
             logger.debug(f"Published {event_type} event for session {session_id}")
 

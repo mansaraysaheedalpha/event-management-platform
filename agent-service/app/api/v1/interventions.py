@@ -17,7 +17,7 @@ from app.db.timescale import get_db
 from app.db.models import Intervention
 from app.agents.intervention_selector import intervention_selector, InterventionRecommendation
 from app.agents.intervention_executor import InterventionExecutor
-from app.core.redis_client import redis_client
+from app.core import redis_client as redis_module
 from app.middleware.auth import verify_token, verify_organizer, AuthUser
 
 logger = logging.getLogger(__name__)

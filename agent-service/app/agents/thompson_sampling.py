@@ -357,13 +357,13 @@ class ThompsonSampling:
         This should be called periodically or after significant updates.
         """
         try:
-            from app.core.redis_client import redis_client
-            if redis_client is None:
+            from app.core import redis_client as redis_module
+            if redis_module.redis_client is None:
                 logger.warning("Redis client not available, cannot persist Thompson Sampling stats")
                 return False
 
             stats_data = self.export_stats()
-            await redis_client.client.set(
+            await redis_module.redis_client.client.set(
                 THOMPSON_SAMPLING_REDIS_KEY,
                 json.dumps(stats_data)
             )
@@ -379,12 +379,12 @@ class ThompsonSampling:
         Returns True if stats were loaded, False otherwise.
         """
         try:
-            from app.core.redis_client import redis_client
-            if redis_client is None:
+            from app.core import redis_client as redis_module
+            if redis_module.redis_client is None:
                 logger.warning("Redis client not available, cannot load Thompson Sampling stats")
                 return False
 
-            data = await redis_client.client.get(THOMPSON_SAMPLING_REDIS_KEY)
+            data = await redis_module.redis_client.client.get(THOMPSON_SAMPLING_REDIS_KEY)
             if data:
                 stats_data = json.loads(data)
                 self.import_stats(stats_data)
