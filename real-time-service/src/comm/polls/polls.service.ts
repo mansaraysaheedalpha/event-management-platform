@@ -220,6 +220,7 @@ export class PollsService {
         pollId: dto.pollId,
         optionId: dto.optionId,
         sessionId: pollWithResults.poll.sessionId,
+        eventId: pollWithResults.poll.sessionId, // Use sessionId as eventId for agent-service
         voteTimestamp: new Date().toISOString(),
       };
       void this.publisherService.publish(
