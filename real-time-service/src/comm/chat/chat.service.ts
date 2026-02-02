@@ -272,8 +272,11 @@ export class ChatService {
     });
 
     void this.publisherService.publish(SYNC_EVENTS_CHANNEL, {
+      type: 'message_updated',
       resource: 'MESSAGE',
       action: 'UPDATED',
+      sessionId: updatedMessage.sessionId,
+      eventId: updatedMessage.sessionId,
       payload: updatedMessage,
     });
 
@@ -331,8 +334,11 @@ export class ChatService {
 
     // --- NEW LOGIC: PUBLISH SYNC EVENT FOR DELETION ---
     const syncPayload = {
+      type: 'message_deleted',
       resource: 'MESSAGE',
       action: 'DELETED',
+      sessionId: message.sessionId,
+      eventId: message.sessionId,
       // For a deletion, the payload just needs the ID
       payload: { id: messageId, sessionId: message.sessionId },
     };
