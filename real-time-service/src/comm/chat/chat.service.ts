@@ -182,15 +182,25 @@ export class ChatService {
     // --- REFINED LOGIC: Use the safe, fire-and-forget helper ---
     void this._publishAnalyticsEvent('MESSAGE_SENT', { sessionId });
 
-    // --- NEW LOGIC: PUBLISH TO STREAM for the Oracle AI ---
+    // --- NEW LOGIC: PUBLISH TO STREAM for the Oracle AI / Engagement Conductor ---
     // The stream name comes directly from our spec.
+    // Format: { sessionId, eventId, message } - required by agent-service
     const streamName = 'platform.events.chat.message.v1';
-    void this.publisherService.publish(streamName, newMessage);
+    const chatEventPayload = {
+      sessionId: sessionId,
+      eventId: eventId || sessionId, // Use eventId if provided, fallback to sessionId
+      message: newMessage,
+    };
+    void this.publisherService.publish(streamName, chatEventPayload);
 
     // --- NEW LOGIC: PUBLISH SYNC EVENT ---
+    // Also include sessionId and eventId for downstream consumers
     const syncPayload = {
+      type: 'message_created',
       resource: 'MESSAGE',
       action: 'CREATED',
+      sessionId: sessionId,
+      eventId: eventId || sessionId,
       payload: newMessage,
     };
     // Publish to the generic sync channel

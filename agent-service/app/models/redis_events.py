@@ -80,7 +80,7 @@ class PollClosedEvent(BaseModel):
 
 class SyncEvent(BaseModel):
     """
-    Sync event from Redis (user presence, reactions, etc.)
+    Sync event from Redis (user presence, reactions, messages, etc.)
 
     Examples:
     {
@@ -94,12 +94,19 @@ class SyncEvent(BaseModel):
         "sessionId": "session_123",
         "eventId": "event_456"
     }
+    {
+        "type": "message_created",
+        "sessionId": "session_123",
+        "eventId": "event_456",
+        "payload": {...}
+    }
     """
     type: str = Field(..., min_length=1, max_length=50)
     sessionId: str = Field(..., min_length=1, max_length=255)
     eventId: str = Field(..., min_length=1, max_length=255)
     userId: Optional[str] = Field(None, max_length=255)
     data: Optional[Dict[str, Any]] = None
+    payload: Optional[Dict[str, Any]] = None  # For message events
 
     @validator('type')
     def validate_event_type(cls, v):
@@ -110,7 +117,10 @@ class SyncEvent(BaseModel):
             'reaction',
             'presence_update',
             'typing',
-            'emoji'
+            'emoji',
+            'message_created',  # Chat message created
+            'message_updated',  # Chat message edited
+            'message_deleted',  # Chat message deleted
         }
 
         if v not in valid_types:

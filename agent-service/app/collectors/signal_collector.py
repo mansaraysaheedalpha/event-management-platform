@@ -358,7 +358,7 @@ class EngagementSignalCollector:
 
     async def _handle_sync_event(self, event_data: dict):
         """
-        Handle sync events (could include user presence, reactions, etc.)
+        Handle sync events (could include user presence, reactions, messages, etc.)
 
         Expected data format varies based on event type
         """
@@ -380,6 +380,11 @@ class EngagementSignalCollector:
             elif event.type == "reaction":
                 self.tracker.record_reaction(event.sessionId, event.eventId)
                 logger.debug(f"❤️ Reaction recorded for session {event.sessionId}")
+
+            elif event.type == "message_created":
+                # Message created events also come through sync-events
+                self.tracker.record_chat_message(event.sessionId, event.eventId)
+                logger.debug(f"📨 Chat message (via sync) recorded for session {event.sessionId}")
 
         except ValidationError as e:
             logger.warning(f"Invalid sync event data: {e}")
