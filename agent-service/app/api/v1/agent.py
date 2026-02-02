@@ -5,6 +5,7 @@ Handles agent mode changes, status queries, and session registration
 SECURITY: All endpoints require authentication and verify user permissions
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
@@ -15,6 +16,8 @@ from app.orchestrator import agent_manager
 from app.middleware import AppError, ErrorCategory
 from app.middleware.auth import verify_token, verify_organizer, AuthUser
 from app.agents.engagement_conductor import AgentMode
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -82,6 +85,33 @@ class SessionRegistrationResponse(BaseModel):
 
 # Endpoints
 
+def extract_event_id_from_session(session_id: str) -> str:
+    """
+    Extract event_id from various session_id formats.
+
+    Supported formats:
+    - event_{event_id}_{stream_id} -> event_id
+    - {uuid} (database session ID) -> uses session_id as-is for event_id lookup
+    - evt_{event_id} -> event_id portion
+
+    Returns the event_id or the session_id itself if no extraction pattern matches.
+    """
+    # Format: event_{event_id}_{stream_id}
+    if session_id.startswith("event_"):
+        parts = session_id.split("_")
+        if len(parts) >= 3:
+            return "_".join(parts[1:-1])
+        return parts[1] if len(parts) > 1 else session_id
+
+    # Format: evt_{event_id}
+    if session_id.startswith("evt_"):
+        return session_id[4:]
+
+    # UUID format or other - return as-is
+    # The agent manager will use this as both session_id and event_id reference
+    return session_id
+
+
 @router.put("/agent/sessions/{session_id}/mode")
 async def change_agent_mode(
     session_id: str,
@@ -98,6 +128,11 @@ async def change_agent_mode(
     - SEMI_AUTO: Agent auto-executes high-confidence decisions, asks for low-confidence
     - AUTO: Agent fully autonomous, auto-executes all decisions
 
+    Supported session_id formats:
+    - event_{event_id}_{stream_id} (legacy format)
+    - {uuid} (database session ID)
+    - evt_{event_id}
+
     Note: If session doesn't exist, it will be auto-created with the specified mode
     """
     try:
@@ -106,16 +141,8 @@ async def change_agent_mode(
 
         # Auto-create agent if it doesn't exist
         if not agent:
-            # Extract event_id from session_id (format: event_{event_id}_{stream_id})
-            parts = session_id.split("_")
-            if len(parts) < 2 or parts[0] != "event":
-                raise AppError(
-                    message=f"Invalid session_id format: {session_id}",
-                    category=ErrorCategory.VALIDATION,
-                    status_code=400
-                )
-
-            event_id = "_".join(parts[1:-1])  # Reconstruct event_id (may contain underscores)
+            # Extract event_id from session_id (supports multiple formats)
+            event_id = extract_event_id_from_session(session_id)
 
             # Create agent instance
             agent = await agent_manager.create_agent(
@@ -137,8 +164,10 @@ async def change_agent_mode(
     except AppError:
         raise
     except Exception as e:
+        # Log full error for debugging, return sanitized message to client
+        logger.error(f"Failed to change agent mode for session {session_id}: {e}", exc_info=True)
         raise AppError(
-            message=f"Failed to change agent mode: {str(e)}",
+            message="Failed to change agent mode. Please try again.",
             category=ErrorCategory.INTERNAL,
             status_code=500
         )
@@ -188,8 +217,9 @@ async def get_agent_status(
         )
 
     except Exception as e:
+        logger.error(f"Failed to get agent status for session {session_id}: {e}", exc_info=True)
         raise AppError(
-            message=f"Failed to get agent status: {str(e)}",
+            message="Failed to get agent status. Please try again.",
             category=ErrorCategory.INTERNAL,
             status_code=500
         )
@@ -229,8 +259,9 @@ async def register_session(
         )
 
     except Exception as e:
+        logger.error(f"Failed to register session {request.session_id}: {e}", exc_info=True)
         raise AppError(
-            message=f"Failed to register session: {str(e)}",
+            message="Failed to register session. Please try again.",
             category=ErrorCategory.INTERNAL,
             status_code=500
         )
@@ -259,8 +290,9 @@ async def unregister_session(
         }
 
     except Exception as e:
+        logger.error(f"Failed to unregister session {session_id}: {e}", exc_info=True)
         raise AppError(
-            message=f"Failed to unregister session: {str(e)}",
+            message="Failed to unregister session. Please try again.",
             category=ErrorCategory.INTERNAL,
             status_code=500
         )
@@ -306,8 +338,9 @@ async def approve_decision(
     except AppError:
         raise
     except Exception as e:
+        logger.error(f"Failed to approve decision {decision_id} for session {session_id}: {e}", exc_info=True)
         raise AppError(
-            message=f"Failed to approve decision: {str(e)}",
+            message="Failed to approve decision. Please try again.",
             category=ErrorCategory.INTERNAL,
             status_code=500
         )
@@ -354,8 +387,9 @@ async def reject_decision(
     except AppError:
         raise
     except Exception as e:
+        logger.error(f"Failed to reject decision {decision_id} for session {session_id}: {e}", exc_info=True)
         raise AppError(
-            message=f"Failed to reject decision: {str(e)}",
+            message="Failed to reject decision. Please try again.",
             category=ErrorCategory.INTERNAL,
             status_code=500
         )

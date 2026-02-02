@@ -15,36 +15,7 @@ import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { PrismaService } from 'src/prisma.service';
-
-/**
- * Get allowed CORS origins from environment
- * SECURITY: Never allow all origins in production
- */
-function getAllowedOrigins(): string[] | boolean {
-  const origins = process.env.CORS_ORIGINS;
-
-  // In development, allow localhost variants
-  if (process.env.NODE_ENV === 'development') {
-    return [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:3001',
-    ];
-  }
-
-  // In production, require explicit configuration
-  if (!origins) {
-    console.warn(
-      'SECURITY WARNING: CORS_ORIGINS not configured. ' +
-      'WebSocket connections will be rejected from all origins.'
-    );
-    return false; // Reject all if not configured
-  }
-
-  // Parse comma-separated origins
-  return origins.split(',').map(origin => origin.trim()).filter(Boolean);
-}
+import { WEBSOCKET_CORS_CONFIG } from 'src/common/config/cors.config';
 
 /**
  * Engagement Conductor Gateway
@@ -52,6 +23,7 @@ function getAllowedOrigins(): string[] | boolean {
  * Forwards agent state events from the agent service to WebSocket clients.
  *
  * SECURITY: CORS is restricted to explicitly configured origins only.
+ * Uses shared CORS config for consistency across all gateways.
  *
  * Events forwarded:
  * - agent.status: Agent status changes (MONITORING, WAITING_APPROVAL, INTERVENING, etc.)
@@ -60,8 +32,7 @@ function getAllowedOrigins(): string[] | boolean {
  */
 @WebSocketGateway({
   cors: {
-    origin: getAllowedOrigins(),
-    credentials: true,
+    ...WEBSOCKET_CORS_CONFIG,
     methods: ['GET', 'POST'],
   },
   namespace: '/events',
@@ -273,6 +244,16 @@ export class EngagementConductorGateway
   }
 
   /**
+   * Validate session ID format to prevent injection attacks
+   */
+  private isValidSessionId(sessionId: unknown): sessionId is string {
+    if (typeof sessionId !== 'string') return false;
+    if (sessionId.length === 0 || sessionId.length > 100) return false;
+    // Allow alphanumeric, hyphens, and underscores (UUIDs and event_ format)
+    return /^[a-zA-Z0-9_-]+$/.test(sessionId);
+  }
+
+  /**
    * Subscribe to agent events for a specific session
    */
   @SubscribeMessage('agent:subscribe')
@@ -288,6 +269,12 @@ export class EngagementConductorGateway
     }
 
     const { sessionId } = payload;
+
+    // Validate sessionId format
+    if (!this.isValidSessionId(sessionId)) {
+      this.logger.warn(`Client ${client.id} sent invalid session ID format`);
+      return { success: false, error: 'Invalid session ID format' };
+    }
 
     // Check Redis connection status
     if (!this.redisConnected) {
@@ -356,6 +343,11 @@ export class EngagementConductorGateway
     }
 
     const { sessionId } = payload;
+
+    // Validate sessionId format
+    if (!this.isValidSessionId(sessionId)) {
+      return { success: false, error: 'Invalid session ID format' };
+    }
 
     // Leave socket room
     await client.leave(`session:${sessionId}:agent`);
