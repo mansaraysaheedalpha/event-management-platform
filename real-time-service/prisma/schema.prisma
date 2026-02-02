@@ -1442,3 +1442,48 @@ model BoothAnalytics {
   @@index([eventId])
   @@map("booth_analytics")
 }
+
+// ==========================
+// AI Agent Notifications
+// ==========================
+
+enum AgentNotificationType {
+  ANOMALY_DETECTED
+  INTERVENTION_EXECUTED
+}
+
+enum AgentNotificationSeverity {
+  CRITICAL
+  WARNING
+  INFO
+}
+
+model AgentNotification {
+  id          String                     @id @default(cuid())
+  createdAt   DateTime                   @default(now())
+
+  eventId     String
+  sessionId   String?
+
+  type        AgentNotificationType
+  severity    AgentNotificationSeverity  @default(INFO)
+
+  // Type-specific data (anomaly_type, intervention_type, confidence, etc.)
+  data        Json
+
+  readBy      AgentNotificationRead[]
+
+  @@index([eventId])
+  @@index([eventId, createdAt(sort: Desc)])
+  @@map("agent_notifications")
+}
+
+model AgentNotificationRead {
+  userId         String
+  notificationId String
+  notification   AgentNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  readAt         DateTime          @default(now())
+
+  @@id([userId, notificationId])
+  @@map("agent_notification_reads")
+}

@@ -14,11 +14,13 @@ from pydantic import ValidationError
 
 from app.core.redis_client import RedisClient
 from app.core.rate_limiter import get_intervention_rate_limiter
+from app.core.event_settings import get_event_settings
 from app.collectors.session_tracker import SessionTracker, session_tracker
 from app.utils.engagement_score import EngagementScoreCalculator, EngagementSignals, engagement_calculator
 from app.agents.anomaly_detector import AnomalyDetector, anomaly_detector
 from app.agents.intervention_selector import intervention_selector
 from app.agents.intervention_executor import InterventionExecutor
+from app.agents.poll_intervention_strategy import poll_strategy
 from app.db.timescale import AsyncSessionLocal
 from app.db.models import EngagementMetric
 from app.models.anomaly import Anomaly
@@ -111,6 +113,9 @@ class EngagementSignalCollector:
     POLL_CLOSED_STREAM = "platform.events.poll.closed.v1"
     SYNC_STREAM = "sync-events"
 
+    # Intervention outcome stream (published by real-time-service after executing interventions)
+    INTERVENTION_OUTCOME_STREAM = "platform.agent.intervention-outcomes.v1"
+
     # Consumer group configuration
     CONSUMER_GROUP = "engagement-conductor"
     CONSUMER_NAME = "signal-collector"
@@ -176,13 +181,21 @@ class EngagementSignalCollector:
             # Initialize stream ID for reading new messages
             self._stream_ids[stream] = ">"
 
-        logger.info(f"📡 Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams)} streams")
+        # Also set up consumer group for intervention outcomes
+        await self.redis.create_consumer_group(
+            stream=self.INTERVENTION_OUTCOME_STREAM,
+            group=self.CONSUMER_GROUP,
+            start_id="$"
+        )
+
+        logger.info(f"📡 Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams) + 1} streams")
 
         # Start background tasks
         self.tasks = [
             asyncio.create_task(self._listen_to_streams()),
             asyncio.create_task(self._calculate_engagement_loop()),
             asyncio.create_task(self._cleanup_loop()),
+            asyncio.create_task(self._listen_to_intervention_outcomes()),
         ]
 
         logger.info("✅ Signal collector started")
@@ -314,8 +327,8 @@ class EngagementSignalCollector:
             # Validate event data with Pydantic
             event = ChatMessageEvent(**event_data)
 
-            self.tracker.record_chat_message(event.sessionId, event.eventId)
-            logger.debug(f"📨 Chat message recorded for session {event.sessionId}")
+            await self.tracker.record_chat_message(event.sessionId, event.eventId)
+            logger.debug(f"Chat message recorded for session {event.sessionId}")
 
         except ValidationError as e:
             logger.warning(f"Invalid chat message event data: {e}")
@@ -339,8 +352,8 @@ class EngagementSignalCollector:
             # Validate event data with Pydantic
             event = PollVoteEvent(**event_data)
 
-            self.tracker.record_poll_vote(event.sessionId, event.eventId, event.pollId)
-            logger.debug(f"🗳️ Poll vote recorded for session {event.sessionId}")
+            await self.tracker.record_poll_vote(event.sessionId, event.eventId, event.pollId)
+            logger.debug(f"Poll vote recorded for session {event.sessionId}")
 
         except ValidationError as e:
             logger.warning(f"Invalid poll vote event data: {e}")
@@ -374,22 +387,22 @@ class EngagementSignalCollector:
             # Handle different sync event types
             if event.type == "user_join":
                 if event.userId:
-                    self.tracker.record_user_join(event.sessionId, event.eventId, event.userId)
-                    logger.debug(f"👋 User {event.userId} joined session {event.sessionId}")
+                    await self.tracker.record_user_join(event.sessionId, event.eventId, event.userId)
+                    logger.debug(f"User {event.userId} joined session {event.sessionId}")
 
             elif event.type == "user_leave":
                 if event.userId:
-                    self.tracker.record_user_leave(event.sessionId, event.eventId, event.userId)
-                    logger.debug(f"👋 User {event.userId} left session {event.sessionId}")
+                    await self.tracker.record_user_leave(event.sessionId, event.eventId, event.userId)
+                    logger.debug(f"User {event.userId} left session {event.sessionId}")
 
             elif event.type == "reaction":
-                self.tracker.record_reaction(event.sessionId, event.eventId)
-                logger.debug(f"❤️ Reaction recorded for session {event.sessionId}")
+                await self.tracker.record_reaction(event.sessionId, event.eventId)
+                logger.debug(f"Reaction recorded for session {event.sessionId}")
 
             elif event.type == "message_created":
                 # Message created events also come through sync-events
-                self.tracker.record_chat_message(event.sessionId, event.eventId)
-                logger.debug(f"📨 Chat message (via sync) recorded for session {event.sessionId}")
+                await self.tracker.record_chat_message(event.sessionId, event.eventId)
+                logger.debug(f"Chat message (via sync) recorded for session {event.sessionId}")
 
         except ValidationError as e:
             logger.warning(f"Invalid sync event data: {e}")
@@ -412,7 +425,7 @@ class EngagementSignalCollector:
                     break
 
                 # Calculate engagement for all active sessions
-                active_sessions = list(self.tracker.sessions.keys())
+                active_sessions = await self.tracker.get_session_ids()
                 logger.debug(f"Calculating engagement for {len(active_sessions)} sessions")
 
                 for session_id in active_sessions:
@@ -438,11 +451,11 @@ class EngagementSignalCollector:
             session_id: Session identifier
         """
         # Get session signals
-        signals_dict = self.tracker.get_session_signals(session_id)
+        signals_dict = await self.tracker.get_session_signals(session_id)
         if not signals_dict:
             return
 
-        session = self.tracker.sessions.get(session_id)
+        session = await self.tracker.get_session(session_id)
         if not session:
             return
 
@@ -470,7 +483,7 @@ class EngagementSignalCollector:
             try:
                 async with AsyncSessionLocal() as db:
                     metric = EngagementMetric(
-                        time=datetime.utcnow(),  # Use naive datetime for TIMESTAMP WITHOUT TIME ZONE column
+                        time=datetime.now(timezone.utc).replace(tzinfo=None),  # Naive UTC for DB
                         session_id=session_id,
                         event_id=session.event_id,
                         engagement_score=score,
@@ -697,7 +710,8 @@ class EngagementSignalCollector:
         RELIABILITY: Rate limited to prevent overwhelming users with interventions:
         - Max 1 intervention per 30 seconds per session
         - Max 10 interventions per 5 minutes per session
-        - Max 100 interventions per hour per event
+        - Per-event limit from EventAgentSettings.max_interventions_per_hour (default: 10)
+        - Global max 100 interventions per hour per event
 
         The agent will:
         1. Perceive the anomaly
@@ -710,11 +724,22 @@ class EngagementSignalCollector:
             signals: Current engagement signals
         """
         try:
-            # Rate limiting check
+            # Load per-event settings for rate limiting and agent enabled check
+            event_settings = await get_event_settings(anomaly_event.event_id)
+
+            # Check if agent is enabled for this event
+            if not event_settings.agent_enabled:
+                logger.debug(
+                    f"Agent disabled for event {anomaly_event.event_id}, skipping intervention"
+                )
+                return
+
+            # Rate limiting check with per-event limit
             rate_limiter = get_intervention_rate_limiter()
             is_allowed, rejection_reason = await rate_limiter.is_intervention_allowed(
                 session_id=anomaly_event.session_id,
-                event_id=anomaly_event.event_id
+                event_id=anomaly_event.event_id,
+                max_per_hour=event_settings.max_interventions_per_hour
             )
 
             if not is_allowed:
@@ -724,7 +749,7 @@ class EngagementSignalCollector:
                 )
                 return
             # Get session context
-            session_state = self.tracker.sessions.get(anomaly_event.session_id)
+            session_state = await self.tracker.get_session(anomaly_event.session_id)
             session_context = {
                 'session_id': anomaly_event.session_id,
                 'event_id': anomaly_event.event_id,
@@ -787,7 +812,7 @@ class EngagementSignalCollector:
             # Fallback to Phase 3 intervention selector if agent fails
             logger.info(f"Falling back to Phase 3 intervention selector")
             try:
-                session_state = self.tracker.sessions.get(anomaly_event.session_id)
+                session_state = await self.tracker.get_session(anomaly_event.session_id)
                 session_context = {
                     'session_id': anomaly_event.session_id,
                     'event_id': anomaly_event.event_id,
@@ -878,12 +903,17 @@ class EngagementSignalCollector:
                 if not self.running:
                     break
 
-                cleaned = self.tracker.cleanup_inactive_sessions()
+                cleaned = await self.tracker.cleanup_inactive_sessions()
                 if cleaned > 0:
-                    logger.info(f"🧹 Cleaned up {cleaned} inactive sessions")
+                    logger.info(f"Cleaned up {cleaned} inactive sessions")
+
+                # Clean up expired anomaly detector caches
+                anomaly_expired = anomaly_detector.cleanup_expired()
+                if anomaly_expired > 0:
+                    logger.info(f"Cleaned up {anomaly_expired} expired anomaly detector entries")
 
                 # Clean up status tracking for sessions that no longer exist
-                active_sessions = set(self.tracker.sessions.keys())
+                active_sessions = set(await self.tracker.get_session_ids())
                 stale_monitoring = self._monitoring_published - active_sessions
                 stale_status = set(self._last_status.keys()) - active_sessions
 
@@ -893,9 +923,142 @@ class EngagementSignalCollector:
                     self._last_status.pop(session_id, None)
 
                 if stale_monitoring or stale_status:
-                    logger.debug(f"🧹 Cleaned up status tracking for {len(stale_monitoring | stale_status)} stale sessions")
+                    logger.debug(f"Cleaned up status tracking for {len(stale_monitoring | stale_status)} stale sessions")
+
+                # Clean up intervention_selector and poll_strategy for stale sessions
+                stale_sessions = stale_monitoring | stale_status
+                for session_id in stale_sessions:
+                    intervention_selector.cleanup_session(session_id)
+                    poll_strategy.cleanup_session(session_id)
+
+                if stale_sessions:
+                    logger.debug(f"Cleaned up intervention state for {len(stale_sessions)} stale sessions")
 
         except asyncio.CancelledError:
             logger.info("Cleanup loop cancelled")
         except Exception as e:
             logger.error(f"Cleanup loop error: {e}", exc_info=True)
+
+    async def _listen_to_intervention_outcomes(self):
+        """
+        Background loop that listens for intervention outcomes from real-time-service.
+
+        This completes the feedback loop for Thompson Sampling:
+        1. Agent decides on intervention
+        2. real-time-service executes it (poll/chat/etc.)
+        3. real-time-service publishes outcome to this stream
+        4. We call record_outcome() to update Thompson Sampling parameters
+
+        The outcome helps the agent learn which interventions work best for
+        different anomaly types and contexts.
+        """
+        logger.info("🔄 Starting intervention outcome listener")
+
+        streams_to_read = {self.INTERVENTION_OUTCOME_STREAM: ">"}
+
+        try:
+            while self.running:
+                try:
+                    results = await self.redis.xreadgroup_streams(
+                        group=self.CONSUMER_GROUP,
+                        consumer=self.CONSUMER_NAME,
+                        streams=streams_to_read,
+                        count=50,
+                        block=2000  # Block for 2 seconds
+                    )
+
+                    if not results:
+                        continue
+
+                    for stream_name, messages in results:
+                        for message_id, data in messages:
+                            try:
+                                outcome_data = self.redis.parse_stream_message(data)
+                                if not outcome_data:
+                                    continue
+
+                                await self._handle_intervention_outcome(outcome_data)
+
+                                # Acknowledge the message
+                                await self.redis.xack(
+                                    stream_name,
+                                    self.CONSUMER_GROUP,
+                                    message_id
+                                )
+
+                            except Exception as e:
+                                logger.error(
+                                    f"Error processing outcome {message_id}: {e}",
+                                    exc_info=True
+                                )
+
+                except Exception as e:
+                    logger.error(f"Error reading from outcome stream: {e}")
+                    await asyncio.sleep(1)
+
+        except asyncio.CancelledError:
+            logger.info("Intervention outcome listener cancelled")
+        except Exception as e:
+            logger.error(f"Intervention outcome listener error: {e}", exc_info=True)
+
+    async def _handle_intervention_outcome(self, outcome_data: dict):
+        """
+        Handle an intervention outcome from real-time-service.
+
+        Updates the intervention record and Thompson Sampling parameters
+        based on whether the intervention was successful.
+
+        Args:
+            outcome_data: Outcome payload from real-time-service
+        """
+        intervention_id = outcome_data.get('intervention_id')
+        success = outcome_data.get('success', False)
+        session_id = outcome_data.get('session_id')
+        result = outcome_data.get('result', {})
+        error = outcome_data.get('error')
+
+        if not intervention_id:
+            logger.warning("Outcome missing intervention_id, skipping")
+            return
+
+        logger.info(
+            f"📊 Received outcome for intervention {intervention_id[:8]}...: "
+            f"{'SUCCESS' if success else 'FAILED'}"
+        )
+
+        try:
+            # Record the outcome via intervention_executor
+            # This updates the Intervention record in the database
+            async with AsyncSessionLocal() as db:
+                outcome = {
+                    'executed': success,
+                    'result': result,
+                    'error': error,
+                    'timestamp': outcome_data.get('timestamp'),
+                }
+
+                await self.intervention_executor.record_outcome(
+                    intervention_id=intervention_id,
+                    outcome=outcome,
+                    db_session=db
+                )
+
+            # If successful, the engagement after intervention will be tracked
+            # via normal engagement calculations. Thompson Sampling will be
+            # updated when we detect post-intervention engagement changes.
+
+            if success:
+                logger.info(
+                    f"✅ Outcome recorded for intervention {intervention_id[:8]}... - "
+                    f"Feedback loop complete"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ Intervention {intervention_id[:8]}... failed: {error}"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to record outcome for {intervention_id[:8]}...: {e}",
+                exc_info=True
+            )

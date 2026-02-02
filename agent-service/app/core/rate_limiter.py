@@ -143,6 +143,43 @@ class RateLimiter:
         # Run sync version in thread pool to avoid blocking (Python 3.9+)
         return await asyncio.to_thread(self.is_allowed_sync, key)
 
+    def get_current_count_sync(self, key: str) -> int:
+        """
+        Get the current count of requests in the window (sync version).
+
+        Args:
+            key: Unique identifier
+
+        Returns:
+            Number of requests in current window
+        """
+        with self._lock:
+            now = time.time()
+            cutoff = now - self.window_seconds
+
+            if key not in self._windows:
+                return 0
+
+            window = self._windows[key]
+
+            # Remove expired entries
+            while window and window[0] < cutoff:
+                window.popleft()
+
+            return len(window)
+
+    async def get_current_count(self, key: str) -> int:
+        """
+        Get the current count of requests in the window (async version).
+
+        Args:
+            key: Unique identifier
+
+        Returns:
+            Number of requests in current window
+        """
+        return await asyncio.to_thread(self.get_current_count_sync, key)
+
     def get_wait_time(self, key: str) -> float:
         """
         Get the time to wait before the next request is allowed.
@@ -283,7 +320,8 @@ class SessionInterventionRateLimiter:
     async def is_intervention_allowed(
         self,
         session_id: str,
-        event_id: str
+        event_id: str,
+        max_per_hour: Optional[int] = None
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if an intervention is allowed for a session.
@@ -291,6 +329,8 @@ class SessionInterventionRateLimiter:
         Args:
             session_id: Session identifier
             event_id: Event identifier
+            max_per_hour: Optional per-event limit from EventAgentSettings.
+                          If provided and stricter than global limit (100), applies instead.
 
         Returns:
             Tuple of (allowed: bool, rejection_reason: Optional[str])
@@ -304,10 +344,25 @@ class SessionInterventionRateLimiter:
             return False, "Rate limit: Max 10 interventions per 5 minutes"
 
         # Check long-term limit (per event)
+        # Use per-event limit if provided and stricter than global default
+        effective_limit = self.long_term.max_requests  # Default: 100
+        if max_per_hour is not None and max_per_hour < effective_limit:
+            # Check custom per-event limit
+            event_key = f"{event_id}:custom"
+            current_count = await self._get_hourly_count(event_id)
+            if current_count >= max_per_hour:
+                return False, f"Rate limit: Max {max_per_hour} interventions per hour for this event"
+
+        # Always check global limit
         if not await self.long_term.is_allowed(event_id):
             return False, "Rate limit: Max 100 interventions per hour for this event"
 
         return True, None
+
+    async def _get_hourly_count(self, event_id: str) -> int:
+        """Get the current count of interventions in the last hour for an event."""
+        # Use the long_term limiter's window to count
+        return await self.long_term.get_current_count(event_id)
 
     def get_stats(self) -> Dict:
         """Get stats for all limiters."""

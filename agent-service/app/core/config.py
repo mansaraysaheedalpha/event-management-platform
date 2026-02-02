@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     MAX_LLM_COST_PER_HOUR: float = 20.0
     MAX_LLM_COST_PER_DAY: float = 100.0
 
+    # Email Notifications (Resend)
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_DOMAIN: str = "onboarding@resend.dev"
+
+    # Frontend URL for notification links
+    FRONTEND_URL: str = "http://localhost:3000"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

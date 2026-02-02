@@ -5,7 +5,7 @@ Analyzes anomalies and selects appropriate interventions
 import logging
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.agents.anomaly_detector import AnomalyEvent
 
@@ -277,7 +277,7 @@ class InterventionSelector:
         }
 
         cooldown = cooldowns.get(intervention_type, 60)
-        time_since_last = (datetime.utcnow() - last_time).total_seconds()
+        time_since_last = (datetime.now(timezone.utc) - last_time).total_seconds()
 
         return time_since_last >= cooldown
 
@@ -298,14 +298,14 @@ class InterventionSelector:
         if session_id not in self.last_intervention_times:
             self.last_intervention_times[session_id] = {}
 
-        self.last_intervention_times[session_id][intervention_type] = datetime.utcnow()
+        self.last_intervention_times[session_id][intervention_type] = datetime.now(timezone.utc)
 
         # Track history
         if session_id not in self.intervention_history:
             self.intervention_history[session_id] = []
 
         self.intervention_history[session_id].append({
-            'timestamp': datetime.utcnow(),
+            'timestamp': datetime.now(timezone.utc),
             'type': intervention_type,
             'recommendation': recommendation,
         })

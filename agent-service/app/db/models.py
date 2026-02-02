@@ -1,15 +1,20 @@
 from sqlalchemy import Column, String, Float, Integer, Boolean, JSON, TIMESTAMP, Index
 from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from app.db.timescale import Base
+
+
+def utc_now_naive():
+    """Return current UTC time as naive datetime (for TIMESTAMP WITHOUT TIME ZONE)"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class EngagementMetric(Base):
     """Stores engagement scores and signals over time"""
     __tablename__ = "engagement_metrics"
 
-    time = Column(TIMESTAMP, primary_key=True, default=datetime.utcnow)
+    time = Column(TIMESTAMP, primary_key=True, default=utc_now_naive)
     session_id = Column(String(255), primary_key=True)
     event_id = Column(String(255), nullable=False)
     engagement_score = Column(Float, nullable=False)
@@ -32,7 +37,7 @@ class Intervention(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(String(255), nullable=False)
-    timestamp = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
+    timestamp = Column(TIMESTAMP, nullable=False, default=utc_now_naive)
     type = Column(String(50), nullable=False)  # POLL, CHAT_PROMPT, NUDGE, etc.
     confidence = Column(Float, nullable=False)
     reasoning = Column(String, nullable=True)
@@ -48,7 +53,7 @@ class AgentPerformance(Base):
     """Tracks agent performance metrics for learning"""
     __tablename__ = "agent_performance"
 
-    time = Column(TIMESTAMP, primary_key=True, default=datetime.utcnow)
+    time = Column(TIMESTAMP, primary_key=True, default=utc_now_naive)
     agent_id = Column(String(100), primary_key=True)
     intervention_type = Column(String(50), nullable=False)
     success = Column(Boolean, nullable=False)

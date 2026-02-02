@@ -7,6 +7,7 @@ import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [QnaModule, DmModule, PollsModule, ChatModule],
+  exports: [PollsModule, ChatModule], // Re-export for AgentInterventionListener
   providers: [],
 })
 export class CommModule {}

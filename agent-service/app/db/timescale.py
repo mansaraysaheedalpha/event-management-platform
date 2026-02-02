@@ -77,22 +77,25 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
         # Convert to hypertables (time-series optimization)
-        try:
-            await conn.execute(
-                text("SELECT create_hypertable('engagement_metrics', 'time', if_not_exists => TRUE);")
-            )
-            await conn.execute(
-                text("SELECT create_hypertable('interventions', 'timestamp', if_not_exists => TRUE);")
-            )
-            await conn.execute(
-                text("SELECT create_hypertable('agent_performance', 'time', if_not_exists => TRUE);")
-            )
-            await conn.execute(
-                text("SELECT create_hypertable('anomalies', 'timestamp', if_not_exists => TRUE);")
-            )
-            logger.info("✅ TimescaleDB hypertables created")
-        except Exception as e:
-            logger.warning(f"Hypertables may already exist: {e}")
+        # Note: Only tables with composite primary keys including time can be hypertables
+        # Tables with UUID primary keys (interventions, anomalies) remain regular tables
+        hypertable_configs = [
+            # (table_name, time_column) - only tables where time is part of PK
+            ("engagement_metrics", "time"),
+            ("agent_performance", "time"),
+        ]
+
+        for table_name, time_column in hypertable_configs:
+            try:
+                await conn.execute(
+                    text(f"SELECT create_hypertable('{table_name}', '{time_column}', if_not_exists => TRUE);")
+                )
+                logger.info(f"✅ Hypertable created: {table_name}")
+            except Exception as e:
+                # Table may already be a hypertable, or TimescaleDB not available
+                logger.debug(f"Hypertable {table_name}: {e}")
+
+        logger.info("TimescaleDB hypertable setup complete")
 
 
 async def get_db():

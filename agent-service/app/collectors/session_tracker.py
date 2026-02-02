@@ -1,11 +1,15 @@
 """
 Session Tracker
 Maintains per-session state and tracks engagement signals over time
+
+Thread-safe implementation using asyncio.Lock to protect against
+race conditions when multiple async tasks access session state.
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from collections import deque
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,9 @@ class SessionTracker:
     """
     Tracks state for multiple sessions.
     Maintains rolling windows for rate calculations.
+
+    Thread-safe: Uses asyncio.Lock to protect session state from
+    concurrent modification by multiple async tasks.
     """
 
     def __init__(self, session_timeout_minutes: int = 30):
@@ -67,10 +74,13 @@ class SessionTracker:
         self.sessions: Dict[str, SessionState] = {}
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
         self.logger = logging.getLogger(__name__)
+        self._lock = asyncio.Lock()
 
-    def get_or_create_session(self, session_id: str, event_id: str) -> SessionState:
+    def _get_or_create_session_unlocked(self, session_id: str, event_id: str) -> SessionState:
         """
-        Get existing session or create new one.
+        Get existing session or create new one (internal, no lock).
+
+        Must be called while holding self._lock.
 
         Args:
             session_id: Session identifier
@@ -80,7 +90,7 @@ class SessionTracker:
             SessionState object
         """
         if session_id not in self.sessions:
-            self.logger.info(f"📊 Creating new session tracker: {session_id}")
+            self.logger.info(f"Creating new session tracker: {session_id}")
             self.sessions[session_id] = SessionState(
                 session_id=session_id,
                 event_id=event_id
@@ -88,7 +98,7 @@ class SessionTracker:
 
         return self.sessions[session_id]
 
-    def record_chat_message(self, session_id: str, event_id: str):
+    async def record_chat_message(self, session_id: str, event_id: str):
         """
         Record a chat message.
 
@@ -96,14 +106,15 @@ class SessionTracker:
             session_id: Session identifier
             event_id: Event identifier
         """
-        session = self.get_or_create_session(session_id, event_id)
-        session.chat_messages.append(datetime.now(timezone.utc))
-        session.update_timestamp()
+        async with self._lock:
+            session = self._get_or_create_session_unlocked(session_id, event_id)
+            session.chat_messages.append(datetime.now(timezone.utc))
+            session.update_timestamp()
 
-        # Recalculate chat rate
-        self._update_chat_rate(session)
+            # Recalculate chat rate
+            self._update_chat_rate(session)
 
-    def record_reaction(self, session_id: str, event_id: str):
+    async def record_reaction(self, session_id: str, event_id: str):
         """
         Record a reaction (emoji, like, etc.).
 
@@ -111,14 +122,15 @@ class SessionTracker:
             session_id: Session identifier
             event_id: Event identifier
         """
-        session = self.get_or_create_session(session_id, event_id)
-        session.reactions.append(datetime.now(timezone.utc))
-        session.update_timestamp()
+        async with self._lock:
+            session = self._get_or_create_session_unlocked(session_id, event_id)
+            session.reactions.append(datetime.now(timezone.utc))
+            session.update_timestamp()
 
-        # Recalculate reaction rate
-        self._update_reaction_rate(session)
+            # Recalculate reaction rate
+            self._update_reaction_rate(session)
 
-    def record_user_join(self, session_id: str, event_id: str, user_id: str):
+    async def record_user_join(self, session_id: str, event_id: str, user_id: str):
         """
         Record a user joining the session.
 
@@ -127,15 +139,16 @@ class SessionTracker:
             event_id: Event identifier
             user_id: User identifier
         """
-        session = self.get_or_create_session(session_id, event_id)
-        session.connected_users.add(user_id)
-        session.user_joins.append(datetime.now(timezone.utc))
-        session.update_timestamp()
+        async with self._lock:
+            session = self._get_or_create_session_unlocked(session_id, event_id)
+            session.connected_users.add(user_id)
+            session.user_joins.append(datetime.now(timezone.utc))
+            session.update_timestamp()
 
-        # Update user counts
-        self._update_user_counts(session)
+            # Update user counts
+            self._update_user_counts(session)
 
-    def record_user_leave(self, session_id: str, event_id: str, user_id: str):
+    async def record_user_leave(self, session_id: str, event_id: str, user_id: str):
         """
         Record a user leaving the session.
 
@@ -144,16 +157,17 @@ class SessionTracker:
             event_id: Event identifier
             user_id: User identifier
         """
-        session = self.get_or_create_session(session_id, event_id)
-        session.connected_users.discard(user_id)
-        session.user_leaves.append(datetime.now(timezone.utc))
-        session.update_timestamp()
+        async with self._lock:
+            session = self._get_or_create_session_unlocked(session_id, event_id)
+            session.connected_users.discard(user_id)
+            session.user_leaves.append(datetime.now(timezone.utc))
+            session.update_timestamp()
 
-        # Update user counts and leave rate
-        self._update_user_counts(session)
-        self._update_leave_rate(session)
+            # Update user counts and leave rate
+            self._update_user_counts(session)
+            self._update_leave_rate(session)
 
-    def record_poll_vote(self, session_id: str, event_id: str, poll_id: str):
+    async def record_poll_vote(self, session_id: str, event_id: str, poll_id: str):
         """
         Record a poll vote.
 
@@ -162,19 +176,20 @@ class SessionTracker:
             event_id: Event identifier
             poll_id: Poll identifier
         """
-        session = self.get_or_create_session(session_id, event_id)
+        async with self._lock:
+            session = self._get_or_create_session_unlocked(session_id, event_id)
 
-        if session.active_poll_id != poll_id:
-            # New poll, reset counters
-            session.active_poll_id = poll_id
-            session.poll_total_votes = 0
-            session.poll_eligible_users = max(len(session.connected_users), 1)
+            if session.active_poll_id != poll_id:
+                # New poll, reset counters
+                session.active_poll_id = poll_id
+                session.poll_total_votes = 0
+                session.poll_eligible_users = max(len(session.connected_users), 1)
 
-        session.poll_total_votes += 1
-        session.update_timestamp()
+            session.poll_total_votes += 1
+            session.update_timestamp()
 
-        # Update poll participation rate
-        self._update_poll_participation(session)
+            # Update poll participation rate
+            self._update_poll_participation(session)
 
     def _update_chat_rate(self, session: SessionState):
         """Calculate messages per minute from rolling window"""
@@ -225,7 +240,7 @@ class SessionTracker:
         else:
             session.poll_participation = 0.0
 
-    def get_session_signals(self, session_id: str) -> Optional[Dict]:
+    async def get_session_signals(self, session_id: str) -> Optional[Dict]:
         """
         Get current engagement signals for a session.
 
@@ -235,37 +250,66 @@ class SessionTracker:
         Returns:
             Dictionary of signals, or None if session doesn't exist
         """
-        session = self.sessions.get(session_id)
-        if not session:
-            return None
+        async with self._lock:
+            session = self.sessions.get(session_id)
+            if not session:
+                return None
 
-        return {
-            "chat_msgs_per_min": session.chat_msgs_per_min,
-            "poll_participation": session.poll_participation,
-            "active_users": session.active_users,
-            "total_users": session.total_users,
-            "reactions_per_min": session.reactions_per_min,
-            "user_leave_rate": session.user_leave_rate,
-        }
+            return {
+                "chat_msgs_per_min": session.chat_msgs_per_min,
+                "poll_participation": session.poll_participation,
+                "active_users": session.active_users,
+                "total_users": session.total_users,
+                "reactions_per_min": session.reactions_per_min,
+                "user_leave_rate": session.user_leave_rate,
+            }
 
-    def cleanup_inactive_sessions(self):
+    async def cleanup_inactive_sessions(self) -> int:
         """Remove sessions that haven't been updated recently"""
-        now = datetime.now(timezone.utc)
-        inactive_sessions = [
-            session_id
-            for session_id, session in self.sessions.items()
-            if now - session.last_updated > self.session_timeout
-        ]
+        async with self._lock:
+            now = datetime.now(timezone.utc)
+            inactive_sessions = [
+                session_id
+                for session_id, session in self.sessions.items()
+                if now - session.last_updated > self.session_timeout
+            ]
 
-        for session_id in inactive_sessions:
-            self.logger.info(f"🧹 Cleaning up inactive session: {session_id}")
-            del self.sessions[session_id]
+            for session_id in inactive_sessions:
+                self.logger.info(f"Cleaning up inactive session: {session_id}")
+                del self.sessions[session_id]
 
-        return len(inactive_sessions)
+            return len(inactive_sessions)
 
-    def get_active_session_count(self) -> int:
+    async def get_active_session_count(self) -> int:
         """Get number of active sessions being tracked"""
-        return len(self.sessions)
+        async with self._lock:
+            return len(self.sessions)
+
+    async def get_session_ids(self) -> List[str]:
+        """
+        Get a copy of all active session IDs.
+
+        Returns:
+            List of session IDs (safe copy)
+        """
+        async with self._lock:
+            return list(self.sessions.keys())
+
+    async def get_session(self, session_id: str) -> Optional[SessionState]:
+        """
+        Get session state for a given session ID.
+
+        Note: Returns the session object directly. Caller should avoid
+        long-running operations while holding a reference to this object.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            SessionState or None if session doesn't exist
+        """
+        async with self._lock:
+            return self.sessions.get(session_id)
 
 
 # Global instance

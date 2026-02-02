@@ -3,7 +3,7 @@ Anomaly model for storing detected anomalies
 """
 from sqlalchemy import Column, String, Float, TIMESTAMP, Index, JSON
 from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from app.db.timescale import Base
 
@@ -15,7 +15,7 @@ class Anomaly(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(String(255), nullable=False)  # Match SQL migration (VARCHAR)
     event_id = Column(String(255), nullable=False)    # Match SQL migration (VARCHAR)
-    timestamp = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
+    timestamp = Column(TIMESTAMP, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Anomaly classification
     anomaly_type = Column(String(50), nullable=False)  # SUDDEN_DROP, GRADUAL_DECLINE, etc.

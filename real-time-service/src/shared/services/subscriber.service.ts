@@ -51,6 +51,7 @@ export class SubscriberService implements OnModuleInit {
         'platform.sessions.chat.v1', // Chat open/close status changes
         'platform.sessions.qa.v1', // Q&A open/close status changes
         'platform.sessions.polls.v1', // Polls open/close status changes
+        'agent.interventions', // Agent intervention commands from engagement conductor
       );
       this.logger.log('Successfully subscribed to all Redis Pub/Sub channels.');
     } catch (err) {

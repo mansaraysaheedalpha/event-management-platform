@@ -50,8 +50,11 @@ from app.agents.intervention_selector import InterventionRecommendation
 from app.agents.intervention_executor import InterventionExecutor
 from app.models.anomaly import Anomaly
 from app.db.timescale import AsyncSessionLocal
+from app.db.models import Intervention, AgentPerformance
 from app.core import redis_client as redis_module
+from sqlalchemy import update
 from app.core.config import get_settings
+from app.core.event_settings import get_event_settings, CachedEventSettings
 import json
 
 logger = logging.getLogger(__name__)
@@ -112,6 +115,11 @@ class AgentState(TypedDict):
     agent_mode: AgentMode
     requires_approval: bool
     approved: bool
+
+    # Per-event settings (loaded from EventAgentSettings)
+    auto_approve_threshold: float
+    min_confidence_threshold: float
+    allowed_interventions: Optional[List[str]]
 
     # Execution
     intervention_id: Optional[str]
@@ -370,6 +378,25 @@ class EngagementConductorAgent:
             except Exception as e:
                 logger.error(f"Failed to persist Thompson Sampling after reward update: {e}")
 
+        # Update Intervention.outcome in database
+        await self._update_intervention_outcome(
+            intervention_id=intervention_id,
+            success=reward > 0.3,
+            reward=reward,
+            pre_engagement=pre_engagement,
+            post_engagement=post_engagement,
+        )
+
+        # Write AgentPerformance record for historical tracking
+        await self._write_agent_performance(
+            intervention_type=intervention_type.value if intervention_type else "UNKNOWN",
+            success=reward > 0.3,
+            reward=reward,
+            engagement_delta=post_engagement - pre_engagement if post_engagement else None,
+            confidence=state.get("confidence", 0.0),
+            session_id=session_id,
+        )
+
         # Publish reward measurement event
         await self._publish_agent_event(
             event_type="agent.reward.measured",
@@ -412,6 +439,110 @@ class EngagementConductorAgent:
         except Exception as e:
             logger.error(f"Error fetching engagement for session {session_id}: {e}")
             return None
+
+    async def _update_intervention_outcome(
+        self,
+        intervention_id: str,
+        success: bool,
+        reward: float,
+        pre_engagement: float,
+        post_engagement: Optional[float],
+    ):
+        """
+        Update Intervention.outcome in the database after reward measurement.
+
+        Args:
+            intervention_id: UUID of the intervention
+            success: Whether intervention was successful
+            reward: Calculated reward (0-1)
+            pre_engagement: Engagement score before intervention
+            post_engagement: Engagement score after delay
+        """
+        if AsyncSessionLocal is None:
+            logger.debug("Database not configured, skipping intervention outcome update")
+            return
+
+        try:
+            import uuid
+            async with AsyncSessionLocal() as db:
+                outcome = {
+                    "success": success,
+                    "reward": reward,
+                    "pre_engagement": pre_engagement,
+                    "post_engagement": post_engagement,
+                    "engagement_delta": post_engagement - pre_engagement if post_engagement else None,
+                    "measured_at": datetime.now(timezone.utc).isoformat(),
+                }
+
+                stmt = (
+                    update(Intervention)
+                    .where(Intervention.id == uuid.UUID(intervention_id))
+                    .values(outcome=outcome)
+                )
+                await db.execute(stmt)
+                await db.commit()
+
+                logger.info(f"Updated Intervention {intervention_id[:8]}... outcome: success={success}")
+
+        except Exception as e:
+            logger.error(f"Failed to update intervention outcome: {e}")
+
+    async def _write_agent_performance(
+        self,
+        intervention_type: str,
+        success: bool,
+        reward: float,
+        engagement_delta: Optional[float],
+        confidence: float,
+        session_id: str,
+    ):
+        """
+        Write AgentPerformance record for historical tracking and analysis.
+
+        This data can be used for:
+        - Analyzing agent performance over time
+        - Comparing intervention effectiveness
+        - Training/improving the agent
+
+        Args:
+            intervention_type: Type of intervention executed
+            success: Whether intervention was successful
+            reward: Calculated reward (0-1)
+            engagement_delta: Change in engagement score
+            confidence: Agent's confidence in the intervention
+            session_id: Session where intervention was executed
+        """
+        if AsyncSessionLocal is None:
+            logger.debug("Database not configured, skipping agent performance write")
+            return
+
+        try:
+            async with AsyncSessionLocal() as db:
+                from app.db.models import utc_now_naive
+
+                performance = AgentPerformance(
+                    time=utc_now_naive(),
+                    agent_id="engagement-conductor",
+                    intervention_type=intervention_type,
+                    success=success,
+                    engagement_delta=engagement_delta,
+                    confidence=confidence,
+                    session_id=session_id,
+                    extra_data={
+                        "reward": reward,
+                    }
+                )
+                db.add(performance)
+                await db.commit()
+
+                logger.debug(
+                    f"Wrote AgentPerformance: type={intervention_type}, "
+                    f"success={success}, delta={engagement_delta:.2%}" if engagement_delta else
+                    f"Wrote AgentPerformance: type={intervention_type}, success={success}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to write agent performance record: {e}")
 
     def _schedule_reward_measurement(self, state: AgentState):
         """
@@ -805,10 +936,20 @@ class EngagementConductorAgent:
 
         Uses reinforcement learning to choose the intervention most likely
         to succeed in the current context.
+
+        Respects per-event settings:
+        - min_confidence_threshold: Skip interventions below this confidence
+        - allowed_interventions: Only select from whitelisted intervention types
         """
         logger.info(f"[DECIDE] Session {state['session_id']}: Selecting intervention")
 
         anomaly = state["anomaly"]
+
+        # Load per-event settings
+        event_settings = await get_event_settings(state["event_id"])
+        state["auto_approve_threshold"] = event_settings.auto_approve_threshold
+        state["min_confidence_threshold"] = event_settings.min_confidence_threshold
+        state["allowed_interventions"] = list(event_settings.allowed_interventions) if event_settings.allowed_interventions else None
 
         # Create context for Thompson Sampling
         context = self.thompson_sampling.create_context(
@@ -817,12 +958,31 @@ class EngagementConductorAgent:
             active_users=state["active_users"]
         )
 
-        # Select intervention using Thompson Sampling
-        intervention_type, sampled_value = self.thompson_sampling.select_intervention(context)
+        # Select intervention using Thompson Sampling with allowed_interventions filter
+        intervention_type, sampled_value = self.thompson_sampling.select_intervention(
+            context,
+            allowed_types=event_settings.allowed_interventions
+        )
 
         # Get expected success rate for confidence
         stats = self.thompson_sampling.get_stats(context, intervention_type)
         confidence = stats.success_rate if stats else 0.5
+
+        # Check min_confidence_threshold - if confidence too low, skip intervention
+        if confidence < event_settings.min_confidence_threshold:
+            logger.info(
+                f"[DECIDE] Confidence {confidence:.2f} below min threshold "
+                f"{event_settings.min_confidence_threshold:.2f} - skipping intervention"
+            )
+            state["context"] = context
+            state["selected_intervention"] = None
+            state["confidence"] = confidence
+            state["explanation"] = (
+                f"Intervention skipped: confidence {confidence:.0%} is below "
+                f"minimum threshold {event_settings.min_confidence_threshold:.0%}"
+            )
+            state["anomaly_detected"] = False  # This will cause workflow to skip to END
+            return state
 
         # Generate reasoning
         reasoning = self._generate_reasoning(
@@ -839,7 +999,8 @@ class EngagementConductorAgent:
         state["explanation"] = reasoning
 
         logger.info(
-            f"[DECIDE] Selected {intervention_type} with confidence {confidence:.2f}"
+            f"[DECIDE] Selected {intervention_type} with confidence {confidence:.2f} "
+            f"(threshold: {event_settings.auto_approve_threshold:.2f})"
         )
 
         # Publish decision event
@@ -872,9 +1033,17 @@ class EngagementConductorAgent:
     async def _check_approval_node(self, state: AgentState) -> AgentState:
         """
         Check if approval is needed based on agent mode and confidence.
+
+        Uses per-event auto_approve_threshold instead of global config.
         """
         agent_mode = state["agent_mode"]
         confidence = state["confidence"]
+
+        # Use per-event threshold (loaded in _decide_node), fallback to global config
+        auto_approve_threshold = state.get(
+            "auto_approve_threshold",
+            self.AUTO_APPROVE_THRESHOLD
+        )
 
         if agent_mode == AgentMode.AUTO:
             # Fully autonomous - no approval needed
@@ -883,13 +1052,13 @@ class EngagementConductorAgent:
             logger.info(f"[APPROVAL] AUTO mode - intervention auto-approved")
 
         elif agent_mode == AgentMode.SEMI_AUTO:
-            # Semi-autonomous - auto-approve if confidence is high
-            if confidence >= self.AUTO_APPROVE_THRESHOLD:
+            # Semi-autonomous - auto-approve if confidence >= per-event threshold
+            if confidence >= auto_approve_threshold:
                 state["requires_approval"] = False
                 state["approved"] = True
                 logger.info(
                     f"[APPROVAL] SEMI_AUTO mode - high confidence "
-                    f"({confidence:.2f}) - auto-approved"
+                    f"({confidence:.2f} >= {auto_approve_threshold:.2f}) - auto-approved"
                 )
             else:
                 state["requires_approval"] = True
@@ -897,7 +1066,7 @@ class EngagementConductorAgent:
                 state["status"] = AgentStatus.WAITING_APPROVAL
                 logger.info(
                     f"[APPROVAL] SEMI_AUTO mode - low confidence "
-                    f"({confidence:.2f}) - requires approval"
+                    f"({confidence:.2f} < {auto_approve_threshold:.2f}) - requires approval"
                 )
 
         else:  # MANUAL
@@ -1117,6 +1286,10 @@ class EngagementConductorAgent:
             "agent_mode": agent_mode,
             "requires_approval": False,
             "approved": False,
+            # Per-event settings (will be loaded in _decide_node)
+            "auto_approve_threshold": self.AUTO_APPROVE_THRESHOLD,  # Default from config
+            "min_confidence_threshold": 0.50,  # Default
+            "allowed_interventions": None,  # None means all allowed
             "intervention_id": None,
             "execution_result": None,
             "success": False,

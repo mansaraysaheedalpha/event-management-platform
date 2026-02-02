@@ -62,10 +62,10 @@ CREATE TABLE IF NOT EXISTS anomalies (
     timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     anomaly_type VARCHAR(50) NOT NULL,
     severity VARCHAR(20) NOT NULL,
-    anomaly_score FLOAT,
-    current_engagement FLOAT,
-    expected_engagement FLOAT,
-    deviation FLOAT,
+    anomaly_score FLOAT NOT NULL,
+    current_engagement FLOAT NOT NULL,
+    expected_engagement FLOAT NOT NULL,
+    deviation FLOAT NOT NULL,
     signals JSONB,
     metadata JSONB
 );

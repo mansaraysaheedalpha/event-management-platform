@@ -2,9 +2,106 @@
 Pydantic models for Redis event validation
 Ensures incoming Redis Pub/Sub events are properly validated before processing
 """
+import logging
 from pydantic import BaseModel, Field, validator
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Literal, Union
 from datetime import datetime
+from enum import Enum
+
+logger = logging.getLogger(__name__)
+
+
+# =====================
+# Agent Notification Models (for publishing to Redis)
+# =====================
+
+class AnomalyType(str, Enum):
+    """Types of anomalies detected by the engagement agent"""
+    ENGAGEMENT_DROP = "ENGAGEMENT_DROP"
+    SUDDEN_SPIKE = "SUDDEN_SPIKE"
+    SENTIMENT_SHIFT = "SENTIMENT_SHIFT"
+    PARTICIPATION_DECLINE = "PARTICIPATION_DECLINE"
+
+
+class InterventionType(str, Enum):
+    """Types of interventions executed by the engagement agent"""
+    POLL = "POLL"
+    CHAT_PROMPT = "CHAT_PROMPT"
+    NUDGE = "NUDGE"
+    CONTENT_SUGGESTION = "CONTENT_SUGGESTION"
+
+
+class NotificationSeverity(str, Enum):
+    """Severity levels for agent notifications"""
+    CRITICAL = "CRITICAL"
+    WARNING = "WARNING"
+    INFO = "INFO"
+
+
+class AnomalyDetectedNotification(BaseModel):
+    """
+    Notification published when an anomaly is detected by the engagement agent.
+
+    Published to: agent:notifications:{event_id}
+
+    Example:
+    {
+        "type": "anomaly_detected",
+        "event_id": "evt_abc123",
+        "timestamp": "2026-02-02T12:00:00Z",
+        "session_id": "sess_xyz789",
+        "anomaly_type": "ENGAGEMENT_DROP",
+        "severity": "WARNING",
+        "engagement_score": 0.45
+    }
+    """
+    type: Literal["anomaly_detected"] = "anomaly_detected"
+    event_id: str = Field(..., min_length=1, max_length=255)
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    session_id: str = Field(..., min_length=1, max_length=255)
+    anomaly_type: AnomalyType
+    severity: NotificationSeverity
+    engagement_score: float = Field(..., ge=0.0, le=1.0)
+
+    class Config:
+        use_enum_values = True
+
+
+class InterventionExecutedNotification(BaseModel):
+    """
+    Notification published when an intervention is executed by the engagement agent.
+
+    Published to: agent:notifications:{event_id}
+
+    Example:
+    {
+        "type": "intervention_executed",
+        "event_id": "evt_abc123",
+        "timestamp": "2026-02-02T12:00:00Z",
+        "session_id": "sess_xyz789",
+        "intervention_type": "POLL",
+        "confidence": 0.85,
+        "auto_approved": true
+    }
+    """
+    type: Literal["intervention_executed"] = "intervention_executed"
+    event_id: str = Field(..., min_length=1, max_length=255)
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    session_id: str = Field(..., min_length=1, max_length=255)
+    intervention_type: InterventionType
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    auto_approved: bool = False
+
+    class Config:
+        use_enum_values = True
+
+
+AgentNotification = Union[AnomalyDetectedNotification, InterventionExecutedNotification]
+
+
+# =====================
+# Incoming Event Models (for receiving from Redis)
+# =====================
 
 
 class ChatMessageEvent(BaseModel):
@@ -126,7 +223,7 @@ class SyncEvent(BaseModel):
         if v not in valid_types:
             # Log unknown type but don't fail validation
             # This allows for future event types without breaking
-            pass
+            logger.debug(f"Unknown sync event type received: {v}")
 
         return v
 

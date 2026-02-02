@@ -12,6 +12,7 @@ from app.core.rate_limiter import get_intervention_rate_limiter
 from app.db.timescale import init_db
 from app.collectors.signal_collector import EngagementSignalCollector
 from app.agents.engagement_conductor import get_engagement_conductor
+from app.agents.thompson_sampling import initialize_thompson_sampling, get_thompson_sampling
 from app.middleware import (
     error_handler_middleware,
     app_error_handler,
@@ -83,6 +84,10 @@ async def lifespan(app: FastAPI):
         await engagement_conductor.start_cleanup_task()
         logger.info("Engagement conductor cleanup task started")
 
+        # Initialize Thompson Sampling with persisted stats from Redis
+        await initialize_thompson_sampling()
+        logger.info("Thompson Sampling initialized (loaded stats from Redis if available)")
+
         logger.info("Agent service ready")
     except Exception as e:
         logger.error(f"Startup failed: {e}")
@@ -113,6 +118,14 @@ async def lifespan(app: FastAPI):
         logger.info("Rate limiter cleanup tasks stopped")
     except Exception as e:
         logger.warning(f"Error stopping rate limiter cleanup: {e}")
+
+    # Save Thompson Sampling stats before shutdown
+    try:
+        ts = get_thompson_sampling()
+        await ts.save_to_redis()
+        logger.info("Thompson Sampling stats saved to Redis")
+    except Exception as e:
+        logger.warning(f"Error saving Thompson Sampling stats: {e}")
 
     # Shutdown worker pool gracefully
     await shutdown_worker_pool()
@@ -176,7 +189,7 @@ async def health():
         "status": "healthy",
         "redis": "connected" if redis_module.redis_client._client else "disconnected",
         "signal_collector": "running" if signal_collector and signal_collector.running else "stopped",
-        "active_sessions": session_tracker.get_active_session_count()
+        "active_sessions": await session_tracker.get_active_session_count()
     }
 
 

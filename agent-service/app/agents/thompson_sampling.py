@@ -12,7 +12,7 @@ Key Concepts:
 """
 
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
@@ -159,7 +159,8 @@ class ThompsonSampling:
     def select_intervention(
         self,
         context: ContextKey,
-        available_interventions: Optional[List[InterventionType]] = None
+        available_interventions: Optional[List[InterventionType]] = None,
+        allowed_types: Optional[Set[str]] = None
     ) -> Tuple[InterventionType, float]:
         """
         Select intervention using Thompson Sampling.
@@ -167,12 +168,27 @@ class ThompsonSampling:
         Args:
             context: Current context
             available_interventions: List of available interventions (default: all)
+            allowed_types: Set of allowed intervention type strings from EventAgentSettings
+                           (e.g., {"POLL", "CHAT_PROMPT"}). If provided, filters interventions.
 
         Returns:
             Tuple of (selected_intervention, sampled_value)
         """
         if available_interventions is None:
             available_interventions = list(InterventionType)
+
+        # Filter by allowed_types if provided (from per-event settings)
+        if allowed_types is not None:
+            available_interventions = [
+                it for it in available_interventions
+                if it.value in allowed_types
+            ]
+            if not available_interventions:
+                # Fallback to all if none match (shouldn't happen with valid config)
+                logger.warning(
+                    f"No interventions match allowed_types {allowed_types}, using all"
+                )
+                available_interventions = list(InterventionType)
 
         context_key = context.to_string()
 
