@@ -38,6 +38,33 @@ redis_module.redis_client = RedisClient(settings.REDIS_URL)
 signal_collector: EngagementSignalCollector = None
 
 
+async def startup_with_retry(func, name: str, max_retries: int = 5, base_delay: float = 2.0):
+    """
+    Execute a startup function with exponential backoff retry.
+    Resets circuit breaker between retries to prevent startup deadlock.
+    """
+    import asyncio
+    from app.core.circuit_breaker import redis_circuit_breaker
+
+    for attempt in range(max_retries):
+        try:
+            await func()
+            return
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                logger.warning(
+                    f"{name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+                # Reset circuit breaker to allow retry
+                redis_circuit_breaker.reset()
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"{name} failed after {max_retries} attempts: {e}")
+                raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
@@ -47,8 +74,13 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Engagement Conductor Agent Service...")
 
     try:
-        # Connect to Redis (required)
-        await redis_module.redis_client.connect()
+        # Connect to Redis with retry (required)
+        await startup_with_retry(
+            redis_module.redis_client.connect,
+            "Redis connection",
+            max_retries=5,
+            base_delay=2.0
+        )
 
         # Initialize database (required)
         await init_db()
@@ -61,9 +93,14 @@ async def lifespan(app: FastAPI):
         await init_worker_pool(num_workers=num_workers, queue_size=queue_size)
         logger.info(f"Worker pool initialized: {num_workers} workers, queue_size={queue_size}")
 
-        # Start signal collector
+        # Start signal collector with retry
         signal_collector = EngagementSignalCollector(redis_module.redis_client)
-        await signal_collector.start()
+        await startup_with_retry(
+            signal_collector.start,
+            "Signal collector",
+            max_retries=5,
+            base_delay=2.0
+        )
 
         # Start rate limiter cleanup tasks (prevents memory leaks from old windows)
         rate_limiter = get_intervention_rate_limiter()
