@@ -175,6 +175,33 @@ class PollClosedEvent(BaseModel):
         return v.strip()
 
 
+class ReactionEvent(BaseModel):
+    """
+    Reaction event from Redis (from platform.events.live.reaction.v1 stream)
+
+    Example:
+    {
+        "userId": "user_123",
+        "sessionId": "session_456",
+        "emoji": "🔥",
+        "timestamp": "2026-02-02T12:00:00.000Z"
+    }
+    """
+    userId: str = Field(..., min_length=1, max_length=255)
+    sessionId: str = Field(..., min_length=1, max_length=255)
+    emoji: str = Field(..., min_length=1, max_length=10)
+    timestamp: Optional[str] = None
+    # eventId is optional - reactions may not always have it
+    eventId: Optional[str] = Field(None, max_length=255)
+
+    @validator('sessionId', 'userId')
+    def validate_required_ids(cls, v):
+        """Ensure required IDs are non-empty strings"""
+        if not v or not v.strip():
+            raise ValueError('ID must be a non-empty string')
+        return v.strip()
+
+
 class SyncEvent(BaseModel):
     """
     Sync event from Redis (user presence, reactions, messages, etc.)

@@ -24,7 +24,7 @@ from app.agents.poll_intervention_strategy import poll_strategy
 from app.db.timescale import AsyncSessionLocal
 from app.db.models import EngagementMetric
 from app.models.anomaly import Anomaly
-from app.models.redis_events import ChatMessageEvent, PollVoteEvent, PollClosedEvent, SyncEvent
+from app.models.redis_events import ChatMessageEvent, PollVoteEvent, PollClosedEvent, SyncEvent, ReactionEvent
 from app.orchestrator import agent_manager
 from sqlalchemy import UUID
 
@@ -112,6 +112,7 @@ class EngagementSignalCollector:
     POLL_VOTE_STREAM = "platform.events.poll.vote.v1"
     POLL_CLOSED_STREAM = "platform.events.poll.closed.v1"
     SYNC_STREAM = "sync-events"
+    REACTION_STREAM = "platform.events.live.reaction.v1"  # Reactions from reactions.service.ts
 
     # Intervention outcome stream (published by real-time-service after executing interventions)
     INTERVENTION_OUTCOME_STREAM = "platform.agent.intervention-outcomes.v1"
@@ -169,6 +170,7 @@ class EngagementSignalCollector:
             self.POLL_VOTE_STREAM,
             self.POLL_CLOSED_STREAM,
             self.SYNC_STREAM,
+            self.REACTION_STREAM,  # Live reactions
         ]
 
         # Create consumer groups for each stream (if they don't exist)
@@ -252,6 +254,7 @@ class EngagementSignalCollector:
             self.POLL_VOTE_STREAM: ">",
             self.POLL_CLOSED_STREAM: ">",
             self.SYNC_STREAM: ">",
+            self.REACTION_STREAM: ">",
         }
 
         try:
@@ -287,6 +290,8 @@ class EngagementSignalCollector:
                                     await self._handle_poll_closed(event_data)
                                 elif stream_name == self.SYNC_STREAM:
                                     await self._handle_sync_event(event_data)
+                                elif stream_name == self.REACTION_STREAM:
+                                    await self._handle_reaction(event_data)
 
                                 # Acknowledge the message
                                 await self.redis.xack(
