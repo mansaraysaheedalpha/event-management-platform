@@ -50,16 +50,9 @@ async def lifespan(app: FastAPI):
         # Connect to Redis (required)
         await redis_module.redis_client.connect()
 
-        # Initialize database (optional - service can run without it)
-        try:
-            await init_db()
-            logger.info("Database initialized successfully")
-        except Exception as db_error:
-            logger.warning(
-                f"Database initialization failed: {db_error}. "
-                "Service will continue without database persistence. "
-                "Configure DATABASE_URL for full functionality."
-            )
+        # Initialize database (required)
+        await init_db()
+        logger.info("Database initialized successfully")
 
         # Initialize worker pool for high-throughput event processing
         # Configure based on environment (more workers in production)
