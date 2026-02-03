@@ -31,10 +31,20 @@ import { Server } from 'socket.io';
 import { DashboardService } from './live/dashboard/dashboard.service';
 import { OnEvent } from '@nestjs/event-emitter';
 import { CapacityUpdateDto } from './live/dashboard/dto/capacity-update.dto';
+import { PublisherService } from './shared/services/publisher.service';
 
 interface MultitenantMetricsDto {
   orgId: string;
   metrics: object;
+}
+
+// Stream name for sync events (user join/leave, presence)
+const SYNC_STREAM = 'platform.events.live.sync.v1';
+
+// Track which sessions each client is part of
+interface ClientSessionInfo {
+  userId: string;
+  sessions: Map<string, string>; // sessionId -> eventId
 }
 
 @WebSocketGateway({
@@ -56,12 +66,16 @@ export class AppGateway
   private readonly BROADCAST_INTERVAL = 5000;
   private isGatewayInitialized = false;
 
+  // Track session memberships for each client to publish leave events on disconnect
+  private clientSessions = new Map<string, ClientSessionInfo>();
+
   constructor(
     private readonly connectionService: ConnectionService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     @Inject(forwardRef(() => DashboardService))
     private readonly dashboardService: DashboardService,
+    private readonly publisherService: PublisherService,
   ) {}
 
   afterInit(server: Server) {
@@ -109,9 +123,32 @@ export class AppGateway
     }
   }
 
-  handleDisconnect(client: AuthenticatedSocket) {
+  async handleDisconnect(client: AuthenticatedSocket) {
     this.logger.log(`❌ Client Disconnected: ${client.id}`);
     this.connectionService.stopHeartbeat(client.id);
+
+    // Publish user_leave events for all sessions this client was part of
+    const clientInfo = this.clientSessions.get(client.id);
+    if (clientInfo && clientInfo.sessions.size > 0) {
+      this.logger.log(
+        `Publishing ${clientInfo.sessions.size} user_leave event(s) for disconnected user ${clientInfo.userId}`,
+      );
+
+      for (const [sessionId, eventId] of clientInfo.sessions) {
+        await this.publisherService.publish(SYNC_STREAM, {
+          type: 'user_leave',
+          sessionId: sessionId,
+          eventId: eventId,
+          userId: clientInfo.userId,
+        });
+        this.logger.debug(
+          `Published user_leave for session ${sessionId}, user ${clientInfo.userId}`,
+        );
+      }
+
+      // Clean up the tracking
+      this.clientSessions.delete(client.id);
+    }
   }
 
   @SubscribeMessage('event.join')
@@ -160,7 +197,7 @@ export class AppGateway
   @SubscribeMessage('session.join')
   async handleJoinSession(
     @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { sessionId: string },
+    @MessageBody() data: { sessionId: string; eventId?: string },
   ): Promise<{ success: boolean; error?: string }> {
     const user = getAuthenticatedUser(client);
 
@@ -174,6 +211,23 @@ export class AppGateway
     const sessionRoom = `session:${data.sessionId}`;
     await client.join(sessionRoom);
     this.logger.log(`✅ User ${user.sub} joined session room: ${sessionRoom}`);
+
+    // Track session membership for this client (needed for leave events on disconnect)
+    const eventId = data.eventId || 'unknown';
+    let clientInfo = this.clientSessions.get(client.id);
+    if (!clientInfo) {
+      clientInfo = { userId: user.sub, sessions: new Map() };
+      this.clientSessions.set(client.id, clientInfo);
+    }
+    clientInfo.sessions.set(data.sessionId, eventId);
+
+    // Publish user_join event to Redis for agent-service
+    await this.publisherService.publish(SYNC_STREAM, {
+      type: 'user_join',
+      sessionId: data.sessionId,
+      eventId: eventId,
+      userId: user.sub,
+    });
 
     return { success: true };
   }
@@ -189,6 +243,19 @@ export class AppGateway
       const sessionRoom = `session:${data.sessionId}`;
       await client.leave(sessionRoom);
       this.logger.log(`User ${user.sub} left session room: ${sessionRoom}`);
+
+      // Get the eventId from our tracking and remove the session
+      const clientInfo = this.clientSessions.get(client.id);
+      const eventId = clientInfo?.sessions.get(data.sessionId) || 'unknown';
+      clientInfo?.sessions.delete(data.sessionId);
+
+      // Publish user_leave event to Redis for agent-service
+      await this.publisherService.publish(SYNC_STREAM, {
+        type: 'user_leave',
+        sessionId: data.sessionId,
+        eventId: eventId,
+        userId: user.sub,
+      });
     }
 
     return { success: true };

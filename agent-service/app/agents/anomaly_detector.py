@@ -354,6 +354,15 @@ class AnomalyDetector:
             history
         )
 
+        # If no clear anomaly type, this is likely a false positive from the ML model
+        # Don't report anomaly if engagement is stable (no significant change)
+        if anomaly_type is None:
+            self.logger.debug(
+                f"ML anomaly score {combined_score:.2f} but no clear anomaly type for "
+                f"{session_id[:8]}... - score: {engagement_score:.2f}, mean: {mean_score:.2f}"
+            )
+            return None
+
         # Create anomaly event
         anomaly_event = AnomalyEvent(
             session_id=session_id,
@@ -386,7 +395,7 @@ class AnomalyDetector:
         recent_scores: List[float],
         signals: dict,
         history: deque
-    ) -> str:
+    ) -> Optional[str]:
         """
         Classify the type of anomaly.
 
@@ -397,20 +406,20 @@ class AnomalyDetector:
             history: Full history deque
 
         Returns:
-            Anomaly type string
+            Anomaly type string or None if no clear anomaly type
         """
         # Check for mass exit (high leave rate)
         leave_rate = signals.get('user_leave_rate', 0)
         if leave_rate >= self.MASS_EXIT_RATE:
             return 'MASS_EXIT'
 
-        # Check for low engagement
+        # Check for low engagement (critically low)
         if current_score <= self.CRITICAL_ENGAGEMENT_THRESHOLD:
             return 'LOW_ENGAGEMENT'
 
         # Check for sudden drop (compared to last point)
         if len(recent_scores) >= 2:
-            previous_score = recent_scores[-2]
+            previous_score = recent_scores[-1]  # Last score in history (before current)
             drop_percent = (previous_score - current_score) / previous_score if previous_score > 0 else 0
 
             if drop_percent >= self.SUDDEN_DROP_PERCENT:
@@ -434,8 +443,19 @@ class AnomalyDetector:
             if slope < -0.02:  # Declining trend
                 return 'GRADUAL_DECLINE'
 
-        # Default to sudden drop if we can't classify more specifically
-        return 'SUDDEN_DROP'
+        # Check deviation from mean - only flag if significant deviation exists
+        if recent_scores:
+            mean_score = statistics.mean(recent_scores)
+            deviation_percent = abs(current_score - mean_score) / mean_score if mean_score > 0 else 0
+
+            # Only classify if there's meaningful deviation (>10%)
+            if deviation_percent >= 0.10:
+                if current_score < mean_score:
+                    return 'SUDDEN_DROP'
+                # Could add SUDDEN_SPIKE here if needed
+
+        # No clear anomaly type - return None to indicate false positive
+        return None
 
     def get_session_baseline(self, session_id: str) -> Optional[float]:
         """
