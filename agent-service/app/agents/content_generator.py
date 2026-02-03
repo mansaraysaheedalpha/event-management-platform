@@ -14,28 +14,29 @@ from app.core.circuit_breaker import CircuitBreakerOpen
 logger = logging.getLogger(__name__)
 
 # Template fallbacks for chat prompts
+# Keys match thompson_sampling.AnomalyType enum: SUDDEN_DROP, GRADUAL_DECLINE, LOW_ENGAGEMENT, MASS_EXIT
 CHAT_PROMPT_TEMPLATES = {
-    "ENGAGEMENT_DROP": [
+    "SUDDEN_DROP": [
         "What's one thing you'd love to explore deeper in this session?",
         "Quick poll: What's been your biggest insight so far? Share below!",
         "Let's hear from you! What questions are on your mind right now?",
         "We'd love to hear your perspective - what resonates most with you?",
     ],
-    "PARTICIPATION_DECLINE": [
+    "GRADUAL_DECLINE": [
         "Don't be shy! Drop an emoji if you're finding this valuable!",
         "Type your biggest takeaway so far - we want to hear from everyone!",
         "Quick check-in: How are you feeling about today's session? 1-10?",
         "Share one word that describes this session for you!",
     ],
-    "SENTIMENT_SHIFT": [
+    "LOW_ENGAGEMENT": [
         "We hear you! What would make this session more valuable for you?",
         "Your feedback matters - what topics should we dig into more?",
         "Let's reset: What's the ONE thing you want to walk away with today?",
     ],
-    "SUDDEN_SPIKE": [
-        "Love the energy! What's getting you most excited right now?",
-        "The chat is ON FIRE! Keep the momentum - share your thoughts!",
-        "Amazing engagement! Who wants to share their perspective?",
+    "MASS_EXIT": [
+        "Before you go - what's ONE thing we could do differently?",
+        "We value your time! Quick question: what brought you here today?",
+        "Help us improve! What topic would make you stay longer?",
     ],
     "default": [
         "What's on your mind? Share your thoughts in the chat!",
@@ -45,30 +46,31 @@ CHAT_PROMPT_TEMPLATES = {
 }
 
 # Template fallbacks for notifications
+# Keys match thompson_sampling.AnomalyType enum: SUDDEN_DROP, GRADUAL_DECLINE, LOW_ENGAGEMENT, MASS_EXIT
 NOTIFICATION_TEMPLATES = {
-    "ENGAGEMENT_DROP": {
-        "title": "Engagement Alert: Session Needs Attention",
-        "body": "Engagement has dropped in {session_name}. Consider launching an intervention.",
+    "SUDDEN_DROP": {
+        "title": "Engagement Alert: Sudden Drop Detected",
+        "body": "Engagement has dropped suddenly in {session_name}. Immediate intervention recommended.",
         "priority": "high",
-        "suggested_action": "Review session and consider a poll or chat prompt",
+        "suggested_action": "Launch a poll or chat prompt to re-engage audience",
     },
-    "PARTICIPATION_DECLINE": {
-        "title": "Participation Declining",
-        "body": "Active participation is decreasing in {session_name}.",
+    "GRADUAL_DECLINE": {
+        "title": "Participation Gradually Declining",
+        "body": "Active participation is steadily decreasing in {session_name}.",
         "priority": "medium",
         "suggested_action": "Launch a quick poll or gamification challenge",
     },
-    "SENTIMENT_SHIFT": {
-        "title": "Sentiment Shift Detected",
-        "body": "Audience sentiment has changed in {session_name}.",
+    "LOW_ENGAGEMENT": {
+        "title": "Low Engagement Detected",
+        "body": "Engagement remains persistently low in {session_name}.",
         "priority": "medium",
-        "suggested_action": "Review recent content and audience feedback",
+        "suggested_action": "Consider changing pace or launching interactive content",
     },
-    "SUDDEN_SPIKE": {
-        "title": "Engagement Spike!",
-        "body": "Unusual activity spike in {session_name} - capitalize on the momentum!",
-        "priority": "low",
-        "suggested_action": "Consider extending popular content or launching follow-up",
+    "MASS_EXIT": {
+        "title": "Critical: Users Leaving Session",
+        "body": "Multiple users are leaving {session_name}. Urgent intervention needed.",
+        "priority": "high",
+        "suggested_action": "Immediate action required - poll or direct engagement",
     },
     "default": {
         "title": "Session Alert",
@@ -79,8 +81,9 @@ NOTIFICATION_TEMPLATES = {
 }
 
 # Template fallbacks for gamification
+# Keys match thompson_sampling.AnomalyType enum: SUDDEN_DROP, GRADUAL_DECLINE, LOW_ENGAGEMENT, MASS_EXIT
 GAMIFICATION_TEMPLATES = {
-    "ENGAGEMENT_DROP": {
+    "SUDDEN_DROP": {
         "type": "challenge",
         "name": "Conversation Starter",
         "description": "Be one of the first 5 to ask a question!",
@@ -88,7 +91,7 @@ GAMIFICATION_TEMPLATES = {
         "points": 50,
         "trigger_condition": "First 5 users to send a message",
     },
-    "PARTICIPATION_DECLINE": {
+    "GRADUAL_DECLINE": {
         "type": "achievement",
         "name": "Active Participant",
         "description": "Share your thoughts in the chat",
@@ -96,7 +99,7 @@ GAMIFICATION_TEMPLATES = {
         "points": 25,
         "trigger_condition": "User sends a chat message",
     },
-    "SENTIMENT_SHIFT": {
+    "LOW_ENGAGEMENT": {
         "type": "badge",
         "name": "Constructive Voice",
         "description": "Share constructive feedback with the community",
@@ -104,13 +107,13 @@ GAMIFICATION_TEMPLATES = {
         "points": 30,
         "trigger_condition": "User provides feedback",
     },
-    "SUDDEN_SPIKE": {
+    "MASS_EXIT": {
         "type": "challenge",
-        "name": "Momentum Master",
-        "description": "Keep the energy going - react to 3 messages!",
-        "icon": "fire",
-        "points": 40,
-        "trigger_condition": "User reacts to 3 messages",
+        "name": "Stay & Win",
+        "description": "Complete this session for bonus rewards!",
+        "icon": "crown",
+        "points": 75,
+        "trigger_condition": "User remains until session end",
     },
     "default": {
         "type": "achievement",
@@ -180,10 +183,10 @@ GUIDELINES:
 6. Match tone to the situation (serious topics = thoughtful, fun topics = energetic)
 
 ANOMALY-SPECIFIC APPROACHES:
-- ENGAGEMENT_DROP: Ask a thought-provoking question related to the topic
-- PARTICIPATION_DECLINE: Invite specific actions ("Type your biggest takeaway!")
-- SENTIMENT_SHIFT: Acknowledge the moment, redirect positively
-- SUDDEN_SPIKE: Channel the energy ("Love the energy! What's exciting you most?")
+- SUDDEN_DROP: Ask a thought-provoking question to immediately recapture attention
+- GRADUAL_DECLINE: Invite specific actions ("Type your biggest takeaway!")
+- LOW_ENGAGEMENT: Acknowledge the moment, try a fresh angle to draw people in
+- MASS_EXIT: Create urgency and value ("Don't miss what's coming next!")
 
 Important: Return ONLY the JSON object, no additional text or explanation."""
 
@@ -214,10 +217,10 @@ GUIDELINES:
 6. Use clear, professional language
 
 ANOMALY-SPECIFIC APPROACHES:
-- ENGAGEMENT_DROP: Focus on the trend and potential causes
-- PARTICIPATION_DECLINE: Highlight participation metrics
-- SENTIMENT_SHIFT: Note the change in audience mood
-- SUDDEN_SPIKE: Emphasize the opportunity to capitalize
+- SUDDEN_DROP: Urgent tone, focus on immediate action needed
+- GRADUAL_DECLINE: Warning tone, highlight the trend and suggest intervention
+- LOW_ENGAGEMENT: Informative tone, suggest content or pacing changes
+- MASS_EXIT: Critical tone, emphasize urgency and potential causes
 
 Important: Return ONLY the JSON object, no additional text or explanation."""
 
@@ -250,10 +253,10 @@ GUIDELINES:
 6. Create FOMO without being manipulative
 
 ANOMALY-SPECIFIC APPROACHES:
-- ENGAGEMENT_DROP: Challenge to spark participation ("First to ask a question!")
-- PARTICIPATION_DECLINE: Reward small actions to rebuild momentum
-- SENTIMENT_SHIFT: Achievement for constructive contributions
-- SUDDEN_SPIKE: Capitalize with "limited time" challenges
+- SUDDEN_DROP: Challenge to spark immediate participation ("First to ask a question!")
+- GRADUAL_DECLINE: Reward small actions to rebuild momentum gradually
+- LOW_ENGAGEMENT: Achievement for any participation to encourage involvement
+- MASS_EXIT: High-value reward for staying ("Complete the session for bonus!")
 
 Important: Return ONLY the JSON object, no additional text or explanation."""
 

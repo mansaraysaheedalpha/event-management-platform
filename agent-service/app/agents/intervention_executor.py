@@ -270,7 +270,7 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            anomaly_type = recommendation.context.get('anomaly_type', 'ENGAGEMENT_DROP')
+            anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
             engagement_score = recommendation.context.get('engagement_score', 0.5)
 
             # Build session context for content generation
@@ -363,7 +363,7 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            anomaly_type = recommendation.context.get('anomaly_type', 'ENGAGEMENT_DROP')
+            anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
             engagement_score = recommendation.context.get('engagement_score', 0.5)
 
             # Build session context for content generation
@@ -458,7 +458,7 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            anomaly_type = recommendation.context.get('anomaly_type', 'ENGAGEMENT_DROP')
+            anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
             engagement_score = recommendation.context.get('engagement_score', 0.5)
 
             # Validate session_id as UUID

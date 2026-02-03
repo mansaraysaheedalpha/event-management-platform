@@ -60,19 +60,27 @@ export class AgentInterventionListener {
 
       switch (type) {
         case 'agent.intervention.poll':
-          outcome = await this.handlePollIntervention(payload);
+          outcome = await this.handlePollIntervention(
+            payload as PollInterventionPayload,
+          );
           break;
 
         case 'agent.intervention.chat':
-          outcome = await this.handleChatIntervention(payload);
+          outcome = await this.handleChatIntervention(
+            payload as ChatInterventionPayload,
+          );
           break;
 
         case 'agent.intervention.notification':
-          outcome = await this.handleNotificationIntervention(payload);
+          outcome = await this.handleNotificationIntervention(
+            payload as NotificationInterventionPayload,
+          );
           break;
 
         case 'agent.intervention.gamification':
-          outcome = await this.handleGamificationIntervention(payload);
+          outcome = await this.handleGamificationIntervention(
+            payload as GamificationInterventionPayload,
+          );
           break;
 
         default:
@@ -171,6 +179,7 @@ export class AgentInterventionListener {
         this.AGENT_SYSTEM_EMAIL,
         session_id,
         {
+          sessionId: session_id,
           text: prompt,
           idempotencyKey: `agent-chat-${intervention_id}`,
         },
