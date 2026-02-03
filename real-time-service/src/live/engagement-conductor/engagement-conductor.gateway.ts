@@ -17,6 +17,7 @@ import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { PrismaService } from 'src/prisma.service';
 import { WEBSOCKET_CORS_CONFIG } from 'src/common/config/cors.config';
+import { EngagementStreamListener } from './engagement-stream.listener';
 
 /**
  * Engagement Conductor Gateway
@@ -58,6 +59,7 @@ export class EngagementConductorGateway
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly prisma: PrismaService,
+    private readonly engagementStreamListener: EngagementStreamListener,
   ) {}
 
   async onModuleInit() {
@@ -174,6 +176,8 @@ export class EngagementConductorGateway
   }
 
   afterInit(server: Server) {
+    // Pass server to engagement stream listener for event forwarding
+    this.engagementStreamListener.setServer(server);
     this.logger.log('EngagementConductorGateway WebSocket initialized');
   }
 

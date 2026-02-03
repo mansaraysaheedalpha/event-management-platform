@@ -131,6 +131,10 @@ class AgentState(TypedDict):
     pre_intervention_engagement: float  # Engagement score before intervention
     post_intervention_engagement: Optional[float]  # Engagement score after delay
 
+    # Trend data from anomaly detection
+    expected_engagement: Optional[float]  # Baseline expected engagement
+    deviation: Optional[float]  # Deviation from expected engagement
+
     # Status
     status: AgentStatus
     timestamp: str
@@ -310,10 +314,12 @@ class EngagementConductorAgent:
         """
         Complete reward measurement by fetching current engagement and updating Thompson Sampling.
 
-        Reward calculation:
-        - If post_engagement > pre_engagement: reward = min(delta / 0.2, 1.0) (normalized improvement)
-        - If engagement maintained (delta >= -0.05): reward = 0.5 (partial success)
-        - If engagement declined: reward = 0.0 (failure)
+        Reward calculation (enhanced with trend reversal bonus):
+        - Base reward: If post_engagement > pre_engagement: reward = min(delta / 0.2, 1.0)
+        - Maintained: If delta >= -0.05: reward = 0.5 (partial success)
+        - Declined: If delta < -0.05: reward = 0.0 (failure)
+        - Trend reversal bonus: If engagement was below expected but now moving toward expected,
+          add 0.2 bonus reward (capped at 1.0)
 
         Args:
             intervention_id: ID of the intervention
@@ -321,9 +327,13 @@ class EngagementConductorAgent:
         """
         session_id = state["session_id"]
         pre_engagement = state.get("pre_intervention_engagement", state["engagement_score"])
+        expected_engagement = state.get("expected_engagement")
+        pre_deviation = state.get("deviation")
 
         # Fetch current engagement from Redis
         post_engagement = await self._fetch_current_engagement(session_id)
+
+        trend_reversed = False  # Track if we reversed a negative trend
 
         if post_engagement is None:
             logger.warning(f"Could not fetch engagement for session {session_id}, using execution success only")
@@ -354,6 +364,27 @@ class EngagementConductorAgent:
                     f"[REWARD] Session {session_id}: Engagement declined by {abs(delta):.2%}, "
                     f"reward=0.0"
                 )
+
+            # Enhanced reward: Check for trend reversal
+            # If we were below expected and now moving toward expected, give bonus
+            if expected_engagement is not None and pre_deviation is not None:
+                # Calculate post-intervention deviation from expected
+                post_deviation = post_engagement - expected_engagement
+
+                # Trend reversal: was below expected (negative deviation) but now closer to expected
+                if pre_deviation < 0 and abs(post_deviation) < abs(pre_deviation):
+                    trend_reversed = True
+                    # Bonus reward for reversing the trend (up to 0.2)
+                    reversal_magnitude = (abs(pre_deviation) - abs(post_deviation)) / abs(pre_deviation)
+                    trend_bonus = min(reversal_magnitude * 0.2, 0.2)
+                    old_reward = reward
+                    reward = min(reward + trend_bonus, 1.0)
+
+                    logger.info(
+                        f"[REWARD] Session {session_id}: Trend reversal detected! "
+                        f"Pre-deviation: {pre_deviation:.2%} → Post-deviation: {post_deviation:.2%}. "
+                        f"Bonus: +{trend_bonus:.2f} (reward: {old_reward:.2f} → {reward:.2f})"
+                    )
 
         # Update Thompson Sampling with actual reward
         context = state.get("context")
@@ -387,7 +418,7 @@ class EngagementConductorAgent:
             post_engagement=post_engagement,
         )
 
-        # Write AgentPerformance record for historical tracking
+        # Write AgentPerformance record for historical tracking with trend data
         await self._write_agent_performance(
             intervention_type=intervention_type.value if intervention_type else "UNKNOWN",
             success=reward > 0.3,
@@ -395,9 +426,12 @@ class EngagementConductorAgent:
             engagement_delta=post_engagement - pre_engagement if post_engagement else None,
             confidence=state.get("confidence", 0.0),
             session_id=session_id,
+            expected_engagement=expected_engagement,
+            deviation=pre_deviation,
+            trend_reversed=trend_reversed,
         )
 
-        # Publish reward measurement event
+        # Publish reward measurement event with trend data
         await self._publish_agent_event(
             event_type="agent.reward.measured",
             session_id=session_id,
@@ -405,6 +439,10 @@ class EngagementConductorAgent:
                 "intervention_id": intervention_id,
                 "pre_engagement": pre_engagement,
                 "post_engagement": post_engagement,
+                "expected_engagement": expected_engagement,
+                "pre_deviation": pre_deviation,
+                "post_deviation": post_engagement - expected_engagement if post_engagement and expected_engagement else None,
+                "trend_reversed": trend_reversed,
                 "reward": reward,
                 "delta": post_engagement - pre_engagement if post_engagement else None
             }
@@ -495,6 +533,9 @@ class EngagementConductorAgent:
         engagement_delta: Optional[float],
         confidence: float,
         session_id: str,
+        expected_engagement: Optional[float] = None,
+        deviation: Optional[float] = None,
+        trend_reversed: bool = False,
     ):
         """
         Write AgentPerformance record for historical tracking and analysis.
@@ -503,6 +544,7 @@ class EngagementConductorAgent:
         - Analyzing agent performance over time
         - Comparing intervention effectiveness
         - Training/improving the agent
+        - Analyzing trend reversal success rates
 
         Args:
             intervention_type: Type of intervention executed
@@ -511,6 +553,9 @@ class EngagementConductorAgent:
             engagement_delta: Change in engagement score
             confidence: Agent's confidence in the intervention
             session_id: Session where intervention was executed
+            expected_engagement: Baseline expected engagement from anomaly detection
+            deviation: Deviation from expected engagement before intervention
+            trend_reversed: Whether the intervention reversed a negative trend
         """
         if AsyncSessionLocal is None:
             logger.debug("Database not configured, skipping agent performance write")
@@ -520,6 +565,17 @@ class EngagementConductorAgent:
             async with AsyncSessionLocal() as db:
                 from app.db.models import utc_now_naive
 
+                # Build extra_data with trend information
+                extra_data = {
+                    "reward": reward,
+                }
+                if expected_engagement is not None:
+                    extra_data["expected_engagement"] = expected_engagement
+                if deviation is not None:
+                    extra_data["deviation"] = deviation
+                if trend_reversed:
+                    extra_data["trend_reversed"] = trend_reversed
+
                 performance = AgentPerformance(
                     time=utc_now_naive(),
                     agent_id="engagement-conductor",
@@ -528,9 +584,7 @@ class EngagementConductorAgent:
                     engagement_delta=engagement_delta,
                     confidence=confidence,
                     session_id=session_id,
-                    extra_data={
-                        "reward": reward,
-                    }
+                    extra_data=extra_data
                 )
                 db.add(performance)
                 await db.commit()
@@ -951,12 +1005,22 @@ class EngagementConductorAgent:
         state["min_confidence_threshold"] = event_settings.min_confidence_threshold
         state["allowed_interventions"] = list(event_settings.allowed_interventions) if event_settings.allowed_interventions else None
 
-        # Create context for Thompson Sampling
+        # Create context for Thompson Sampling with trend data
+        # Extract expected_engagement and deviation from anomaly for trend-aware learning
+        expected_engagement = getattr(anomaly, 'expected_engagement', None)
+        deviation = getattr(anomaly, 'deviation', None)
+
         context = self.thompson_sampling.create_context(
             anomaly_type=AnomalyType(anomaly.anomaly_type),
             engagement_score=state["engagement_score"],
-            active_users=state["active_users"]
+            active_users=state["active_users"],
+            expected_engagement=expected_engagement,
+            deviation=deviation
         )
+
+        # Store trend data in state for use in reward calculation
+        state["expected_engagement"] = expected_engagement
+        state["deviation"] = deviation
 
         # Select intervention using Thompson Sampling with allowed_interventions filter
         intervention_type, sampled_value = self.thompson_sampling.select_intervention(
@@ -1015,7 +1079,13 @@ class EngagementConductorAgent:
                     "context": {
                         "engagement_bucket": context.engagement_bucket,
                         "session_size_bucket": context.session_size_bucket,
-                        "anomaly_type": context.anomaly_type.value
+                        "anomaly_type": context.anomaly_type.value,
+                        "deviation_bucket": context.deviation_bucket
+                    },
+                    "trendData": {
+                        "expected_engagement": expected_engagement,
+                        "deviation": deviation,
+                        "current_engagement": state["engagement_score"]
                     },
                     "historicalPerformance": {
                         "successRate": stats.success_rate if stats else 0.0,
@@ -1296,6 +1366,9 @@ class EngagementConductorAgent:
             "reward": 0.0,
             "pre_intervention_engagement": engagement_score,  # Store for delta calculation
             "post_intervention_engagement": None,  # Filled by delayed measurement
+            # Trend data from anomaly (will be populated in _decide_node)
+            "expected_engagement": getattr(anomaly, 'expected_engagement', None) if anomaly else None,
+            "deviation": getattr(anomaly, 'deviation', None) if anomaly else None,
             "status": AgentStatus.IDLE,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "explanation": ""
@@ -1466,6 +1539,16 @@ class EngagementConductorAgent:
             f"Detected {anomaly.anomaly_type} anomaly with {anomaly.severity} severity."
         )
 
+        # Trend context (if available)
+        expected = getattr(anomaly, 'expected_engagement', None)
+        deviation = getattr(anomaly, 'deviation', None)
+        if expected is not None and deviation is not None:
+            deviation_percent = abs(deviation) / expected * 100 if expected > 0 else 0
+            reasoning_parts.append(
+                f"Engagement is {deviation_percent:.1f}% below expected baseline "
+                f"({context.deviation_bucket} deviation)."
+            )
+
         # Selected intervention
         reasoning_parts.append(
             f"Thompson Sampling selected {intervention_type} intervention "
@@ -1475,7 +1558,8 @@ class EngagementConductorAgent:
         # Context
         reasoning_parts.append(
             f"Context: {context.engagement_bucket} engagement, "
-            f"{context.session_size_bucket} session size."
+            f"{context.session_size_bucket} session size, "
+            f"{context.deviation_bucket} deviation."
         )
 
         # Historical performance

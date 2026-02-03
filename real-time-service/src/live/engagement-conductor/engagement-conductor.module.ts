@@ -2,13 +2,22 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { EngagementConductorGateway } from './engagement-conductor.gateway';
 import { AgentInterventionListener } from './agent-intervention.listener';
+import { EngagementStreamListener } from './engagement-stream.listener';
 import { CommModule } from '../../comm/comm.module';
 
 @Module({
   imports: [
     forwardRef(() => CommModule), // For PollsService and ChatService
   ],
-  providers: [EngagementConductorGateway, AgentInterventionListener],
-  exports: [EngagementConductorGateway, AgentInterventionListener],
+  providers: [
+    EngagementConductorGateway,
+    AgentInterventionListener,
+    EngagementStreamListener,
+  ],
+  exports: [
+    EngagementConductorGateway,
+    AgentInterventionListener,
+    EngagementStreamListener,
+  ],
 })
 export class EngagementConductorModule {}

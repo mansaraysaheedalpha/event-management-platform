@@ -44,13 +44,20 @@ class ContextKey:
     """
     Defines the context for Thompson Sampling.
     Interventions are tracked separately per context.
+
+    Context dimensions:
+    - anomaly_type: Type of anomaly (SUDDEN_DROP, GRADUAL_DECLINE, etc.)
+    - engagement_bucket: Current engagement level (critical, low, medium)
+    - session_size_bucket: Number of active users (small, medium, large)
+    - deviation_bucket: How far from expected engagement (mild, moderate, severe)
     """
     anomaly_type: AnomalyType
     engagement_bucket: str  # 'critical', 'low', 'medium'
     session_size_bucket: str  # 'small', 'medium', 'large'
+    deviation_bucket: str = 'moderate'  # 'mild', 'moderate', 'severe' - default for backwards compatibility
 
     def to_string(self) -> str:
-        return f"{self.anomaly_type.value}_{self.engagement_bucket}_{self.session_size_bucket}"
+        return f"{self.anomaly_type.value}_{self.engagement_bucket}_{self.session_size_bucket}_{self.deviation_bucket}"
 
 
 @dataclass
@@ -121,7 +128,9 @@ class ThompsonSampling:
         self,
         anomaly_type: AnomalyType,
         engagement_score: float,
-        active_users: int
+        active_users: int,
+        expected_engagement: Optional[float] = None,
+        deviation: Optional[float] = None
     ) -> ContextKey:
         """
         Create context key from current session state.
@@ -130,6 +139,8 @@ class ThompsonSampling:
             anomaly_type: Type of anomaly detected
             engagement_score: Current engagement score (0-100)
             active_users: Number of active users
+            expected_engagement: Baseline/expected engagement score (0-100)
+            deviation: Absolute deviation from expected (engagement_score - expected)
 
         Returns:
             ContextKey for looking up intervention statistics
@@ -150,10 +161,24 @@ class ThompsonSampling:
         else:
             session_size_bucket = 'large'
 
+        # Bucket deviation severity (how far from expected)
+        # Uses percentage deviation from expected engagement
+        if deviation is not None and expected_engagement is not None and expected_engagement > 0:
+            deviation_percent = abs(deviation) / expected_engagement
+            if deviation_percent < 0.10:
+                deviation_bucket = 'mild'  # <10% deviation
+            elif deviation_percent < 0.25:
+                deviation_bucket = 'moderate'  # 10-25% deviation
+            else:
+                deviation_bucket = 'severe'  # >25% deviation
+        else:
+            deviation_bucket = 'moderate'  # Default for backwards compatibility
+
         return ContextKey(
             anomaly_type=anomaly_type,
             engagement_bucket=engagement_bucket,
-            session_size_bucket=session_size_bucket
+            session_size_bucket=session_size_bucket,
+            deviation_bucket=deviation_bucket
         )
 
     def select_intervention(
@@ -329,24 +354,38 @@ class ThompsonSampling:
     def import_stats(self, data: Dict):
         """Import statistics from persistence"""
         for context_key, context_data in data.items():
-            # Parse context from key: {anomaly_type}_{engagement_bucket}_{session_size_bucket}
+            # Parse context from key: {anomaly_type}_{engagement_bucket}_{session_size_bucket}_{deviation_bucket}
             # Note: anomaly_type may contain underscores (e.g., SUDDEN_DROP)
+            # Backwards compatibility: old keys may not have deviation_bucket
             parts = context_key.split('_')
             if len(parts) < 3:
                 logger.warning(f"Invalid context key format: {context_key}")
                 continue
 
-            # The last two parts are always engagement_bucket and session_size_bucket
-            # Everything before that is the anomaly_type (which may contain underscores)
-            session_size_bucket = parts[-1]
-            engagement_bucket = parts[-2]
-            anomaly_type_str = '_'.join(parts[:-2])
+            # Check if this is new format (has deviation_bucket) or old format
+            # deviation_bucket values: 'mild', 'moderate', 'severe'
+            last_part = parts[-1]
+            has_deviation_bucket = last_part in ('mild', 'moderate', 'severe')
+
+            if has_deviation_bucket:
+                # New format: {anomaly_type}_{engagement}_{session_size}_{deviation}
+                deviation_bucket = parts[-1]
+                session_size_bucket = parts[-2]
+                engagement_bucket = parts[-3]
+                anomaly_type_str = '_'.join(parts[:-3])
+            else:
+                # Old format: {anomaly_type}_{engagement}_{session_size}
+                deviation_bucket = 'moderate'  # Default for backwards compatibility
+                session_size_bucket = parts[-1]
+                engagement_bucket = parts[-2]
+                anomaly_type_str = '_'.join(parts[:-2])
 
             try:
                 context = ContextKey(
                     anomaly_type=AnomalyType(anomaly_type_str),
                     engagement_bucket=engagement_bucket,
-                    session_size_bucket=session_size_bucket
+                    session_size_bucket=session_size_bucket,
+                    deviation_bucket=deviation_bucket
                 )
             except ValueError:
                 logger.warning(f"Unknown anomaly type in context key: {anomaly_type_str}")
