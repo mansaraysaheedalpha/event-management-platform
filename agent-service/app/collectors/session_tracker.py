@@ -240,6 +240,44 @@ class SessionTracker:
         else:
             session.poll_participation = 0.0
 
+    async def reset_poll_tracking(self, session_id: str, poll_id: Optional[str] = None):
+        """
+        Reset poll tracking state when a poll closes.
+
+        This ensures poll_participation doesn't remain stale after a poll ends.
+        The participation rate is kept for a brief decay period, then reset to 0.
+
+        Args:
+            session_id: Session identifier
+            poll_id: Optional poll ID to verify we're resetting the right poll
+        """
+        async with self._lock:
+            session = self.sessions.get(session_id)
+            if not session:
+                return
+
+            # Only reset if this is the active poll (or no poll_id specified)
+            if poll_id and session.active_poll_id != poll_id:
+                self.logger.debug(
+                    f"Poll {poll_id} doesn't match active poll {session.active_poll_id}, skipping reset"
+                )
+                return
+
+            # Log final participation before reset
+            if session.active_poll_id:
+                self.logger.info(
+                    f"Poll {session.active_poll_id} closed for session {session_id[:8]}... "
+                    f"Final participation: {session.poll_participation:.1%} "
+                    f"({session.poll_total_votes}/{session.poll_eligible_users} votes)"
+                )
+
+            # Reset poll state
+            session.active_poll_id = None
+            session.poll_total_votes = 0
+            session.poll_eligible_users = 0
+            session.poll_participation = 0.0
+            session.update_timestamp()
+
     async def get_session_signals(self, session_id: str) -> Optional[Dict]:
         """
         Get current engagement signals for a session.

@@ -367,17 +367,68 @@ class EngagementSignalCollector:
             logger.error(f"Error handling poll vote: {e}", exc_info=True)
 
     async def _handle_poll_closed(self, event_data: dict):
-        """Handle poll closed event"""
+        """
+        Handle poll closed event.
+
+        Resets poll tracking state so poll_participation doesn't remain stale.
+
+        Expected data format:
+        {
+            "sessionId": "session_123",
+            "eventId": "event_456",
+            "pollId": "poll_789"
+        }
+        """
         try:
             # Validate event data with Pydantic
             event = PollClosedEvent(**event_data)
-            logger.debug(f"Poll closed: {event.pollId}")
+
+            # Reset poll tracking for the session
+            # sessionId and eventId may be optional in PollClosedEvent
+            if event.sessionId:
+                await self.tracker.reset_poll_tracking(event.sessionId, event.pollId)
+                logger.info(f"Poll closed and tracking reset: {event.pollId} in session {event.sessionId[:8]}...")
+            else:
+                # If no sessionId, log but can't reset specific session
+                logger.debug(f"Poll closed (no session context): {event.pollId}")
+
+            self.metrics.messages_processed += 1
 
         except ValidationError as e:
             logger.warning(f"Invalid poll closed event data: {e}")
-            return
+            self.metrics.messages_failed += 1
         except Exception as e:
             logger.error(f"Error handling poll closed: {e}", exc_info=True)
+            self.metrics.messages_failed += 1
+
+    async def _handle_reaction(self, event_data: dict):
+        """
+        Handle reaction event from platform.events.live.reaction.v1 stream.
+
+        Expected data format (from reactions.service.ts):
+        {
+            "userId": "user_123",
+            "sessionId": "session_456",
+            "emoji": "🔥",
+            "timestamp": "2026-02-02T12:00:00.000Z"
+        }
+        """
+        try:
+            # Validate event data with Pydantic
+            event = ReactionEvent(**event_data)
+
+            # eventId may be optional in reaction events - use empty string if missing
+            event_id = event.eventId or ""
+            await self.tracker.record_reaction(event.sessionId, event_id)
+            self.metrics.messages_processed += 1
+            logger.debug(f"Reaction recorded for session {event.sessionId} (emoji: {event.emoji})")
+
+        except ValidationError as e:
+            logger.warning(f"Invalid reaction event data: {e}")
+            self.metrics.messages_failed += 1
+        except Exception as e:
+            logger.error(f"Error handling reaction: {e}", exc_info=True)
+            self.metrics.messages_failed += 1
 
     async def _handle_sync_event(self, event_data: dict):
         """
