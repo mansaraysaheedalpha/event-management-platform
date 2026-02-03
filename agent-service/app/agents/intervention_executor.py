@@ -19,6 +19,7 @@ from app.agents.content_generator import content_generator
 from app.db.models import Intervention
 from app.core.redis_client import RedisClient
 from app.core.config import get_settings
+from app.core.event_settings import get_notification_service
 from app.core.circuit_breaker import (
     llm_circuit_breaker,
     redis_circuit_breaker,
@@ -108,6 +109,21 @@ class InterventionExecutor:
                 'success': False,
                 'error': f'Unknown intervention type: {recommendation.intervention_type}'
             }
+
+        # Publish to in-app notification bell on successful execution
+        if result.get('success'):
+            try:
+                notification_service = get_notification_service()
+                await notification_service.notify_intervention_executed(
+                    event_id=recommendation.context['event_id'],
+                    session_id=recommendation.context['session_id'],
+                    intervention_type=recommendation.intervention_type,
+                    confidence=recommendation.confidence,
+                    auto_approved=recommendation.context.get('auto_approved', False),
+                )
+            except Exception as e:
+                # Don't fail the intervention if notification fails
+                self.logger.warning(f"Failed to publish intervention notification: {e}")
 
         return result
 

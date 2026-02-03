@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from app.core.redis_client import RedisClient
 from app.core.rate_limiter import get_intervention_rate_limiter
-from app.core.event_settings import get_event_settings
+from app.core.event_settings import get_event_settings, get_notification_service
 from app.collectors.session_tracker import SessionTracker, session_tracker
 from app.utils.engagement_score import EngagementScoreCalculator, EngagementSignals, engagement_calculator
 from app.agents.anomaly_detector import AnomalyDetector, anomaly_detector
@@ -111,7 +111,7 @@ class EngagementSignalCollector:
     CHAT_STREAM = "platform.events.chat.message.v1"
     POLL_VOTE_STREAM = "platform.events.poll.vote.v1"
     POLL_CLOSED_STREAM = "platform.events.poll.closed.v1"
-    SYNC_STREAM = "sync-events"
+    SYNC_STREAM = "platform.events.live.sync.v1"  # User presence (join/leave), reactions, messages
     REACTION_STREAM = "platform.events.live.reaction.v1"  # Reactions from reactions.service.ts
 
     # Intervention outcome stream (published by real-time-service after executing interventions)
@@ -156,12 +156,15 @@ class EngagementSignalCollector:
 
     async def start(self):
         """Start collecting signals and calculating engagement"""
-        if self.running:
+        # Check if actually running (has active tasks), not just the flag
+        if self.running and self.tasks:
             logger.warning("Signal collector already running")
             return
 
-        self.running = True
-        self.metrics.started_at = datetime.now(timezone.utc)
+        # Reset state for clean start (allows retry after failure)
+        self.running = False
+        self.tasks = []
+
         logger.info("🚀 Starting Engagement Signal Collector...")
 
         # List of streams to read from
@@ -173,34 +176,46 @@ class EngagementSignalCollector:
             self.REACTION_STREAM,  # Live reactions
         ]
 
-        # Create consumer groups for each stream (if they don't exist)
-        for stream in streams:
+        try:
+            # Create consumer groups for each stream (if they don't exist)
+            for stream in streams:
+                await self.redis.create_consumer_group(
+                    stream=stream,
+                    group=self.CONSUMER_GROUP,
+                    start_id="$"  # Only read new messages from now
+                )
+                # Initialize stream ID for reading new messages
+                self._stream_ids[stream] = ">"
+
+            # Also set up consumer group for intervention outcomes
             await self.redis.create_consumer_group(
-                stream=stream,
+                stream=self.INTERVENTION_OUTCOME_STREAM,
                 group=self.CONSUMER_GROUP,
-                start_id="$"  # Only read new messages from now
+                start_id="$"
             )
-            # Initialize stream ID for reading new messages
-            self._stream_ids[stream] = ">"
 
-        # Also set up consumer group for intervention outcomes
-        await self.redis.create_consumer_group(
-            stream=self.INTERVENTION_OUTCOME_STREAM,
-            group=self.CONSUMER_GROUP,
-            start_id="$"
-        )
+            logger.info(f"📡 Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams) + 1} streams")
 
-        logger.info(f"📡 Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams) + 1} streams")
+            # Mark as running AFTER successful setup
+            self.running = True
+            self.metrics.started_at = datetime.now(timezone.utc)
 
-        # Start background tasks
-        self.tasks = [
-            asyncio.create_task(self._listen_to_streams()),
-            asyncio.create_task(self._calculate_engagement_loop()),
-            asyncio.create_task(self._cleanup_loop()),
-            asyncio.create_task(self._listen_to_intervention_outcomes()),
-        ]
+            # Start background tasks
+            self.tasks = [
+                asyncio.create_task(self._listen_to_streams()),
+                asyncio.create_task(self._calculate_engagement_loop()),
+                asyncio.create_task(self._cleanup_loop()),
+                asyncio.create_task(self._listen_to_intervention_outcomes()),
+            ]
 
-        logger.info("✅ Signal collector started")
+            logger.info("✅ Signal collector started")
+
+        except Exception as e:
+            # Reset state on failure to allow retry
+            self.running = False
+            self.tasks = []
+            logger.error(f"Failed to start signal collector: {e}")
+            raise
 
     async def stop(self):
         """Stop collecting signals"""
@@ -271,6 +286,11 @@ class EngagementSignalCollector:
 
                     if not results:
                         continue
+
+                    # Log when we receive messages (helps debug connectivity)
+                    total_messages = sum(len(msgs) for _, msgs in results)
+                    if total_messages > 0:
+                        logger.info(f"📨 Received {total_messages} messages from streams")
 
                     # Process each stream's messages
                     for stream_name, messages in results:
@@ -746,10 +766,20 @@ class EngagementSignalCollector:
                 "signals": anomaly_event.signals,
             }
 
-            # Publish to anomaly channel
+            # Publish to anomaly channel (for engagement conductor WebSocket)
             await self.redis.publish(
                 "anomaly:detected",
                 json.dumps(payload)
+            )
+
+            # Publish to in-app notification bell
+            notification_service = get_notification_service()
+            await notification_service.notify_anomaly(
+                event_id=anomaly_event.event_id,
+                session_id=anomaly_event.session_id,
+                anomaly_type=anomaly_event.anomaly_type,
+                severity=anomaly_event.severity,
+                engagement_score=anomaly_event.current_engagement,
             )
 
             logger.info(
