@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.core.llm_client import llm_client, LLMClient
 from app.agents.poll_intervention_strategy import poll_strategy, PollQuestion
-from app.core.circuit_breaker import CircuitBreakerOpen
+from app.core.circuit_breaker import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -602,7 +602,7 @@ Generate an engaging poll question that will re-capture audience attention and g
                     },
                 }
 
-        except CircuitBreakerOpen:
+        except CircuitBreakerError:
             self.logger.warning(f"Circuit breaker open for {content_type} generation")
         except Exception as e:
             self.logger.error(f"LLM generation error for {content_type}: {e}")
