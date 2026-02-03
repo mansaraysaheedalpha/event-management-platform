@@ -15,6 +15,7 @@ import uuid
 
 from app.agents.intervention_selector import InterventionRecommendation
 from app.agents.poll_intervention_strategy import poll_strategy, PollQuestion
+from app.agents.content_generator import content_generator
 from app.db.models import Intervention
 from app.core.redis_client import RedisClient
 from app.core.config import get_settings
@@ -257,7 +258,7 @@ class InterventionExecutor:
         db_session: AsyncSession
     ) -> Dict[str, Any]:
         """
-        Execute a chat prompt intervention.
+        Execute a chat prompt intervention using AI-generated content.
 
         Args:
             recommendation: Intervention recommendation
@@ -269,25 +270,32 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            prompt_type = recommendation.context.get('prompt_type', 'discussion_starter')
+            anomaly_type = recommendation.context.get('anomaly_type', 'ENGAGEMENT_DROP')
+            engagement_score = recommendation.context.get('engagement_score', 0.5)
 
-            # Generate chat prompt based on type
-            prompts = {
-                'discussion_starter': [
-                    "💡 Quick question: What's the most interesting thing you've learned so far?",
-                    "💬 Let's discuss: What challenges are you facing with this topic?",
-                    "🤔 Share your thoughts: How would you apply this in your work?",
-                    "✨ What questions do you have about what we just covered?"
-                ],
-                'engagement_boost': [
-                    "👋 Everyone still with us? Drop a reaction if you're following along!",
-                    "🎯 Quick pulse check: Are you finding this valuable?",
-                    "💪 Let's keep the energy up! Any questions so far?"
-                ]
+            # Build session context for content generation
+            session_context = {
+                "name": recommendation.context.get("session_name", "Live Session"),
+                "topic": recommendation.context.get("topic", "General"),
+                "speaker": recommendation.context.get("speaker", "Presenter"),
+                "duration_minutes": recommendation.context.get("duration_minutes", 0),
+                "attendee_count": recommendation.context.get("attendee_count", 0),
             }
 
-            import random
-            prompt_text = random.choice(prompts.get(prompt_type, prompts['discussion_starter']))
+            # Get recent messages for context (if available)
+            recent_messages = recommendation.context.get("recent_messages", [])
+
+            # Generate chat prompt using ContentGenerator (AI with fallback)
+            result = await content_generator.generate_chat_prompt(
+                session_context=session_context,
+                anomaly_type=anomaly_type,
+                engagement_score=engagement_score,
+                recent_messages=recent_messages,
+            )
+
+            chat_prompt = result["chat_prompt"]
+            prompt_text = chat_prompt.get("message") if isinstance(chat_prompt, dict) else chat_prompt
+            generation_method = result["generation_method"]
 
             # Create intervention record
             intervention_id = str(uuid.uuid4())
@@ -300,7 +308,9 @@ class InterventionExecutor:
                 reasoning=recommendation.reason,
                 metadata={
                     'prompt': prompt_text,
-                    'prompt_type': prompt_type,
+                    'chat_prompt_data': chat_prompt if isinstance(chat_prompt, dict) else None,
+                    'generation_method': generation_method,
+                    'anomaly_type': anomaly_type,
                     'estimated_impact': recommendation.estimated_impact,
                     'priority': recommendation.priority
                 }
@@ -317,12 +327,15 @@ class InterventionExecutor:
                 prompt=prompt_text
             )
 
-            self.logger.info(f"✅ Chat prompt intervention executed: '{prompt_text[:50]}...'")
+            self.logger.info(
+                f"✅ Chat prompt intervention executed via {generation_method}: '{prompt_text[:50]}...'"
+            )
 
             return {
                 'success': True,
                 'intervention_id': intervention_id,
-                'prompt': prompt_text
+                'prompt': prompt_text,
+                'generation_method': generation_method
             }
 
         except Exception as e:
@@ -338,7 +351,7 @@ class InterventionExecutor:
         db_session: AsyncSession
     ) -> Dict[str, Any]:
         """
-        Execute a notification intervention.
+        Execute a notification intervention using AI-generated content.
 
         Args:
             recommendation: Intervention recommendation
@@ -350,7 +363,29 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            notification_type = recommendation.context.get('notification_type', 'disengagement_nudge')
+            anomaly_type = recommendation.context.get('anomaly_type', 'ENGAGEMENT_DROP')
+            engagement_score = recommendation.context.get('engagement_score', 0.5)
+
+            # Build session context for content generation
+            session_context = {
+                "name": recommendation.context.get("session_name", "Live Session"),
+                "topic": recommendation.context.get("topic", "General"),
+                "attendee_count": recommendation.context.get("attendee_count", 0),
+            }
+
+            # Get recent interventions for context
+            intervention_history = recommendation.context.get("intervention_history", [])
+
+            # Generate notification using ContentGenerator (AI with fallback)
+            result = await content_generator.generate_notification(
+                session_context=session_context,
+                anomaly_type=anomaly_type,
+                engagement_score=engagement_score,
+                intervention_history=intervention_history,
+            )
+
+            notification = result["notification"]
+            generation_method = result["generation_method"]
 
             # Create intervention record
             intervention_id = str(uuid.uuid4())
@@ -362,8 +397,10 @@ class InterventionExecutor:
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
                 metadata={
-                    'notification_type': notification_type,
-                    'target': recommendation.context.get('target', 'inactive_users'),
+                    'notification': notification,
+                    'generation_method': generation_method,
+                    'anomaly_type': anomaly_type,
+                    'target': recommendation.context.get('target', 'organizer'),
                     'escalate': recommendation.context.get('escalate', False),
                     'estimated_impact': recommendation.estimated_impact,
                     'priority': recommendation.priority
@@ -373,25 +410,27 @@ class InterventionExecutor:
             db_session.add(intervention)
             await db_session.commit()
 
-            # Publish notification request
+            # Publish notification to Redis with AI-generated content
             await self._publish_notification_intervention(
                 intervention_id=intervention_id,
                 session_id=session_id,
                 event_id=event_id,
-                notification_type=notification_type,
+                notification_type=anomaly_type,
                 target=recommendation.context.get('target'),
-                escalate=recommendation.context.get('escalate', False)
+                escalate=recommendation.context.get('escalate', False),
+                notification_content=notification
             )
 
             self.logger.info(
-                f"✅ Notification intervention executed: {notification_type} "
-                f"(target: {recommendation.context.get('target')})"
+                f"✅ Notification intervention executed via {generation_method}: "
+                f"'{notification.get('title', '')[:40]}...'"
             )
 
             return {
                 'success': True,
                 'intervention_id': intervention_id,
-                'notification_type': notification_type
+                'notification': notification,
+                'generation_method': generation_method
             }
 
         except Exception as e:
@@ -407,14 +446,7 @@ class InterventionExecutor:
         db_session: AsyncSession
     ) -> Dict[str, Any]:
         """
-        Execute a gamification intervention.
-
-        Gamification types:
-        - achievement_unlock: Unlock a special achievement for active participants
-        - points_boost: Award bonus points for current engagement
-        - leaderboard_highlight: Highlight top contributors on leaderboard
-        - challenge_start: Start a timed engagement challenge
-        - streak_bonus: Award streak bonus for consistent participation
+        Execute a gamification intervention using AI-generated content.
 
         Args:
             recommendation: Intervention recommendation
@@ -426,8 +458,8 @@ class InterventionExecutor:
         try:
             session_id = recommendation.context['session_id']
             event_id = recommendation.context['event_id']
-            gamification_type = recommendation.context.get('gamification_type', 'achievement_unlock')
-            anomaly_type = recommendation.context.get('anomaly_type', 'SUDDEN_DROP')
+            anomaly_type = recommendation.context.get('anomaly_type', 'ENGAGEMENT_DROP')
+            engagement_score = recommendation.context.get('engagement_score', 0.5)
 
             # Validate session_id as UUID
             try:
@@ -438,11 +470,27 @@ class InterventionExecutor:
                     'error': f'Invalid session_id format: {e}'
                 }
 
-            # Generate gamification content based on type
-            gamification_content = self._generate_gamification_content(
-                gamification_type=gamification_type,
-                anomaly_type=anomaly_type
+            # Build session context for content generation
+            session_context = {
+                "name": recommendation.context.get("session_name", "Live Session"),
+                "topic": recommendation.context.get("topic", "General"),
+                "duration_minutes": recommendation.context.get("duration_minutes", 0),
+                "attendee_count": recommendation.context.get("attendee_count", 0),
+            }
+
+            # Get existing achievements to avoid duplicates
+            existing_achievements = recommendation.context.get("existing_achievements", [])
+
+            # Generate gamification using ContentGenerator (AI with fallback)
+            result = await content_generator.generate_gamification(
+                session_context=session_context,
+                anomaly_type=anomaly_type,
+                engagement_score=engagement_score,
+                existing_achievements=existing_achievements,
             )
+
+            gamification_content = result["gamification"]
+            generation_method = result["generation_method"]
 
             # Create intervention record
             intervention_id = str(uuid.uuid4())
@@ -454,8 +502,9 @@ class InterventionExecutor:
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
                 metadata={
-                    'gamification_type': gamification_type,
-                    'content': gamification_content,
+                    'gamification': gamification_content,
+                    'generation_method': generation_method,
+                    'anomaly_type': anomaly_type,
                     'estimated_impact': recommendation.estimated_impact,
                     'priority': recommendation.priority
                 }
@@ -469,7 +518,7 @@ class InterventionExecutor:
                 intervention_id=intervention_id,
                 session_id=session_id,
                 event_id=event_id,
-                gamification_type=gamification_type,
+                gamification_type=gamification_content.get('type', 'achievement'),
                 content=gamification_content,
                 recommendation=recommendation
             )
@@ -483,15 +532,15 @@ class InterventionExecutor:
             }
 
             self.logger.info(
-                f"✅ Gamification intervention executed: {gamification_type} - "
-                f"'{gamification_content.get('title', '')}' (ID: {intervention_id[:8]}...)"
+                f"✅ Gamification intervention executed via {generation_method}: "
+                f"'{gamification_content.get('name', '')}' (ID: {intervention_id[:8]}...)"
             )
 
             return {
                 'success': True,
                 'intervention_id': intervention_id,
-                'gamification_type': gamification_type,
-                'content': gamification_content
+                'gamification': gamification_content,
+                'generation_method': generation_method
             }
 
         except Exception as e:
@@ -500,76 +549,6 @@ class InterventionExecutor:
                 'success': False,
                 'error': str(e)
             }
-
-    def _generate_gamification_content(
-        self,
-        gamification_type: str,
-        anomaly_type: str
-    ) -> Dict[str, Any]:
-        """
-        Generate gamification content based on type and context.
-
-        Args:
-            gamification_type: Type of gamification action
-            anomaly_type: Type of engagement anomaly detected
-
-        Returns:
-            Dictionary with gamification content
-        """
-        import random
-
-        # Achievement templates
-        achievements = {
-            'achievement_unlock': {
-                'SUDDEN_DROP': [
-                    {'title': 'Rally Champion', 'description': 'Help bring the energy back! Participate now to earn this badge.', 'icon': '🏆', 'points': 50},
-                    {'title': 'Engagement Hero', 'description': 'Be part of the comeback! Join the conversation to unlock.', 'icon': '🦸', 'points': 75},
-                ],
-                'GRADUAL_DECLINE': [
-                    {'title': 'Steady Contributor', 'description': 'Keep the momentum going! Stay active to earn this badge.', 'icon': '⭐', 'points': 40},
-                    {'title': 'Session Star', 'description': 'Your participation matters! Keep engaging to unlock.', 'icon': '🌟', 'points': 50},
-                ],
-                'LOW_ENGAGEMENT': [
-                    {'title': 'Ice Breaker', 'description': 'Be the first to spark a conversation!', 'icon': '🧊', 'points': 60},
-                    {'title': 'Conversation Starter', 'description': 'Help kick off the discussion and earn this badge.', 'icon': '💬', 'points': 45},
-                ],
-                'MASS_EXIT': [
-                    {'title': 'Loyal Attendee', 'description': 'Thank you for staying! Your dedication is appreciated.', 'icon': '❤️', 'points': 100},
-                    {'title': 'True Fan', 'description': 'Staying through thick and thin earns you this special badge.', 'icon': '🎯', 'points': 80},
-                ],
-            },
-            'points_boost': {
-                'default': {'multiplier': 2, 'duration_seconds': 300, 'message': '🎉 Double points activated for the next 5 minutes!'},
-            },
-            'leaderboard_highlight': {
-                'default': {'highlight_top_n': 5, 'message': '🏅 Shoutout to our top contributors! Keep it up!'},
-            },
-            'challenge_start': {
-                'SUDDEN_DROP': {'challenge': 'Quick Fire Round', 'goal': 'Send 3 messages in the next 2 minutes', 'reward_points': 30, 'duration_seconds': 120},
-                'GRADUAL_DECLINE': {'challenge': 'Engagement Sprint', 'goal': 'React to 5 messages in the next 3 minutes', 'reward_points': 25, 'duration_seconds': 180},
-                'LOW_ENGAGEMENT': {'challenge': 'First Mover', 'goal': 'Be the first to ask a question', 'reward_points': 50, 'duration_seconds': 60},
-                'default': {'challenge': 'Participation Challenge', 'goal': 'Engage with the session', 'reward_points': 20, 'duration_seconds': 120},
-            },
-            'streak_bonus': {
-                'default': {'streak_threshold': 3, 'bonus_points': 15, 'message': '🔥 Keep your streak going! Bonus points for consistent participation.'},
-            },
-        }
-
-        # Get content for the gamification type
-        type_content = achievements.get(gamification_type, {})
-
-        if gamification_type == 'achievement_unlock':
-            # Get anomaly-specific achievements or fall back to SUDDEN_DROP
-            anomaly_achievements = type_content.get(anomaly_type, type_content.get('SUDDEN_DROP', []))
-            if anomaly_achievements:
-                return random.choice(anomaly_achievements)
-            return {'title': 'Participation Badge', 'description': 'Thanks for being here!', 'icon': '🎖️', 'points': 30}
-
-        elif gamification_type == 'challenge_start':
-            return type_content.get(anomaly_type, type_content.get('default', {}))
-
-        else:
-            return type_content.get('default', {'message': 'Gamification event triggered!'})
 
     async def _publish_poll_intervention(
         self,
@@ -646,11 +625,21 @@ class InterventionExecutor:
         event_id: str,
         notification_type: str,
         target: Optional[str],
-        escalate: bool
+        escalate: bool,
+        notification_content: Optional[Dict[str, Any]] = None
     ):
         """Publish notification intervention to Redis.
 
         RELIABILITY: Uses circuit breaker to prevent blocking on Redis failures.
+
+        Args:
+            intervention_id: Unique intervention ID
+            session_id: Session ID
+            event_id: Event ID
+            notification_type: Type of notification (anomaly type)
+            target: Target audience for the notification
+            escalate: Whether to escalate the notification
+            notification_content: AI-generated notification content (title, body, etc.)
         """
         message = {
             'type': 'agent.intervention.notification',
@@ -660,7 +649,8 @@ class InterventionExecutor:
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'notification_type': notification_type,
             'target': target,
-            'escalate': escalate
+            'escalate': escalate,
+            'content': notification_content  # AI-generated notification content
         }
 
         try:
