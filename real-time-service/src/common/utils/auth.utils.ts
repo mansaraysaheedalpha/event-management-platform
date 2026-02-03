@@ -3,6 +3,9 @@ import { Socket } from 'socket.io';
 import { AuthenticatedSocket, JwtPayload } from '../interfaces/auth.interface';
 import { UnauthorizedException } from '@nestjs/common';
 
+// Re-export types for convenience
+export { AuthenticatedSocket, JwtPayload };
+
 /**
  * Safely extracts the JWT token from a Socket.IO client's handshake.
  * Checks multiple possible locations: `auth.token` header or query string.
