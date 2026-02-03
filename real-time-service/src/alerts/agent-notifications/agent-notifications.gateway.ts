@@ -8,12 +8,12 @@ import {
 import { Server } from 'socket.io';
 import { Inject, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
-import { REDIS_SUBSCRIBER_CLIENT } from '../../shared/shared.module';
+import { REDIS_SUBSCRIBER_CLIENT } from '../../shared/redis.constants';
 import { AgentNotificationsService } from './agent-notifications.service';
 import {
   AuthenticatedSocket,
   getAuthenticatedUser,
-} from '../../auth/auth.utils';
+} from '../../common/utils/auth.utils';
 import { AgentNotificationPayload } from './dto/agent-notification.dto';
 
 @WebSocketGateway({
