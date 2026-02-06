@@ -6,14 +6,29 @@ Implements circuit breaker pattern for resilience.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
+from urllib.parse import quote
 
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# UUID validation pattern
+UUID_PATTERN = re.compile(
+    r'^[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{12}$',
+    re.IGNORECASE
+)
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Validate that a string is a valid UUID format."""
+    if not value:
+        return False
+    return bool(UUID_PATTERN.match(value))
 
 # Circuit breaker state for real-time service calls
 _circuit_breaker = {
@@ -96,10 +111,16 @@ class RealTimeServiceClient:
             logger.warning("REAL_TIME_SERVICE_URL_INTERNAL not configured")
             return []
 
+        # Validate UUID format to prevent path injection
+        if not _is_valid_uuid(event_id) or not _is_valid_uuid(user_id):
+            logger.warning("Invalid UUID format for event_id or user_id")
+            return []
+
         try:
             with httpx.Client(timeout=self.timeout) as client:
+                # URL-encode path segments for safety
                 response = client.get(
-                    f"{self.base_url}/events/{event_id}/recommendations",
+                    f"{self.base_url}/events/{quote(event_id, safe='')}/recommendations",
                     params={
                         "userId": user_id,
                         "limit": limit,
@@ -115,12 +136,12 @@ class RealTimeServiceClient:
                     data = response.json()
                     recommendations = data.get("recommendations", [])
                     logger.debug(
-                        f"Got {len(recommendations)} recommendations for user {user_id}"
+                        f"Got {len(recommendations)} recommendations for event {event_id[:8]}..."
                     )
                     return recommendations
                 else:
                     logger.warning(
-                        f"Recommendations API returned {response.status_code}: {response.text}"
+                        f"Recommendations API returned {response.status_code}"
                     )
                     _record_circuit_failure()
                     return []
@@ -164,10 +185,16 @@ class RealTimeServiceClient:
         if not self.base_url:
             return []
 
+        # Validate UUID format to prevent path injection
+        if not _is_valid_uuid(event_id) or not _is_valid_uuid(user_id):
+            logger.warning("Invalid UUID format for event_id or user_id")
+            return []
+
         try:
             with httpx.Client(timeout=self.timeout) as client:
+                # URL-encode path segments for safety
                 response = client.get(
-                    f"{self.base_url}/events/{event_id}/sessions/recommendations",
+                    f"{self.base_url}/events/{quote(event_id, safe='')}/sessions/recommendations",
                     params={
                         "userId": user_id,
                         "limit": limit,
@@ -194,7 +221,7 @@ class RealTimeServiceClient:
                     return []
 
         except Exception as e:
-            logger.warning(f"Error getting session recommendations: {e}")
+            logger.warning(f"Error getting session recommendations: {type(e).__name__}")
             return []
 
     def get_circuit_breaker_status(self) -> dict:

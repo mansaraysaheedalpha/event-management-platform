@@ -16,6 +16,8 @@ import { RecommendationsService } from './recommendations.service';
 import {
   GetRecommendationsDto,
   RecommendationsResponseDto,
+  GetConnectionsDto,
+  ConnectionsResponseDto,
 } from './dto';
 import { RolesGuard, RestThrottlerGuard } from 'src/common/guards';
 import { Roles } from 'src/common/decorators';
@@ -65,6 +67,32 @@ export class RecommendationsController {
       limit: query.limit,
       refresh: query.refresh,
     });
+  }
+
+  /**
+   * Get user's connections at this event.
+   * Returns users that the authenticated user has connected with
+   * (where connected: true on their recommendations).
+   *
+   * @param eventId - The event ID
+   * @param query - Optional limit parameter
+   * @param req - Authenticated request with user info
+   * @returns List of connected users with their info
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get('connections')
+  async getMyConnections(
+    @Param('eventId') eventId: string,
+    @Query() query: GetConnectionsDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<ConnectionsResponseDto> {
+    const userId = req.user.sub;
+
+    return this.recommendationsService.getUserConnections(
+      userId,
+      eventId,
+      query.limit,
+    );
   }
 
   /**

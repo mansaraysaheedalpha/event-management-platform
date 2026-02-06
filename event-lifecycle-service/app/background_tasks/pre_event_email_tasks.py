@@ -33,6 +33,17 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 100
 
 
+def _mask_email(email: str) -> str:
+    """Mask email for logging (show first 2 chars and domain)."""
+    if not email:
+        return "***"
+    if '@' in email:
+        local, domain = email.split('@', 1)
+        masked_local = f"{local[:2]}***" if len(local) > 2 else "***"
+        return f"{masked_local}@{domain}"
+    return "***"
+
+
 def check_events_starting_tomorrow():
     """
     Main scheduler task: Find events starting tomorrow and queue emails.
@@ -319,13 +330,13 @@ def _send_agenda_email(
         crud_pre_event_email.mark_as_sent(
             db, email_id=email_record.id, resend_message_id=result.get("id")
         )
-        logger.debug(f"Sent agenda email to {user_email}")
+        logger.debug(f"Sent agenda email to {_mask_email(user_email)}")
         return True
     else:
         crud_pre_event_email.mark_as_failed(
             db, email_id=email_record.id, error_message=result.get("error", "Unknown")
         )
-        logger.warning(f"Failed to send agenda email to {user_email}: {result.get('error')}")
+        logger.warning(f"Failed to send agenda email to {_mask_email(user_email)}")
         return False
 
 
@@ -389,13 +400,13 @@ def _send_networking_email(
         crud_pre_event_email.mark_as_sent(
             db, email_id=email_record.id, resend_message_id=result.get("id")
         )
-        logger.debug(f"Sent networking email to {user_email}")
+        logger.debug(f"Sent networking email to {_mask_email(user_email)}")
         return True
     else:
         crud_pre_event_email.mark_as_failed(
             db, email_id=email_record.id, error_message=result.get("error", "Unknown")
         )
-        logger.warning(f"Failed to send networking email to {user_email}: {result.get('error')}")
+        logger.warning(f"Failed to send networking email to {_mask_email(user_email)}")
         return False
 
 

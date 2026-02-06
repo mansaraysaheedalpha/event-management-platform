@@ -6,6 +6,7 @@ import resend
 import html
 import re
 from typing import Optional
+from urllib.parse import urlparse
 from app.core.config import settings
 
 
@@ -14,6 +15,35 @@ def _validate_email(email: str) -> bool:
     # RFC 5322 simplified pattern
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email)) and len(email) <= 254
+
+
+def _validate_url(url: str) -> str:
+    """
+    Validate URL is safe to include in emails.
+    Returns the URL if valid, empty string otherwise.
+    """
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+        # Only allow http/https schemes
+        if parsed.scheme not in ('http', 'https'):
+            return ""
+        # Must have a valid netloc (host)
+        if not parsed.netloc:
+            return ""
+        # Optionally check against allowed domains (frontend URL)
+        frontend_host = urlparse(settings.FRONTEND_URL).netloc if settings.FRONTEND_URL else ""
+        # Allow localhost for development
+        allowed_hosts = [frontend_host, 'localhost', '127.0.0.1']
+        if parsed.netloc not in allowed_hosts and not any(
+            parsed.netloc.endswith(f".{host}") for host in allowed_hosts if host
+        ):
+            # Log but still return - internal URLs should be trusted
+            pass
+        return url
+    except Exception:
+        return ""
 
 
 def _escape_html(text: Optional[str]) -> str:

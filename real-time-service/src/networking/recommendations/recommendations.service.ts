@@ -17,8 +17,12 @@ import {
   RecommendationDto,
   RecommendationsResponseDto,
   RecommendedUserInfo,
+  ConnectionDto,
+  ConnectionsResponseDto,
+  ConnectedUserInfo,
 } from './dto';
 import { Recommendation } from '@prisma/client';
+import { KafkaService } from 'src/shared/kafka/kafka.service';
 
 /**
  * Interface for oracle-ai-service recommendation request
@@ -79,6 +83,7 @@ export class RecommendationsService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly kafkaService: KafkaService,
   ) {}
 
   /**
@@ -575,19 +580,76 @@ export class RecommendationsService {
   }
 
   /**
+   * Find or create UserReference, fetching from user-and-org-service if needed.
+   */
+  private async findOrCreateUserReference(userId: string): Promise<{
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null> {
+    // Check if user exists locally
+    const existingRef = await this.prisma.userReference.findUnique({
+      where: { id: userId },
+      select: { id: true, firstName: true, lastName: true },
+    });
+
+    if (existingRef && existingRef.firstName && existingRef.firstName !== 'Guest') {
+      return existingRef;
+    }
+
+    // Try to fetch from user-and-org-service
+    try {
+      const userServiceUrl = this.configService.get<string>('USER_SERVICE_URL');
+      const internalApiKey = this.configService.get<string>('INTERNAL_API_KEY');
+
+      if (!userServiceUrl || !internalApiKey) {
+        this.logger.warn('USER_SERVICE_URL or INTERNAL_API_KEY not configured');
+        return existingRef; // Return existing (possibly placeholder) if available
+      }
+
+      const response = await firstValueFrom(
+        this.httpService.get(`${userServiceUrl}/internal/users/${userId}`, {
+          headers: { 'x-internal-api-key': internalApiKey },
+          timeout: 5000,
+        }),
+      );
+
+      const userData = response.data;
+      if (userData) {
+        // Upsert the user reference with real data
+        const user = await this.prisma.userReference.upsert({
+          where: { id: userId },
+          update: {
+            email: userData.email,
+            firstName: userData.first_name || userData.firstName,
+            lastName: userData.last_name || userData.lastName,
+          },
+          create: {
+            id: userId,
+            email: userData.email,
+            firstName: userData.first_name || userData.firstName || 'User',
+            lastName: userData.last_name || userData.lastName,
+          },
+          select: { id: true, firstName: true, lastName: true },
+        });
+        this.logger.debug(`Created/updated UserReference for ${userId}`);
+        return user;
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch user ${userId} from user service: ${error.message}`);
+    }
+
+    return existingRef; // Return existing (possibly null) if fetch failed
+  }
+
+  /**
    * Get user profile data for recommendation generation
    */
   private async getUserProfileData(
     userId: string,
   ): Promise<UserProfileData | null> {
-    const user = await this.prisma.userReference.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-      },
-    });
+    // Auto-create user reference if needed
+    const user = await this.findOrCreateUserReference(userId);
 
     const profile = await this.prisma.userProfile.findUnique({
       where: { userId },
@@ -767,6 +829,18 @@ export class RecommendationsService {
 
     // Invalidate cache
     await this.invalidateCache(userId, rec.eventId);
+
+    // Trigger Oracle AI to generate new suggestions based on this connection
+    this.kafkaService
+      .sendNetworkConnectionEvent({
+        connectionId: recommendationId,
+        eventId: rec.eventId,
+        user1_id: userId,
+        user2_id: rec.recommendedUserId,
+      })
+      .catch((err) =>
+        this.logger.error('Failed to publish network connection event:', err),
+      );
   }
 
   /**
@@ -857,6 +931,110 @@ export class RecommendationsService {
       connectedCount,
       connectionRate: totalCount > 0 ? (connectedCount / totalCount) * 100 : 0,
       averageMatchScore: avgScore,
+    };
+  }
+
+  /**
+   * Get user's connections at an event.
+   * Returns users where the recommendation has connected: true.
+   *
+   * @param userId - The authenticated user's ID
+   * @param eventId - The event ID
+   * @param limit - Maximum connections to return (default 50)
+   */
+  async getUserConnections(
+    userId: string,
+    eventId: string,
+    limit: number = 50,
+  ): Promise<ConnectionsResponseDto> {
+    // Get recommendations where connected = true
+    const connections = await this.prisma.recommendation.findMany({
+      where: {
+        userId,
+        eventId,
+        connected: true,
+      },
+      orderBy: { connectedAt: 'desc' },
+      take: limit,
+    });
+
+    if (connections.length === 0) {
+      return {
+        connections: [],
+        total: 0,
+      };
+    }
+
+    // Get user info for the connected users
+    const connectedUserIds = connections.map((c) => c.recommendedUserId);
+
+    const users = await this.prisma.userReference.findMany({
+      where: { id: { in: connectedUserIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        linkedInUrl: true,
+      },
+    });
+
+    // Get user profiles for additional social links
+    const profiles = await this.prisma.userProfile.findMany({
+      where: { userId: { in: connectedUserIds } },
+      select: {
+        userId: true,
+        linkedInUrl: true,
+        githubUsername: true,
+        twitterHandle: true,
+        company: true,
+        currentRole: true,
+      },
+    });
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const profileMap = new Map(profiles.map((p) => [p.userId, p]));
+
+    // Build response
+    const enrichedConnections: ConnectionDto[] = connections.map((rec) => {
+      const user = userMap.get(rec.recommendedUserId);
+      const profile = profileMap.get(rec.recommendedUserId);
+
+      const userInfo: ConnectedUserInfo = {
+        id: rec.recommendedUserId,
+        name: user
+          ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Attendee'
+          : 'Attendee',
+        role: profile?.currentRole || undefined,
+        company: profile?.company || undefined,
+        avatarUrl: user?.avatarUrl || undefined,
+        linkedInUrl: profile?.linkedInUrl || user?.linkedInUrl || undefined,
+        githubUsername: profile?.githubUsername || undefined,
+        twitterHandle: profile?.twitterHandle || undefined,
+      };
+
+      return {
+        id: rec.id,
+        connectedUserId: rec.recommendedUserId,
+        connectedAt: rec.connectedAt || rec.generatedAt, // Fallback to generatedAt if connectedAt is null
+        matchScore: rec.matchScore,
+        reasons: rec.reasons,
+        user: userInfo,
+      };
+    });
+
+    // Get total count (in case we need pagination later)
+    const totalCount = await this.prisma.recommendation.count({
+      where: {
+        userId,
+        eventId,
+        connected: true,
+      },
+    });
+
+    return {
+      connections: enrichedConnections,
+      total: totalCount,
     };
   }
 }

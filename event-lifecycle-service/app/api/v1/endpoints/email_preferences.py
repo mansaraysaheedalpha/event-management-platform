@@ -6,9 +6,10 @@ Allows users to manage their email notification preferences globally
 or per-event.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import re
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Annotated, Optional
 
 from app.api import deps
 from app.schemas.token import TokenPayload
@@ -25,6 +26,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# UUID validation pattern for query/path parameters
+UUID_REGEX = r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
+
+# Type alias for validated event_id query parameter
+EventIdQuery = Annotated[
+    Optional[str],
+    Query(pattern=UUID_REGEX, description="Event ID (UUID format)")
+]
+
+# Type alias for validated event_id path parameter
+EventIdPath = Annotated[
+    str,
+    Path(pattern=UUID_REGEX, description="Event ID (UUID format)")
+]
+
 
 @router.get(
     "/me",
@@ -32,7 +48,7 @@ router = APIRouter()
     summary="Get current user's email preferences"
 )
 def get_my_preferences(
-    event_id: Optional[str] = None,
+    event_id: EventIdQuery = None,
     *,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
@@ -74,7 +90,7 @@ def get_my_preferences(
 )
 def update_my_preferences(
     preferences: EmailPreferenceUpdate,
-    event_id: Optional[str] = None,
+    event_id: EventIdQuery = None,
     *,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
@@ -114,7 +130,7 @@ def update_my_preferences(
     summary="Delete event-specific preferences"
 )
 def delete_my_event_preferences(
-    event_id: str,
+    event_id: Annotated[str, Query(pattern=UUID_REGEX, description="Event ID (UUID format)")],
     *,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
@@ -149,7 +165,7 @@ def delete_my_event_preferences(
     summary="Get email preferences for a specific event"
 )
 def get_event_preferences(
-    event_id: str,
+    event_id: EventIdPath,
     *,
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
@@ -173,7 +189,7 @@ def get_event_preferences(
     summary="Update email preferences for a specific event"
 )
 def update_event_preferences(
-    event_id: str,
+    event_id: EventIdPath,
     preferences: EmailPreferenceUpdate,
     *,
     db: Session = Depends(get_db),

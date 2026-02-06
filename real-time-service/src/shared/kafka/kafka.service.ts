@@ -7,6 +7,8 @@ export const KAFKA_TOPICS = {
   GIVEAWAY_EVENTS: 'giveaway.events.v1',
   LEAD_CAPTURE_EVENTS: 'lead.capture.events.v1',
   LEAD_INTENT_EVENTS: 'lead.intent.events.v1',
+  // Networking topics - triggers Oracle AI to generate new suggestions
+  NETWORK_CONNECTIONS: 'real-time.network.connections',
 } as const;
 
 // Lead capture event types
@@ -47,6 +49,15 @@ export interface LeadInteractionEvent {
     visitDurationSeconds?: number;
   };
   timestamp: string;
+}
+
+// Network connection event - triggers Oracle AI to generate new suggestions
+// Matches NetworkConnectionPayload from oracle-ai-service/app/schemas/messaging.py
+export interface NetworkConnectionEvent {
+  connectionId: string;
+  eventId: string;
+  user1_id: string;
+  user2_id: string;
 }
 
 // Giveaway event types
@@ -219,6 +230,37 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       return true;
     } catch (error) {
       this.logger.error('Failed to send lead interaction event:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Send a network connection event to Kafka.
+   * Triggers Oracle AI to generate new networking suggestions.
+   */
+  async sendNetworkConnectionEvent(event: NetworkConnectionEvent): Promise<boolean> {
+    if (!this.isConnected) {
+      this.logger.warn('Kafka not connected, skipping network connection event');
+      return false;
+    }
+
+    try {
+      await this.producer.send({
+        topic: KAFKA_TOPICS.NETWORK_CONNECTIONS,
+        messages: [
+          {
+            key: event.connectionId,
+            value: JSON.stringify(event),
+          },
+        ],
+      });
+
+      this.logger.log(
+        `Network connection event sent: ${event.user1_id} connected with ${event.user2_id} at event ${event.eventId}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to send network connection event:', error);
       return false;
     }
   }

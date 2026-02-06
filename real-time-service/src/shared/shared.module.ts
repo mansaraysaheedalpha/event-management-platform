@@ -13,6 +13,7 @@ import { EventRegistrationValidationService } from './services/event-registratio
 import { REDIS_CLIENT, REDIS_SUBSCRIBER_CLIENT } from './redis.constants';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { KafkaService } from './kafka/kafka.service';
+import { KafkaSuggestionConsumerService } from './kafka/kafka-suggestion-consumer.service';
 
 /**
  * SharedModule is a global, reusable NestJS module providing:
@@ -66,6 +67,7 @@ import { KafkaService } from './kafka/kafka.service';
     UserValidationService,
     EventRegistrationValidationService,
     KafkaService,
+    KafkaSuggestionConsumerService,
   ],
   exports: [
     IdempotencyService,
@@ -76,6 +78,7 @@ import { KafkaService } from './kafka/kafka.service';
     UserValidationService,
     EventRegistrationValidationService,
     KafkaService,
+    KafkaSuggestionConsumerService,
     REDIS_CLIENT,
     REDIS_SUBSCRIBER_CLIENT,
   ],
