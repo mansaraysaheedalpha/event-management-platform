@@ -8,6 +8,8 @@ Provides background task processing with:
 - Task routing and priorities
 """
 
+import ssl
+
 from celery import Celery
 
 from app.core.config import settings
@@ -23,6 +25,9 @@ def _ensure_ssl_params(url: str) -> str:
 
 broker_url = _ensure_ssl_params(settings.CELERY_BROKER_URL)
 backend_url = _ensure_ssl_params(settings.CELERY_RESULT_BACKEND)
+
+print(f"[CELERY CONFIG] broker_url: {broker_url[:50]}...")
+print(f"[CELERY CONFIG] backend_url: {backend_url[:50]}...")
 
 # Create Celery app
 celery_app = Celery(
@@ -62,6 +67,14 @@ celery_app.conf.update(
     # Priority queues (higher number = lower priority)
     task_queue_max_priority=10,
     task_default_priority=5,
+
+    # Explicit broker/backend URLs (override any env var auto-detection)
+    broker_url=broker_url,
+    result_backend=backend_url,
+
+    # SSL for rediss:// connections
+    broker_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE} if broker_url.startswith("rediss://") else None,
+    redis_backend_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE} if backend_url.startswith("rediss://") else None,
 )
 
 # Autodiscover tasks

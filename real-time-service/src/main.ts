@@ -55,7 +55,7 @@ async function bootstrap() {
     },
   });
 
-  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalPipes(new ValidationPipe({ transform: true }));
   app.enableShutdownHooks();
 
   // Start microservices and the main application
