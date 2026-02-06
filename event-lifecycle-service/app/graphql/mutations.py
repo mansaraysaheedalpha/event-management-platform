@@ -804,30 +804,22 @@ class Mutation:
             db, obj_in=reg_schema, event_id=eventId
         )
 
-        # Publish Kafka event for email notification
+        # Send registration confirmation email
+        # Determine recipient email and name
+        if is_guest_reg:
+            recipient_email = registrationIn.email
+            recipient_name = f"{registrationIn.firstName} {registrationIn.lastName}"
+        else:
+            recipient_email = user.get("email") if user else None
+            first_name = user.get("firstName", "") if user else ""
+            last_name = user.get("lastName", "") if user else ""
+            recipient_name = f"{first_name} {last_name}".strip() or "Attendee"
+
+        kafka_sent = False
         producer = info.context.producer
-        if producer:
+        if producer and recipient_email:
             try:
-                # Determine recipient email and name
-                if is_guest_reg:
-                    recipient_email = registrationIn.email
-                    recipient_name = f"{registrationIn.firstName} {registrationIn.lastName}"
-                else:
-                    # For user registrations, get email from JWT
-                    # JWT has: email, firstName, lastName (not 'name')
-                    recipient_email = user.get("email") if user else None
-                    first_name = user.get("firstName", "") if user else ""
-                    last_name = user.get("lastName", "") if user else ""
-                    recipient_name = f"{first_name} {last_name}".strip() or "Attendee"
-
-                # Debug logging - remove after confirming fix
-                print(f"[REGISTRATION EMAIL DEBUG] user={user is not None}, email={recipient_email}, name={recipient_name}")
-
-                if not recipient_email:
-                    print(f"[REGISTRATION EMAIL WARNING] No email found for user registration. User payload keys: {list(user.keys()) if user else 'None'}")
-
-                # Publish registration event to Kafka
-                producer.send(
+                future = producer.send(
                     "registration.events.v1",
                     value={
                         "type": "REGISTRATION_CONFIRMED",
@@ -843,10 +835,31 @@ class Mutation:
                         "venueName": event.venue.name if event.venue else None,
                     },
                 )
-                print(f"[KAFKA] Published registration event for ticket: {registration.ticket_code}, email: {recipient_email}")
+                record_metadata = future.get(timeout=10)
+                kafka_sent = True
+                print(f"[KAFKA] Published registration event for ticket: {registration.ticket_code}, email: {recipient_email}, partition: {record_metadata.partition}, offset: {record_metadata.offset}")
             except Exception as e:
-                # Log but don't fail the registration if Kafka publish fails
                 print(f"[KAFKA ERROR] Failed to publish registration event: {e}")
+
+        # Direct email fallback if Kafka unavailable or failed
+        if not kafka_sent and recipient_email:
+            try:
+                from app.core.email import send_registration_confirmation
+                formatted_date = event.start_date.strftime("%B %d, %Y at %I:%M %p")
+                result = send_registration_confirmation(
+                    to_email=recipient_email,
+                    recipient_name=recipient_name,
+                    event_name=event.name,
+                    event_date=formatted_date,
+                    ticket_code=registration.ticket_code,
+                    event_location=event.venue.name if event.venue else None,
+                )
+                if result.get("success"):
+                    print(f"[EMAIL DIRECT] Registration confirmation sent to {recipient_email}")
+                else:
+                    print(f"[EMAIL DIRECT ERROR] Failed: {result.get('error')}")
+            except Exception as e:
+                print(f"[EMAIL DIRECT ERROR] Failed to send registration email: {e}")
 
         return registration
 

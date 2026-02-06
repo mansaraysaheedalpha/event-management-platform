@@ -326,6 +326,8 @@ async def get_redis_client() -> Optional[aioredis.Redis]:
                 settings.REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
             )
             # Test connection
             await _redis_client.ping()

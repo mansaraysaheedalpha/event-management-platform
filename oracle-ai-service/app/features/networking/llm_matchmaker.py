@@ -67,7 +67,7 @@ async def llm_rank_matches(
         or None if LLM call fails
     """
     if not settings.ANTHROPIC_API_KEY:
-        logger.debug("No ANTHROPIC_API_KEY, skipping LLM matching")
+        print("[LLM MATCHMAKER] No ANTHROPIC_API_KEY configured, using fallback")
         return None
 
     # Build candidate summaries (limit to 20 to keep prompt reasonable)
@@ -111,13 +111,20 @@ Rules:
 - Sort by match_score descending"""
 
     try:
+        print(f"[LLM MATCHMAKER] Starting LLM matching for user {primary_user.user_id} with {len(candidates)} candidates")
+
         limiter = await get_llm_limiter()
         await limiter.acquire()
+        print("[LLM MATCHMAKER] Rate limiter acquired")
 
         breaker = get_anthropic_breaker()
 
         async with breaker:
-            client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+            client = AsyncAnthropic(
+                api_key=settings.ANTHROPIC_API_KEY,
+                timeout=30.0,
+            )
+            print(f"[LLM MATCHMAKER] Calling Claude ({MODEL})...")
             response = await client.messages.create(
                 model=MODEL,
                 max_tokens=2000,
@@ -125,6 +132,7 @@ Rules:
             )
 
             text = response.content[0].text.strip()
+            print(f"[LLM MATCHMAKER] Got response ({len(text)} chars)")
 
             # Extract JSON from response
             json_str = text
@@ -148,17 +156,17 @@ Rules:
                     "match_reasons": m.get("match_reasons", ["Networking match"]),
                 })
 
-            logger.info(f"LLM ranked {len(valid_matches)} matches for user {primary_user.user_id}")
+            print(f"[LLM MATCHMAKER] Ranked {len(valid_matches)} matches")
             return valid_matches[:max_matches]
 
     except CircuitBreakerOpenError:
-        logger.warning("Anthropic circuit breaker open, skipping LLM matching")
+        print("[LLM MATCHMAKER] Circuit breaker OPEN, skipping")
         return None
     except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM match response: {e}")
+        print(f"[LLM MATCHMAKER] JSON parse error: {e}")
         return None
     except Exception as e:
-        logger.error(f"LLM matchmaking failed: {e}")
+        print(f"[LLM MATCHMAKER] FAILED: {type(e).__name__}: {e}")
         return None
 
 
@@ -183,6 +191,7 @@ async def llm_conversation_starters(
         List of 2-3 conversation starter strings, or None if LLM fails
     """
     if not settings.ANTHROPIC_API_KEY:
+        print("[LLM STARTERS] No ANTHROPIC_API_KEY configured, using fallback")
         return None
 
     # Build user context
@@ -228,13 +237,18 @@ Return ONLY a JSON array of strings (no markdown, no explanation):
 ["starter 1", "starter 2", "starter 3"]"""
 
     try:
+        print(f"[LLM STARTERS] Generating starters for {user1_id} → {user2_id}")
+
         limiter = await get_llm_limiter()
         await limiter.acquire()
 
         breaker = get_anthropic_breaker()
 
         async with breaker:
-            client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+            client = AsyncAnthropic(
+                api_key=settings.ANTHROPIC_API_KEY,
+                timeout=30.0,
+            )
             response = await client.messages.create(
                 model=MODEL,
                 max_tokens=500,
@@ -252,18 +266,18 @@ Return ONLY a JSON array of strings (no markdown, no explanation):
             starters = json.loads(json_str.strip())
 
             if isinstance(starters, list) and all(isinstance(s, str) for s in starters):
-                logger.info(f"LLM generated {len(starters)} conversation starters")
+                print(f"[LLM STARTERS] Generated {len(starters)} starters")
                 return starters[:3]
 
-            logger.warning("LLM returned unexpected format for conversation starters")
+            print("[LLM STARTERS] Unexpected response format")
             return None
 
     except CircuitBreakerOpenError:
-        logger.warning("Anthropic circuit breaker open, skipping LLM starters")
+        print("[LLM STARTERS] Circuit breaker OPEN, skipping")
         return None
     except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM starter response: {e}")
+        print(f"[LLM STARTERS] JSON parse error: {e}")
         return None
     except Exception as e:
-        logger.error(f"LLM conversation starters failed: {e}")
+        print(f"[LLM STARTERS] FAILED: {type(e).__name__}: {e}")
         return None
