@@ -862,7 +862,16 @@ export class RecommendationsService {
       where: { id: recommendationId },
     });
 
-    if (!rec || rec.userId !== userId) {
+    if (!rec) {
+      this.logger.warn(`markConnected: Recommendation ${recommendationId} not found in DB`);
+      throw new NotFoundException('Recommendation not found');
+    }
+
+    if (rec.userId !== userId) {
+      this.logger.warn(
+        `markConnected: userId mismatch for rec ${recommendationId} - ` +
+        `JWT user: ${userId}, rec owner: ${rec.userId}`,
+      );
       throw new NotFoundException('Recommendation not found');
     }
 
