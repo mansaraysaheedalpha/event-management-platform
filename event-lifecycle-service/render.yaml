@@ -82,6 +82,50 @@ services:
       - key: USER_SERVICE_URL
         sync: false
 
+  # Email consumer worker - processes registration, giveaway, and waitlist emails via Kafka
+  - type: worker
+    name: email-consumer-worker
+    plan: starter
+    region: oregon
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    repo: https://github.com/YOUR_USERNAME/event-management-platform
+    branch: main
+    rootDir: event-lifecycle-service
+    dockerCommand: python run_email_consumer.py
+    envVars:
+      - key: ENV
+        value: prod
+      - key: DATABASE_URL_PROD
+        fromDatabase:
+          name: event-lifecycle-db
+          property: connectionString
+      - key: DATABASE_URL_LOCAL
+        value: dummy
+      - key: REDIS_URL_LOCAL
+        value: dummy
+      - key: KAFKA_BOOTSTRAP_SERVERS_LOCAL
+        value: dummy
+      - key: REDIS_URL_PROD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS_PROD
+        sync: false
+      - key: KAFKA_API_KEY
+        sync: false
+      - key: KAFKA_API_SECRET
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: PLAIN
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_DOMAIN
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+
   # Campaign email worker - processes sponsor email campaigns via Kafka
   - type: worker
     name: campaign-email-worker

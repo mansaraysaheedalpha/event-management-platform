@@ -13,6 +13,8 @@ class TokenPayload(BaseModel):
     role: Optional[str] = None
     # Granular permissions for feature-level access control
     permissions: Optional[List[str]] = None
+    # User's email from the JWT token
+    email: Optional[str] = None
     # User's name from the JWT token
     first_name: Optional[str] = Field(default=None, alias="firstName")
     last_name: Optional[str] = Field(default=None, alias="lastName")

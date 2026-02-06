@@ -814,8 +814,17 @@ class Mutation:
                     recipient_name = f"{registrationIn.firstName} {registrationIn.lastName}"
                 else:
                     # For user registrations, get email from JWT
+                    # JWT has: email, firstName, lastName (not 'name')
                     recipient_email = user.get("email") if user else None
-                    recipient_name = user.get("name", "Attendee") if user else "Attendee"
+                    first_name = user.get("firstName", "") if user else ""
+                    last_name = user.get("lastName", "") if user else ""
+                    recipient_name = f"{first_name} {last_name}".strip() or "Attendee"
+
+                # Debug logging - remove after confirming fix
+                print(f"[REGISTRATION EMAIL DEBUG] user={user is not None}, email={recipient_email}, name={recipient_name}")
+
+                if not recipient_email:
+                    print(f"[REGISTRATION EMAIL WARNING] No email found for user registration. User payload keys: {list(user.keys()) if user else 'None'}")
 
                 # Publish registration event to Kafka
                 producer.send(
@@ -834,7 +843,7 @@ class Mutation:
                         "venueName": event.venue.name if event.venue else None,
                     },
                 )
-                print(f"[KAFKA] Published registration event for ticket: {registration.ticket_code}")
+                print(f"[KAFKA] Published registration event for ticket: {registration.ticket_code}, email: {recipient_email}")
             except Exception as e:
                 # Log but don't fail the registration if Kafka publish fails
                 print(f"[KAFKA ERROR] Failed to publish registration event: {e}")
