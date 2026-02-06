@@ -127,6 +127,45 @@ def _get_fallback_url(event_id: str, session_id: str) -> str:
     return f"{settings.FRONTEND_URL}/attendee/events/{event_id}?session={session_id}"
 
 
+def fetch_user_info(user_id: str) -> dict | None:
+    """
+    Fetch user info (email, name) from user-and-org-service.
+
+    Returns dict with email, firstName, lastName or None if not found.
+    """
+    if _circuit_breaker_open():
+        return None
+
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(
+                f"{settings.USER_SERVICE_URL}/internal/users/{user_id}",
+                headers={"X-API-Key": settings.INTERNAL_API_KEY},
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                _record_circuit_success()
+                return {
+                    "email": data.get("email"),
+                    "firstName": data.get("first_name") or data.get("firstName"),
+                    "lastName": data.get("last_name") or data.get("lastName"),
+                }
+            else:
+                logger.warning(f"User service returned {response.status_code} for user {user_id}")
+
+    except httpx.TimeoutException:
+        logger.warning(f"User service timeout fetching user {user_id}")
+        _record_circuit_failure()
+    except httpx.RequestError as e:
+        logger.warning(f"User service request error: {e}")
+        _record_circuit_failure()
+    except Exception as e:
+        logger.error(f"Unexpected error fetching user info: {e}")
+
+    return None
+
+
 def get_sessions_in_window(
     db,
     window_start: datetime,
@@ -278,8 +317,17 @@ def send_pending_reminders():
                 user_name = registration.guest_name or "Attendee"
                 user_id = registration.user_id
 
-                # If we have user_id but no email, we would need to fetch from user service
-                # For now, skip if no direct email available
+                # If no guest_email but we have user_id, fetch from user service
+                if not user_email and user_id:
+                    user_info = fetch_user_info(user_id)
+                    if user_info and user_info.get("email"):
+                        user_email = user_info["email"]
+                        first_name = user_info.get("firstName", "")
+                        last_name = user_info.get("lastName", "")
+                        user_name = f"{first_name} {last_name}".strip() or "Attendee"
+                        logger.debug(f"Fetched user info for {user_id}: {user_email}")
+
+                # Skip if still no email available
                 if not user_email:
                     logger.warning(
                         f"No email available for reminder {reminder.id}, skipping"
