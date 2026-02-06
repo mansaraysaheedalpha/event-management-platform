@@ -12,11 +12,23 @@ from celery import Celery
 
 from app.core.config import settings
 
+
+def _ensure_ssl_params(url: str) -> str:
+    """Append ssl_cert_reqs for rediss:// URLs (required by Celery)."""
+    if url and url.startswith("rediss://") and "ssl_cert_reqs" not in url:
+        separator = "&" if "?" in url else "?"
+        return f"{url}{separator}ssl_cert_reqs=CERT_NONE"
+    return url
+
+
+broker_url = _ensure_ssl_params(settings.CELERY_BROKER_URL)
+backend_url = _ensure_ssl_params(settings.CELERY_RESULT_BACKEND)
+
 # Create Celery app
 celery_app = Celery(
     "oracle_tasks",
-    broker=settings.CELERY_BROKER_URL,
-    backend=settings.CELERY_RESULT_BACKEND,
+    broker=broker_url,
+    backend=backend_url,
 )
 
 # Configure Celery
