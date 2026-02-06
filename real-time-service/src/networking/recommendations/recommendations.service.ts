@@ -210,15 +210,33 @@ export class RecommendationsService {
 
     try {
       return await breaker.execute(async () => {
-        // Transform request to oracle's expected format
+        // Transform request to oracle's expected format (rich profile for LLM matching)
         const oracleRequest = {
           primary_user: {
             user_id: request.userProfile.id,
             interests: request.userProfile.interests,
+            name: request.userProfile.name,
+            role: request.userProfile.role,
+            company: request.userProfile.company,
+            industry: request.userProfile.industry,
+            goals: request.userProfile.goals,
+            skills_to_offer: request.userProfile.skillsToOffer,
+            skills_needed: request.userProfile.skillsNeeded,
+            bio: request.userProfile.bio,
+            headline: request.userProfile.linkedInHeadline,
           },
           other_users: request.candidates.map((c) => ({
             user_id: c.id,
             interests: c.interests,
+            name: c.name,
+            role: c.role,
+            company: c.company,
+            industry: c.industry,
+            goals: c.goals,
+            skills_to_offer: c.skillsToOffer,
+            skills_needed: c.skillsNeeded,
+            bio: c.bio,
+            headline: c.linkedInHeadline,
           })),
           max_matches: request.limit || 10,
         };
@@ -247,6 +265,10 @@ export class RecommendationsService {
           matchResponse.data.matches.map(async (match) => {
             let conversationStarters: string[] = [];
             try {
+              // Find candidate profile for richer starter context
+              const candidateProfile = request.candidates.find(
+                (c) => c.id === match.user_id,
+              );
               const starterResponse = await firstValueFrom(
                 this.httpService.post<{ conversation_starters: string[] }>(
                   `${oracleUrl}/oracle/networking/conversation-starters`,
@@ -254,10 +276,19 @@ export class RecommendationsService {
                     user1_id: request.userProfile.id,
                     user2_id: match.user_id,
                     common_interests: match.common_interests,
+                    user1_name: request.userProfile.name,
+                    user1_role: request.userProfile.role,
+                    user1_company: request.userProfile.company,
+                    user1_bio: request.userProfile.bio,
+                    user2_name: candidateProfile?.name,
+                    user2_role: candidateProfile?.role,
+                    user2_company: candidateProfile?.company,
+                    user2_bio: candidateProfile?.bio,
+                    match_reasons: match.match_reasons,
                   },
                   {
                     headers: { 'Content-Type': 'application/json' },
-                    timeout: 10000,
+                    timeout: 15000,
                   },
                 ),
               );

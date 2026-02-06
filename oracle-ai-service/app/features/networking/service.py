@@ -1,4 +1,6 @@
 # app/features/networking/service.py
+import asyncio
+import logging
 import random
 import uuid
 from typing import List, Dict, Any
@@ -12,34 +14,30 @@ from app.features.networking.schemas import (
     FollowUpGenerateRequest,
     FollowUpGenerateResponse,
 )
+from app.features.networking.llm_matchmaker import (
+    llm_rank_matches,
+    llm_conversation_starters,
+)
 
 from .schemas import MatchmakingRequest, MatchmakingResponse
 
+logger = logging.getLogger(__name__)
 
-def get_networking_matches(request: MatchmakingRequest) -> MatchmakingResponse:
-    """
-    Calculates networking matches based on shared interests.
-    This uses a simple Jaccard Index for scoring.
-    """
+
+def _jaccard_matches(request: MatchmakingRequest) -> List[MatchmakingResponse.Match]:
+    """Algorithmic fallback: Jaccard Index scoring on exact interest overlap."""
     matches = []
     primary_user_interests = set(request.primary_user.interests)
 
     for other_user in request.other_users:
-        # Do not match a user with themselves
         if request.primary_user.user_id == other_user.user_id:
             continue
 
         other_user_interests = set(other_user.interests)
-
-        # Calculate the intersection (shared interests)
         common_interests = list(
             primary_user_interests.intersection(other_user_interests)
         )
-
-        # Calculate the union (all unique interests between both)
         union_interests = primary_user_interests.union(other_user_interests)
-
-        # Calculate Jaccard similarity score (intersection / union)
         match_score = (
             len(common_interests) / len(union_interests) if union_interests else 0
         )
@@ -56,20 +54,12 @@ def get_networking_matches(request: MatchmakingRequest) -> MatchmakingResponse:
                 )
             )
 
-    # Sort matches by the highest score
     matches.sort(key=lambda x: x.match_score, reverse=True)
+    return matches
 
-    return MatchmakingResponse(matches=matches[: request.max_matches])
 
-
-def get_conversation_starters(
-    request: ConversationStarterRequest,
-) -> ConversationStarterResponse:
-    """
-    Generates dynamic and relevant conversation starters using a categorized
-    template-based model.
-    """
-    # A pool of templates categorized by context.
+def _template_starters(common_interests: List[str]) -> List[str]:
+    """Algorithmic fallback: template-based conversation starters."""
     TEMPLATES = {
         "interest_based": [
             "I noticed you're also interested in {interest}. What's the most exciting thing you've learned about it at this event?",
@@ -84,20 +74,84 @@ def get_conversation_starters(
     }
 
     starters = []
-
-    # Generate at least one starter based on a shared interest, if available.
-    if request.common_interests:
-        # Pick a random shared interest and a random template
-        interest = random.choice(request.common_interests)
+    if common_interests:
+        interest = random.choice(common_interests)
         template = random.choice(TEMPLATES["interest_based"])
         starters.append(template.format(interest=interest))
 
-    # Add a couple of general starters to provide variety.
-    # Use random.sample to get unique general starters.
     num_general_starters = 2
     if len(TEMPLATES["general_event"]) >= num_general_starters:
         starters.extend(random.sample(TEMPLATES["general_event"], num_general_starters))
 
+    return starters
+
+
+async def get_networking_matches(request: MatchmakingRequest) -> MatchmakingResponse:
+    """
+    AI-powered networking matchmaking with algorithmic fallback.
+
+    Strategy:
+    1. Try LLM-based matching (semantic understanding, goal compatibility)
+    2. Fall back to Jaccard Index if LLM unavailable or fails
+    """
+    # Try LLM matching first
+    llm_results = await llm_rank_matches(
+        primary_user=request.primary_user,
+        candidates=[u for u in request.other_users if u.user_id != request.primary_user.user_id],
+        max_matches=request.max_matches,
+    )
+
+    if llm_results:
+        logger.info(f"Using LLM-ranked matches for user {request.primary_user.user_id}")
+        matches = [
+            MatchmakingResponse.Match(
+                user_id=m["user_id"],
+                match_score=round(m["match_score"], 2),
+                common_interests=m["common_interests"],
+                match_reasons=m["match_reasons"],
+            )
+            for m in llm_results
+        ]
+        return MatchmakingResponse(matches=matches)
+
+    # Fallback to algorithmic matching
+    logger.info(f"Using algorithmic fallback for user {request.primary_user.user_id}")
+    matches = _jaccard_matches(request)
+    return MatchmakingResponse(matches=matches[: request.max_matches])
+
+
+async def get_conversation_starters(
+    request: ConversationStarterRequest,
+) -> ConversationStarterResponse:
+    """
+    AI-powered conversation starters with template fallback.
+
+    Strategy:
+    1. Try LLM-generated personalized starters
+    2. Fall back to template-based starters if LLM unavailable
+    """
+    llm_starters = await llm_conversation_starters(
+        user1_id=request.user1_id,
+        user2_id=request.user2_id,
+        common_interests=request.common_interests,
+        user1_name=request.user1_name,
+        user1_role=request.user1_role,
+        user1_company=request.user1_company,
+        user1_bio=request.user1_bio,
+        user2_name=request.user2_name,
+        user2_role=request.user2_role,
+        user2_company=request.user2_company,
+        user2_bio=request.user2_bio,
+        match_reasons=request.match_reasons,
+    )
+
+    if llm_starters:
+        logger.info("Using LLM-generated conversation starters")
+        return ConversationStarterResponse(conversation_starters=llm_starters)
+
+    # Fallback to templates
+    logger.info("Using template-based conversation starters")
+    starters = _template_starters(request.common_interests)
     return ConversationStarterResponse(conversation_starters=starters)
 
 

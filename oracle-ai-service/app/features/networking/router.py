@@ -20,11 +20,12 @@ router = APIRouter()
     response_model=MatchmakingResponse,
     tags=["AI-Powered Networking & Matchmaking"],
 )
-def get_matches(request: MatchmakingRequest):
+async def get_matches(request: MatchmakingRequest):
     """
     Provides AI-powered attendee matching for networking.
+    Uses Claude LLM for intelligent matching with algorithmic fallback.
     """
-    return service.get_networking_matches(request)
+    return await service.get_networking_matches(request)
 
 
 @router.post(
@@ -32,9 +33,9 @@ def get_matches(request: MatchmakingRequest):
     response_model=ConversationStarterResponse,
     tags=["AI-Powered Networking & Matchmaking"],
 )
-def generate_conversation_starters(request: ConversationStarterRequest):
-    """Generates AI ice-breaker suggestions for networking."""
-    return service.get_conversation_starters(request)
+async def generate_conversation_starters(request: ConversationStarterRequest):
+    """Generates AI ice-breaker suggestions for networking. Uses Claude LLM with template fallback."""
+    return await service.get_conversation_starters(request)
 
 
 @router.post(

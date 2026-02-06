@@ -8,6 +8,16 @@ class MatchmakingRequest(BaseModel):
     class UserProfile(BaseModel):
         user_id: str
         interests: List[str]
+        # Rich profile fields for LLM-powered matching (optional for backward compat)
+        name: Optional[str] = None
+        role: Optional[str] = None
+        company: Optional[str] = None
+        industry: Optional[str] = None
+        goals: List[str] = Field(default_factory=list)
+        skills_to_offer: List[str] = Field(default_factory=list)
+        skills_needed: List[str] = Field(default_factory=list)
+        bio: Optional[str] = None
+        headline: Optional[str] = None
 
     # The user for whom we are finding matches
     primary_user: UserProfile
@@ -34,6 +44,16 @@ class ConversationStarterRequest(BaseModel):
     user1_id: str
     user2_id: str
     common_interests: List[str]
+    # Rich profile data for LLM-powered starters (optional for backward compat)
+    user1_name: Optional[str] = None
+    user1_role: Optional[str] = None
+    user1_company: Optional[str] = None
+    user1_bio: Optional[str] = None
+    user2_name: Optional[str] = None
+    user2_role: Optional[str] = None
+    user2_company: Optional[str] = None
+    user2_bio: Optional[str] = None
+    match_reasons: List[str] = Field(default_factory=list)
 
 
 class ConversationStarterResponse(BaseModel):
