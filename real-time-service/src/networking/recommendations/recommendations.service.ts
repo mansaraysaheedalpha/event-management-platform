@@ -778,17 +778,10 @@ export class RecommendationsService {
       where: { id: recommendationId },
     });
 
-    if (!rec) {
-      this.logger.warn(`markViewed: Recommendation ${recommendationId} not found in DB`);
-      throw new NotFoundException('Recommendation not found');
-    }
-
-    if (rec.userId !== userId) {
-      this.logger.warn(
-        `markViewed: userId mismatch for rec ${recommendationId} - ` +
-        `JWT user: ${userId}, rec owner: ${rec.userId}`,
-      );
-      throw new NotFoundException('Recommendation not found');
+    // Silently ignore if recommendation was regenerated (old IDs become stale)
+    if (!rec || rec.userId !== userId) {
+      this.logger.debug(`markViewed: Recommendation ${recommendationId} not found or replaced, skipping`);
+      return;
     }
 
     // Validate eventId (defense in depth against URL manipulation)
@@ -820,17 +813,10 @@ export class RecommendationsService {
       where: { id: recommendationId },
     });
 
-    if (!rec) {
-      this.logger.warn(`markPinged: Recommendation ${recommendationId} not found in DB`);
-      throw new NotFoundException('Recommendation not found');
-    }
-
-    if (rec.userId !== userId) {
-      this.logger.warn(
-        `markPinged: userId mismatch for rec ${recommendationId} - ` +
-        `JWT user: ${userId}, rec owner: ${rec.userId}`,
-      );
-      throw new NotFoundException('Recommendation not found');
+    // Silently ignore if recommendation was regenerated (old IDs become stale)
+    if (!rec || rec.userId !== userId) {
+      this.logger.debug(`markPinged: Recommendation ${recommendationId} not found or replaced, skipping`);
+      return;
     }
 
     // Validate eventId (defense in depth against URL manipulation)

@@ -16,6 +16,10 @@ from app.orchestrator import agent_manager
 from app.middleware import AppError, ErrorCategory
 from app.middleware.auth import verify_token, verify_organizer, AuthUser
 from app.agents.engagement_conductor import AgentMode
+from app.db.timescale import AsyncSessionLocal
+from app.models.event_agent_settings import EventAgentSettings
+from app.core.event_settings import get_event_settings_loader
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -151,8 +155,40 @@ async def change_agent_mode(
                 metadata={"auto_created": True, "created_by": "mode_change"}
             )
 
-        # Change mode (convert string to enum)
-        await agent.set_mode(AgentMode(request.mode))
+        # Change mode on both the agent instance AND the orchestrator config
+        # agent.set_mode() only updates agent._current_mode (not used by run_agent)
+        # agent_manager.set_agent_mode() updates config.agent_mode (used by run_agent)
+        new_mode = AgentMode(request.mode)
+        await agent.set_mode(new_mode)
+        agent_manager.set_agent_mode(session_id, new_mode)
+
+        # Persist mode to database so it survives service restarts
+        # and is read correctly by signal_collector._get_event_agent_mode()
+        event_id = agent_manager.configs[session_id].event_id if session_id in agent_manager.configs else extract_event_id_from_session(session_id)
+        try:
+            async with AsyncSessionLocal() as db:
+                stmt = select(EventAgentSettings).where(EventAgentSettings.event_id == event_id)
+                result = await db.execute(stmt)
+                settings = result.scalar_one_or_none()
+
+                if settings:
+                    settings.agent_mode = request.mode
+                    settings.updated_at = datetime.now(timezone.utc)
+                else:
+                    settings = EventAgentSettings(
+                        event_id=event_id,
+                        agent_mode=request.mode,
+                        agent_enabled=True,
+                    )
+                    db.add(settings)
+
+                await db.commit()
+
+            # Invalidate cached settings so next read picks up new mode
+            get_event_settings_loader().invalidate(event_id)
+            logger.info(f"Persisted agent mode {request.mode} for event {event_id}")
+        except Exception as e:
+            logger.warning(f"Failed to persist mode to DB (in-memory change still applied): {e}")
 
         return {
             "session_id": session_id,
