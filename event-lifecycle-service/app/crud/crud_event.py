@@ -283,6 +283,7 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
         """
         Gets a list of public events for the event discovery page.
         Returns only published, non-archived events visible to the public.
+        Includes events happening today (live events) as well as upcoming events.
         """
         from app.models.venue import Venue
 
@@ -291,9 +292,11 @@ class CRUDEvent(CRUDBase[Event, EventCreate, EventUpdate]):
             self.model.is_archived == False,
         )
 
-        # By default, only show upcoming events (end_date >= now)
+        # By default, show events ending today or later
+        # Use start of today (midnight UTC) so events happening today remain visible all day
         if not include_past:
-            query = query.filter(self.model.end_date >= datetime.utcnow())
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(self.model.end_date >= today_start)
 
         # Filter by search term
         if search:
