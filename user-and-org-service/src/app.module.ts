@@ -22,6 +22,7 @@ import { InternalModule } from './internal/internal.module';
 import { EmailModule } from './email/email.module';
 import { CsrfModule } from './common/csrf/csrf.module';
 import { CsrfMiddleware } from './common/csrf/csrf.middleware';
+import { MagicLinkModule } from './magic-link/magic-link.module';
 import * as Joi from 'joi';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
@@ -119,6 +120,7 @@ import { Response } from 'express';
     InternalModule,
     EmailModule,
     CsrfModule,
+    MagicLinkModule,
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: {

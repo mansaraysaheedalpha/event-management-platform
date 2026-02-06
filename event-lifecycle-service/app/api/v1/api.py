@@ -26,6 +26,8 @@ from app.api.v1.endpoints import (
     sponsor_user_permissions,
     sponsor_team,
     sponsor_user_settings,
+    calendar,
+    email_preferences,
 )
 
 # This is the main router for the v1 API.
@@ -56,4 +58,6 @@ api_router.include_router(sponsor_campaigns.router, prefix="/sponsors-campaigns"
 api_router.include_router(sponsor_user_permissions.router, prefix="/sponsor-users", tags=["Sponsor User Permissions"])
 api_router.include_router(sponsor_team.router, prefix="/sponsor-team", tags=["Sponsor Team Management"])
 api_router.include_router(sponsor_user_settings.router, prefix="/sponsor-settings", tags=["Sponsor User Settings"])
+api_router.include_router(calendar.router, prefix="/calendar", tags=["Calendar"])
+api_router.include_router(email_preferences.router, prefix="/email-preferences", tags=["Email Preferences"])
 

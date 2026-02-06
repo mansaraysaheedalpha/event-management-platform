@@ -57,6 +57,13 @@ from app.models.expo_booth import ExpoBooth, BoothTier
 # Virtual event models
 from app.models.virtual_attendance import VirtualAttendance
 
+# Session reminder models
+from app.models.session_reminder import SessionReminder
+
+# Email preference models
+from app.models.email_preference import EmailPreference
+from app.models.pre_event_email import PreEventEmail
+
 __all__ = [
     "Base",
     "Event",
@@ -104,4 +111,7 @@ __all__ = [
     "ExpoBooth",
     "BoothTier",
     "VirtualAttendance",
+    "SessionReminder",
+    "EmailPreference",
+    "PreEventEmail",
 ]

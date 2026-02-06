@@ -36,3 +36,6 @@ from .crud_sponsor import (
 
 # Virtual event CRUD operations
 from .crud_virtual_attendance import virtual_attendance
+
+# Session reminder CRUD operations
+from .crud_session_reminder import session_reminder
