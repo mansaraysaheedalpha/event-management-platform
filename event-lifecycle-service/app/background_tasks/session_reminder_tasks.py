@@ -96,7 +96,7 @@ def generate_magic_link(
                     "registrationId": registration_id,
                     "sessionEndTime": session_end.isoformat(),
                 },
-                headers={"X-API-Key": settings.INTERNAL_API_KEY},
+                headers={"x-internal-api-key": settings.INTERNAL_API_KEY},
             )
 
             if response.status_code == 200:
@@ -140,7 +140,7 @@ def fetch_user_info(user_id: str) -> dict | None:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(
                 f"{settings.USER_SERVICE_URL}/internal/users/{user_id}",
-                headers={"X-API-Key": settings.INTERNAL_API_KEY},
+                headers={"x-internal-api-key": settings.INTERNAL_API_KEY},
             )
 
             if response.status_code == 200:
