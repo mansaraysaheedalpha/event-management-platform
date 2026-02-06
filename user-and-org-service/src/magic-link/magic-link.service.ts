@@ -160,9 +160,9 @@ export class MagicLinkService {
     await this.redis.sadd(regKey, jti);
     await this.redis.expire(regKey, ttlSeconds);
 
-    // Build the magic link URL
+    // Build the magic link URL - points to /join/{sessionId} page
     const frontendUrl = (this.configService.get('FRONTEND_URL') || '').split(',')[0].trim();
-    const url = `${frontendUrl}/auth/magic-link?token=${token}`;
+    const url = `${frontendUrl}/join/${sessionId}?token=${token}`;
 
     // Audit log
     await this.auditService.log({

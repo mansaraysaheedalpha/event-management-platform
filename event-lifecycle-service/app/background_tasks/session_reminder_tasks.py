@@ -389,11 +389,16 @@ def retry_failed_reminders():
         for reminder in failed:
             # Check if session hasn't started yet (no point sending after)
             session = reminder.session
-            if session and session.start_time < datetime.now(timezone.utc):
-                logger.debug(
-                    f"Skipping retry for reminder {reminder.id} - session already started"
-                )
-                continue
+            if session and session.start_time:
+                # Ensure timezone-aware comparison
+                start_time = session.start_time
+                if start_time.tzinfo is None:
+                    start_time = start_time.replace(tzinfo=timezone.utc)
+                if start_time < datetime.now(timezone.utc):
+                    logger.debug(
+                        f"Skipping retry for reminder {reminder.id} - session already started"
+                    )
+                    continue
 
             # Reset status to QUEUED for retry
             reminder.email_status = "QUEUED"
