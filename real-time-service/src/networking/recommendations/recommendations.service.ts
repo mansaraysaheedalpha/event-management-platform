@@ -778,7 +778,16 @@ export class RecommendationsService {
       where: { id: recommendationId },
     });
 
-    if (!rec || rec.userId !== userId) {
+    if (!rec) {
+      this.logger.warn(`markViewed: Recommendation ${recommendationId} not found in DB`);
+      throw new NotFoundException('Recommendation not found');
+    }
+
+    if (rec.userId !== userId) {
+      this.logger.warn(
+        `markViewed: userId mismatch for rec ${recommendationId} - ` +
+        `JWT user: ${userId}, rec owner: ${rec.userId}`,
+      );
       throw new NotFoundException('Recommendation not found');
     }
 
@@ -811,7 +820,16 @@ export class RecommendationsService {
       where: { id: recommendationId },
     });
 
-    if (!rec || rec.userId !== userId) {
+    if (!rec) {
+      this.logger.warn(`markPinged: Recommendation ${recommendationId} not found in DB`);
+      throw new NotFoundException('Recommendation not found');
+    }
+
+    if (rec.userId !== userId) {
+      this.logger.warn(
+        `markPinged: userId mismatch for rec ${recommendationId} - ` +
+        `JWT user: ${userId}, rec owner: ${rec.userId}`,
+      );
       throw new NotFoundException('Recommendation not found');
     }
 

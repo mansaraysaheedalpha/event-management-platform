@@ -5,6 +5,7 @@ Provides intelligent matching based on semantic understanding of profiles,
 goals compatibility, and skills complementarity.
 """
 
+import asyncio
 import json
 import logging
 from typing import List, Optional
@@ -113,8 +114,13 @@ Rules:
     try:
         print(f"[LLM MATCHMAKER] Starting LLM matching for user {primary_user.user_id} with {len(candidates)} candidates")
 
-        limiter = await get_llm_limiter()
-        await limiter.acquire()
+        # Wrap rate limiter acquisition with a timeout to prevent deadlocks
+        try:
+            limiter = await asyncio.wait_for(get_llm_limiter(), timeout=10.0)
+            await asyncio.wait_for(limiter.acquire(), timeout=10.0)
+        except asyncio.TimeoutError:
+            print("[LLM MATCHMAKER] Timed out acquiring rate limiter, using fallback")
+            return None
         print("[LLM MATCHMAKER] Rate limiter acquired")
 
         breaker = get_anthropic_breaker()
@@ -239,8 +245,12 @@ Return ONLY a JSON array of strings (no markdown, no explanation):
     try:
         print(f"[LLM STARTERS] Generating starters for {user1_id} → {user2_id}")
 
-        limiter = await get_llm_limiter()
-        await limiter.acquire()
+        try:
+            limiter = await asyncio.wait_for(get_llm_limiter(), timeout=10.0)
+            await asyncio.wait_for(limiter.acquire(), timeout=10.0)
+        except asyncio.TimeoutError:
+            print("[LLM STARTERS] Timed out acquiring rate limiter, using fallback")
+            return None
 
         breaker = get_anthropic_breaker()
 

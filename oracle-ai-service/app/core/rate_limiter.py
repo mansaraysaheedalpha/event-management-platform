@@ -306,6 +306,10 @@ _tavily_limiter: Optional[TokenBucketRateLimiter] = None
 _github_limiter: Optional[TokenBucketRateLimiter] = None
 _llm_limiter: Optional[TokenBucketRateLimiter] = None
 _user_enrichment_limiter: Optional[UserRateLimiter] = None
+# IMPORTANT: Separate locks to avoid deadlock.
+# Limiter getters hold _limiter_lock and call get_redis_client(),
+# so get_redis_client() must NOT use _limiter_lock.
+_redis_init_lock = asyncio.Lock()
 _limiter_lock = asyncio.Lock()
 
 
@@ -316,7 +320,7 @@ async def get_redis_client() -> Optional[aioredis.Redis]:
     if _redis_client_initialized:
         return _redis_client
 
-    async with _limiter_lock:
+    async with _redis_init_lock:
         # Double-check after acquiring lock
         if _redis_client_initialized:
             return _redis_client
@@ -348,11 +352,13 @@ async def get_tavily_limiter() -> TokenBucketRateLimiter:
     if _tavily_limiter is not None:
         return _tavily_limiter
 
+    # Resolve Redis BEFORE acquiring limiter lock to avoid contention
+    redis_client = await get_redis_client()
+
     async with _limiter_lock:
         if _tavily_limiter is not None:
             return _tavily_limiter
 
-        redis_client = await get_redis_client()
         _tavily_limiter = TokenBucketRateLimiter(
             name="tavily",
             rate_limit=settings.TAVILY_RATE_LIMIT,
@@ -369,11 +375,13 @@ async def get_github_limiter() -> TokenBucketRateLimiter:
     if _github_limiter is not None:
         return _github_limiter
 
+    # Resolve Redis BEFORE acquiring limiter lock to avoid contention
+    redis_client = await get_redis_client()
+
     async with _limiter_lock:
         if _github_limiter is not None:
             return _github_limiter
 
-        redis_client = await get_redis_client()
         _github_limiter = TokenBucketRateLimiter(
             name="github",
             rate_limit=settings.GITHUB_RATE_LIMIT,
@@ -390,11 +398,13 @@ async def get_llm_limiter() -> TokenBucketRateLimiter:
     if _llm_limiter is not None:
         return _llm_limiter
 
+    # Resolve Redis BEFORE acquiring limiter lock to avoid contention
+    redis_client = await get_redis_client()
+
     async with _limiter_lock:
         if _llm_limiter is not None:
             return _llm_limiter
 
-        redis_client = await get_redis_client()
         _llm_limiter = TokenBucketRateLimiter(
             name="llm",
             rate_limit=settings.LLM_RATE_LIMIT,
@@ -411,11 +421,13 @@ async def get_user_enrichment_limiter() -> UserRateLimiter:
     if _user_enrichment_limiter is not None:
         return _user_enrichment_limiter
 
+    # Resolve Redis BEFORE acquiring limiter lock to avoid contention
+    redis_client = await get_redis_client()
+
     async with _limiter_lock:
         if _user_enrichment_limiter is not None:
             return _user_enrichment_limiter
 
-        redis_client = await get_redis_client()
         _user_enrichment_limiter = UserRateLimiter(
             name="enrichment",
             rate_limit=settings.USER_ENRICHMENT_RATE_LIMIT,
