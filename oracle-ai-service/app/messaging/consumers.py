@@ -23,21 +23,36 @@ TOPIC_NETWORKING_SUGGESTIONS = "oracle.predictions.networking-suggestions"
 TOPIC_SUCCESS_INSIGHTS = "oracle.predictions.success-insights"
 
 
+def get_kafka_config():
+    """Get Kafka configuration with SASL authentication if configured."""
+    config = {
+        'bootstrap_servers': settings.KAFKA_BOOTSTRAP_SERVERS,
+    }
+
+    # Add SASL authentication for Confluent Cloud
+    if settings.KAFKA_API_KEY and settings.KAFKA_API_SECRET:
+        config.update({
+            'security_protocol': settings.KAFKA_SECURITY_PROTOCOL,
+            'sasl_mechanism': settings.KAFKA_SASL_MECHANISM,
+            'sasl_plain_username': settings.KAFKA_API_KEY,
+            'sasl_plain_password': settings.KAFKA_API_SECRET,
+        })
+
+    return config
+
+
 def create_producer():
-    """Creates a Kafka producer instance."""
-    return KafkaProducer(
-        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
-    )
+    """Creates a Kafka producer instance with authentication."""
+    config = get_kafka_config()
+    config['value_serializer'] = lambda v: json.dumps(v, default=str).encode("utf-8")
+    return KafkaProducer(**config)
 
 
 def listen_for_chat_messages():
     """Listens for chat messages, analyzes them, and publishes sentiment."""
-    consumer = KafkaConsumer(
-        TOPIC_CHAT_MESSAGES,
-        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-    )
+    config = get_kafka_config()
+    config['value_deserializer'] = lambda v: json.loads(v.decode("utf-8"))
+    consumer = KafkaConsumer(TOPIC_CHAT_MESSAGES, **config)
     producer = create_producer()
     print(f"--> Consumer started for topic: {TOPIC_CHAT_MESSAGES}")
     for message in consumer:
@@ -55,7 +70,9 @@ def listen_for_chat_messages():
 
 def listen_for_interactions():
     """Listens for user interactions and publishes engagement predictions."""
-    consumer = KafkaConsumer(TOPIC_USER_INTERACTIONS, ...)
+    config = get_kafka_config()
+    config['value_deserializer'] = lambda v: json.loads(v.decode("utf-8"))
+    consumer = KafkaConsumer(TOPIC_USER_INTERACTIONS, **config)
     producer = create_producer()
     print(f"--> Consumer started for topic: {TOPIC_USER_INTERACTIONS}")
     for message in consumer:
@@ -74,7 +91,9 @@ def listen_for_interactions():
 
 def listen_for_attendance():
     """Listens for attendance data and publishes capacity forecasts."""
-    consumer = KafkaConsumer(TOPIC_ATTENDANCE_DATA, ...)
+    config = get_kafka_config()
+    config['value_deserializer'] = lambda v: json.loads(v.decode("utf-8"))
+    consumer = KafkaConsumer(TOPIC_ATTENDANCE_DATA, **config)
     producer = create_producer()
     print(f"--> Consumer started for topic: {TOPIC_ATTENDANCE_DATA}")
     for message in consumer:
@@ -93,7 +112,9 @@ def listen_for_attendance():
 
 def listen_for_feedback():
     """Listens for session feedback and publishes success insights."""
-    consumer = KafkaConsumer(TOPIC_SESSION_FEEDBACK, ...)
+    config = get_kafka_config()
+    config['value_deserializer'] = lambda v: json.loads(v.decode("utf-8"))
+    consumer = KafkaConsumer(TOPIC_SESSION_FEEDBACK, **config)
     producer = create_producer()
     print(f"--> Consumer started for topic: {TOPIC_SESSION_FEEDBACK}")
     for message in consumer:
@@ -112,7 +133,9 @@ def listen_for_feedback():
 
 def listen_for_connections():
     """Listens for new network connections and publishes new suggestions."""
-    consumer = KafkaConsumer(TOPIC_NETWORK_CONNECTIONS, ...)
+    config = get_kafka_config()
+    config['value_deserializer'] = lambda v: json.loads(v.decode("utf-8"))
+    consumer = KafkaConsumer(TOPIC_NETWORK_CONNECTIONS, **config)
     producer = create_producer()
     print(f"--> Consumer started for topic: {TOPIC_NETWORK_CONNECTIONS}")
     for message in consumer:

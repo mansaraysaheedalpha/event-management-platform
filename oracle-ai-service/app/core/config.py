@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     # Core Services
     KAFKA_BOOTSTRAP_SERVERS: str = "kafka:9092"
+    KAFKA_API_KEY: Optional[str] = None
+    KAFKA_API_SECRET: Optional[str] = None
+    KAFKA_SECURITY_PROTOCOL: str = "PLAINTEXT"
+    KAFKA_SASL_MECHANISM: str = "PLAIN"
     REDIS_URL: str = "redis://redis:6379"
 
     # Database
