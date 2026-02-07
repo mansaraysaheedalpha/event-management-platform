@@ -146,6 +146,8 @@ model UserReference {
   linkedInRefreshToken      String?
   linkedInTokenExpiresAt    DateTime?
 
+  // Relations
+  profile                   UserProfile?
   messages                  Message[]
   questions                 Question[]
   questionUpvotes           QuestionUpvote[]
@@ -771,6 +773,7 @@ model HuddleParticipant {
 model UserProfile {
   id                String   @id @default(cuid())
   userId            String   @unique
+  user              UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // From registration (required)
   interests         String[]
