@@ -40,11 +40,29 @@ class SessionFeedbackPayload(BaseModel):
     comment: Optional[str] = None
 
 
+class CandidateUserProfile(BaseModel):
+    """User profile for matchmaking candidates"""
+    user_id: str
+    name: str
+    interests: List[str]
+    role: Optional[str] = None
+    company: Optional[str] = None
+    industry: Optional[str] = None
+    goals: List[str] = []
+    skills_to_offer: List[str] = []
+    skills_needed: List[str] = []
+    bio: Optional[str] = None
+    headline: Optional[str] = None
+
+
 class NetworkConnectionPayload(BaseModel):
     connectionId: str
     eventId: str
     user1_id: str  # Simplified from the spec for this example
     user2_id: str  # Simplified from the spec for this example
+    # Optional enrichment: candidates for generating suggestions
+    user1_profile: Optional[CandidateUserProfile] = None
+    candidates: Optional[List[CandidateUserProfile]] = None
 
 
 # --- Output (Prediction) Schemas ---

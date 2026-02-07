@@ -117,15 +117,25 @@ def listen_for_connections():
     for message in consumer:
         try:
             connection_data = NetworkConnectionPayload(**message.value)
-            prediction = service.process_network_connection(connection_data)
-            producer.send(
-                TOPIC_NETWORKING_SUGGESTIONS, value=prediction.model_dump(mode="json")
-            )
-            print(
-                f"    Published networking suggestion for user: {connection_data.user1_id}"
-            )
+            # Process connection asynchronously (uses AI matchmaking)
+            prediction = asyncio.run(service.process_network_connection(connection_data))
+
+            # Only publish if we have a real suggestion (non-empty suggestedUserId)
+            if prediction.suggestedUserId:
+                producer.send(
+                    TOPIC_NETWORKING_SUGGESTIONS, value=prediction.model_dump(mode="json")
+                )
+                print(
+                    f"    Published networking suggestion for user: {connection_data.user1_id}"
+                )
+            else:
+                print(
+                    f"    Skipped suggestion for user {connection_data.user1_id} (no candidates)"
+                )
         except ValidationError as e:
             print(f"ERROR on {TOPIC_NETWORK_CONNECTIONS}: Malformed message - {e}")
+        except Exception as e:
+            print(f"ERROR on {TOPIC_NETWORK_CONNECTIONS}: Processing failed - {e}")
 
 
 def run_all_consumers():

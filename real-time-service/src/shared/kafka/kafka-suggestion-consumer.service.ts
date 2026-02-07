@@ -170,6 +170,14 @@ export class KafkaSuggestionConsumerService
         `Received suggestion for user ${payload.recipientUserId}`,
       );
 
+      // Skip if no real suggestion (empty suggestedUserId)
+      if (!payload.suggestedUserId) {
+        this.logger.debug(
+          `Skipping empty suggestion for user ${payload.recipientUserId}`,
+        );
+        return;
+      }
+
       // Enrich with user data and emit event
       const enrichedPayload = await this.enrichAndTransform(payload);
       this.eventEmitter.emit('ai-suggestions', enrichedPayload);

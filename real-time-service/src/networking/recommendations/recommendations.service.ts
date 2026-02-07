@@ -875,16 +875,92 @@ export class RecommendationsService {
     await this.invalidateCache(userId, rec.eventId);
 
     // Trigger Oracle AI to generate new suggestions based on this connection
-    this.kafkaService
-      .sendNetworkConnectionEvent({
-        connectionId: recommendationId,
-        eventId: rec.eventId,
-        user1_id: userId,
-        user2_id: rec.recommendedUserId,
-      })
-      .catch((err) =>
-        this.logger.error('Failed to publish network connection event:', err),
+    // Enrich with user profile and candidates for AI-powered suggestions
+    this.enrichAndPublishConnectionEvent(
+      recommendationId,
+      rec.eventId,
+      userId,
+      rec.recommendedUserId,
+    ).catch((err) =>
+      this.logger.error('Failed to publish network connection event:', err),
+    );
+  }
+
+  /**
+   * Fetch user profile and candidates, then publish enriched network connection event
+   * for AI-powered suggestion generation
+   */
+  private async enrichAndPublishConnectionEvent(
+    connectionId: string,
+    eventId: string,
+    user1Id: string,
+    user2Id: string,
+  ): Promise<void> {
+    try {
+      // Fetch user1's profile
+      const user1ProfileData = await this.getUserProfileData(user1Id);
+
+      // Fetch event candidates (exclude both user1 and user2)
+      const candidateData = await this.getEventCandidates(eventId, user1Id);
+      const filteredCandidates = candidateData.filter(
+        (c) => c.id !== user2Id, // Exclude the user they just connected with
       );
+
+      // Build enriched Kafka payload
+      const user1_profile = user1ProfileData
+        ? {
+            user_id: user1ProfileData.id,
+            name: user1ProfileData.name,
+            interests: user1ProfileData.interests,
+            role: user1ProfileData.role,
+            company: user1ProfileData.company,
+            industry: user1ProfileData.industry,
+            goals: user1ProfileData.goals,
+            skills_to_offer: user1ProfileData.skillsToOffer,
+            skills_needed: user1ProfileData.skillsNeeded,
+            bio: user1ProfileData.bio,
+            headline: user1ProfileData.linkedInHeadline,
+          }
+        : undefined;
+
+      const candidates = filteredCandidates.map((c) => ({
+        user_id: c.id,
+        name: c.name,
+        interests: c.interests,
+        role: c.role,
+        company: c.company,
+        industry: c.industry,
+        goals: c.goals,
+        skills_to_offer: c.skillsToOffer,
+        skills_needed: c.skillsNeeded,
+        bio: c.bio,
+        headline: c.linkedInHeadline,
+      }));
+
+      await this.kafkaService.sendNetworkConnectionEvent({
+        connectionId,
+        eventId,
+        user1_id: user1Id,
+        user2_id: user2Id,
+        user1_profile,
+        candidates: candidates.length > 0 ? candidates : undefined,
+      });
+
+      this.logger.log(
+        `Published enriched network connection event for ${user1Id} with ${candidates.length} candidates`,
+      );
+    } catch (error) {
+      // If enrichment fails, send basic event without enrichment
+      this.logger.warn(
+        `Failed to enrich network connection event, sending basic event: ${error.message}`,
+      );
+      await this.kafkaService.sendNetworkConnectionEvent({
+        connectionId,
+        eventId,
+        user1_id: user1Id,
+        user2_id: user2Id,
+      });
+    }
   }
 
   /**

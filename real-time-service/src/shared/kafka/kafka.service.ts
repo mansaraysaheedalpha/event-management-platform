@@ -53,11 +53,28 @@ export interface LeadInteractionEvent {
 
 // Network connection event - triggers Oracle AI to generate new suggestions
 // Matches NetworkConnectionPayload from oracle-ai-service/app/schemas/messaging.py
+export interface CandidateUserProfile {
+  user_id: string;
+  name: string;
+  interests: string[];
+  role?: string;
+  company?: string;
+  industry?: string;
+  goals?: string[];
+  skills_to_offer?: string[];
+  skills_needed?: string[];
+  bio?: string;
+  headline?: string;
+}
+
 export interface NetworkConnectionEvent {
   connectionId: string;
   eventId: string;
   user1_id: string;
   user2_id: string;
+  // Optional enrichment for AI suggestion generation
+  user1_profile?: CandidateUserProfile;
+  candidates?: CandidateUserProfile[];
 }
 
 // Giveaway event types
