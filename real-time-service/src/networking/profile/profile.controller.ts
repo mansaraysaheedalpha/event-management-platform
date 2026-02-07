@@ -6,6 +6,7 @@ import {
   Body,
   UseGuards,
   Req,
+  Param,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -67,6 +68,19 @@ export class ProfileController {
     @Req() req: AuthenticatedRequest,
   ): Promise<ProfileResponseDto> {
     const userId = req.user.sub;
+    return this.profileService.getProfile(userId);
+  }
+
+  /**
+   * Get any user's profile by ID.
+   *
+   * Allows viewing other attendees' profiles at events.
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get('user/:userId')
+  async getUserProfile(
+    @Param('userId') userId: string,
+  ): Promise<ProfileResponseDto> {
     return this.profileService.getProfile(userId);
   }
 
