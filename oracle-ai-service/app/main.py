@@ -1,5 +1,6 @@
 # oracle-ai-service/main.py
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,6 +9,7 @@ from app.db import models, seed
 from app.features import api
 from app.graphql.router import graphql_router
 from app.models.ai import sentiment
+from app.messaging.consumers import run_all_consumers
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,12 @@ async def lifespan(app: FastAPI):
     logger.info("Oracle AI Service starting up...")
     seed.seed_database()
     logger.info("Database seeded successfully")
+
+    # Start Kafka consumers in background thread
+    logger.info("Starting Kafka consumers...")
+    consumer_thread = threading.Thread(target=run_all_consumers, daemon=True)
+    consumer_thread.start()
+    logger.info("Kafka consumers started in background thread")
 
     yield
 

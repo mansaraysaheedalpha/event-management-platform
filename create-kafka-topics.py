@@ -176,40 +176,40 @@ def create_topics():
     """Create all required Kafka topics, skipping ones that already exist."""
 
     print("=" * 80)
-    print("🚀 Kafka Topics Auto-Creation Script")
+    print(">> Kafka Topics Auto-Creation Script")
     print("=" * 80)
     print()
 
     # Initialize Kafka Admin Client
-    print("📡 Connecting to Confluent Cloud...")
+    print(">> Connecting to Confluent Cloud...")
     try:
         admin_client = AdminClient(KAFKA_CONFIG)
         # Test connection by listing topics
         metadata = admin_client.list_topics(timeout=10)
-        print(f"✅ Connected successfully to {KAFKA_CONFIG['bootstrap.servers']}")
+        print(f"[OK] Connected successfully to {KAFKA_CONFIG['bootstrap.servers']}")
         print()
     except Exception as e:
-        print(f"❌ Failed to connect to Kafka: {e}")
+        print(f"[ERROR] Failed to connect to Kafka: {e}")
         sys.exit(1)
 
     # Get existing topics
-    print("🔍 Fetching existing topics...")
+    print(">> Fetching existing topics...")
     existing_topics = set(metadata.topics.keys())
-    print(f"✅ Found {len(existing_topics)} existing topics")
+    print(f"[OK] Found {len(existing_topics)} existing topics")
     print()
 
     # Prepare topics to create
     topics_to_create = []
     topics_skipped = []
 
-    print("📋 Analyzing topics...")
+    print(">> Analyzing topics...")
     print("-" * 80)
 
     for topic_config in TOPICS:
         topic_name = topic_config['name']
         if topic_name in existing_topics:
             topics_skipped.append(topic_name)
-            print(f"⏭️  SKIP: {topic_name} (already exists)")
+            print(f"[SKIP] {topic_name} (already exists)")
         else:
             new_topic = NewTopic(
                 topic=topic_name,
@@ -221,27 +221,27 @@ def create_topics():
                 }
             )
             topics_to_create.append(new_topic)
-            print(f"➕ CREATE: {topic_name}")
-            print(f"   └─ {topic_config['description']}")
+            print(f"[CREATE] {topic_name}")
+            print(f"         {topic_config['description']}")
 
     print("-" * 80)
     print()
 
     # Summary
-    print(f"📊 Summary:")
-    print(f"   • Total topics defined: {len(TOPICS)}")
-    print(f"   • Already exist (skipped): {len(topics_skipped)}")
-    print(f"   • Will be created: {len(topics_to_create)}")
+    print(f">> Summary:")
+    print(f"   - Total topics defined: {len(TOPICS)}")
+    print(f"   - Already exist (skipped): {len(topics_skipped)}")
+    print(f"   - Will be created: {len(topics_to_create)}")
     print()
 
     # Create topics if any
     if not topics_to_create:
-        print("✅ All topics already exist! Nothing to create.")
+        print("[OK] All topics already exist! Nothing to create.")
         print()
         print("=" * 80)
         return
 
-    print("🔨 Creating topics...")
+    print(">> Creating topics...")
     print("-" * 80)
 
     # Create topics asynchronously
@@ -254,18 +254,18 @@ def create_topics():
     for topic, future in fs.items():
         try:
             future.result()  # Block until topic is created
-            print(f"✅ Created: {topic}")
+            print(f"[OK] Created: {topic}")
             success_count += 1
         except KafkaException as e:
             error_code = e.args[0].code()
             if error_code == 36:  # TOPIC_ALREADY_EXISTS
-                print(f"⚠️  {topic} already exists (race condition)")
+                print(f"[WARN] {topic} already exists (race condition)")
                 success_count += 1
             else:
-                print(f"❌ Failed to create {topic}: {e}")
+                print(f"[ERROR] Failed to create {topic}: {e}")
                 failed_count += 1
         except Exception as e:
-            print(f"❌ Failed to create {topic}: {e}")
+            print(f"[ERROR] Failed to create {topic}: {e}")
             failed_count += 1
 
     print("-" * 80)
@@ -273,11 +273,11 @@ def create_topics():
 
     # Final summary
     print("=" * 80)
-    print("🎉 Topic Creation Complete!")
+    print(">> Topic Creation Complete!")
     print("=" * 80)
-    print(f"✅ Successfully created: {success_count} topics")
+    print(f"[OK] Successfully created: {success_count} topics")
     if failed_count > 0:
-        print(f"❌ Failed: {failed_count} topics")
+        print(f"[ERROR] Failed: {failed_count} topics")
     print()
 
     # Critical topics check
@@ -286,27 +286,27 @@ def create_topics():
         'oracle.predictions.networking-suggestions',
     ]
 
-    print("🔐 Verifying critical topics for suggestions feature...")
+    print(">> Verifying critical topics for suggestions feature...")
     metadata = admin_client.list_topics(timeout=10)
     current_topics = set(metadata.topics.keys())
 
     all_critical_exist = all(topic in current_topics for topic in critical_topics)
 
     if all_critical_exist:
-        print("✅ All critical topics exist!")
-        print("   • real-time.network.connections")
-        print("   • oracle.predictions.networking-suggestions")
+        print("[OK] All critical topics exist!")
+        print("     - real-time.network.connections")
+        print("     - oracle.predictions.networking-suggestions")
         print()
-        print("🚀 Your suggestions feature should now work!")
+        print("[SUCCESS] Your suggestions feature should now work!")
     else:
-        print("⚠️  Some critical topics are missing:")
+        print("[WARN] Some critical topics are missing:")
         for topic in critical_topics:
             if topic not in current_topics:
-                print(f"   ❌ {topic}")
+                print(f"        [X] {topic}")
 
     print()
     print("=" * 80)
-    print("📝 Next Steps:")
+    print(">> Next Steps:")
     print("   1. Verify topics in Confluent Cloud Console")
     print("   2. Check ACL permissions for your API key")
     print("   3. Test the Connect button in your app")
@@ -318,10 +318,10 @@ if __name__ == '__main__':
     try:
         create_topics()
     except KeyboardInterrupt:
-        print("\n\n⚠️  Script interrupted by user")
+        print("\n\n[WARN] Script interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n\n❌ Unexpected error: {e}")
+        print(f"\n\n[ERROR] Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
