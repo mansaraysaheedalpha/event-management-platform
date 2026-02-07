@@ -2,6 +2,7 @@
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AiSuggestionPayload, SuggestionsGateway } from './suggestions.gateway';
+import { KafkaSuggestionConsumerService } from 'src/shared/kafka/kafka-suggestion-consumer.service';
 
 @Injectable()
 export class SuggestionsService {
@@ -10,7 +11,13 @@ export class SuggestionsService {
   constructor(
     @Inject(forwardRef(() => SuggestionsGateway))
     private readonly suggestionsGateway: SuggestionsGateway,
-  ) {}
+    // Inject Kafka consumer to ensure it gets instantiated
+    private readonly kafkaConsumer: KafkaSuggestionConsumerService,
+  ) {
+    this.logger.log(
+      `Kafka consumer active: ${this.kafkaConsumer.isActive()}`,
+    );
+  }
 
   @OnEvent('ai-suggestions')
   handleAiSuggestion(payload: AiSuggestionPayload) {
