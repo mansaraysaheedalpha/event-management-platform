@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "npx @nestjs/cli build",
+    "migrate:resolve-failed": "bash scripts/resolve-failed-migrations.sh",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
