@@ -4,9 +4,8 @@ import random
 import asyncio
 from datetime import datetime, timezone
 from app.schemas.messaging import *
-from app.features.networking.schemas import MatchmakingRequest, UserProfile
+from app.features.networking.schemas import MatchmakingRequest, ConversationStarterRequest
 from app.features.networking.service import get_networking_matches, get_conversation_starters
-from app.features.networking.schemas import ConversationStarterRequest
 
 
 def process_user_interaction(
@@ -104,7 +103,7 @@ async def process_network_connection(
         )
 
     # Convert to matchmaking request format
-    primary_user = UserProfile(
+    primary_user = MatchmakingRequest.UserProfile(
         user_id=connection.user1_profile.user_id,
         interests=connection.user1_profile.interests,
         name=connection.user1_profile.name,
@@ -119,7 +118,7 @@ async def process_network_connection(
     )
 
     candidate_profiles = [
-        UserProfile(
+        MatchmakingRequest.UserProfile(
             user_id=c.user_id,
             interests=c.interests,
             name=c.name,
