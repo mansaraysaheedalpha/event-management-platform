@@ -1,4 +1,10 @@
 # requirements.txt
+# =============================================================================
+# CRITICAL: Use CPU-only PyTorch to avoid installing 15+ CUDA packages
+# This saves 6-10 minutes on Render deployments
+# =============================================================================
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core FastAPI
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
@@ -19,7 +25,7 @@ httpx>=0.28.0
 # Messaging
 kafka-python-ng>=2.2.0
 
-# AI/ML Core
+# AI/ML Core (will use CPU-only versions from index above)
 transformers>=4.47.0
 torch>=2.1.0
 numpy>=1.26.0
