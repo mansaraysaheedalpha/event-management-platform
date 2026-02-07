@@ -137,29 +137,37 @@ def listen_for_connections():
     config['value_deserializer'] = lambda v: json.loads(v.decode("utf-8"))
     consumer = KafkaConsumer(TOPIC_NETWORK_CONNECTIONS, **config)
     producer = create_producer()
-    print(f"--> Consumer started for topic: {TOPIC_NETWORK_CONNECTIONS}")
-    for message in consumer:
-        try:
-            connection_data = NetworkConnectionPayload(**message.value)
-            # Process connection asynchronously (uses AI matchmaking)
-            prediction = asyncio.run(service.process_network_connection(connection_data))
 
-            # Only publish if we have a real suggestion (non-empty suggestedUserId)
-            if prediction.suggestedUserId:
-                producer.send(
-                    TOPIC_NETWORKING_SUGGESTIONS, value=prediction.model_dump(mode="json")
-                )
-                print(
-                    f"    Published networking suggestion for user: {connection_data.user1_id}"
-                )
-            else:
-                print(
-                    f"    Skipped suggestion for user {connection_data.user1_id} (no candidates)"
-                )
-        except ValidationError as e:
-            print(f"ERROR on {TOPIC_NETWORK_CONNECTIONS}: Malformed message - {e}")
-        except Exception as e:
-            print(f"ERROR on {TOPIC_NETWORK_CONNECTIONS}: Processing failed - {e}")
+    # Create and set event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    print(f"--> Consumer started for topic: {TOPIC_NETWORK_CONNECTIONS}")
+    try:
+        for message in consumer:
+            try:
+                connection_data = NetworkConnectionPayload(**message.value)
+                # Process connection asynchronously (uses AI matchmaking)
+                prediction = loop.run_until_complete(service.process_network_connection(connection_data))
+
+                # Only publish if we have a real suggestion (non-empty suggestedUserId)
+                if prediction.suggestedUserId:
+                    producer.send(
+                        TOPIC_NETWORKING_SUGGESTIONS, value=prediction.model_dump(mode="json")
+                    )
+                    print(
+                        f"    Published networking suggestion for user: {connection_data.user1_id}"
+                    )
+                else:
+                    print(
+                        f"    Skipped suggestion for user {connection_data.user1_id} (no candidates)"
+                    )
+            except ValidationError as e:
+                print(f"ERROR on {TOPIC_NETWORK_CONNECTIONS}: Malformed message - {e}")
+            except Exception as e:
+                print(f"ERROR on {TOPIC_NETWORK_CONNECTIONS}: Processing failed - {e}")
+    finally:
+        loop.close()
 
 
 def run_all_consumers():
