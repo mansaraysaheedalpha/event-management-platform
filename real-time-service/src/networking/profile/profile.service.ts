@@ -85,6 +85,17 @@ export class ProfileService {
   async getProfile(userId: string): Promise<ProfileResponseDto> {
     const profile = await this.prisma.userProfile.findUnique({
       where: { userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            avatarUrl: true,
+          },
+        },
+      },
     });
 
     if (!profile) {
@@ -171,13 +182,27 @@ export class ProfileService {
    * Map database entity to response DTO
    */
   private mapToResponse(profile: any): ProfileResponseDto {
+    // Extract user info from joined UserReference
+    const userName = profile.user
+      ? `${profile.user.firstName || ''} ${profile.user.lastName || ''}`.trim()
+      : undefined;
+
     return {
       id: profile.id,
       userId: profile.userId,
+      // User identity from UserReference
+      name: userName || undefined,
+      email: profile.user?.email || undefined,
+      avatarUrl: profile.user?.avatarUrl || undefined,
+      // Profile data from UserProfile
       goals: profile.goals || [],
       interests: profile.interests || [],
       bio: profile.bio,
+      role: profile.currentRole, // Alias for frontend compatibility
+      currentRole: profile.currentRole,
+      company: profile.company,
       industry: profile.industry,
+      experienceLevel: profile.experienceLevel,
       skillsToOffer: profile.skillsToOffer || [],
       skillsNeeded: profile.skillsNeeded || [],
       linkedInUrl: profile.linkedInUrl,

@@ -135,9 +135,15 @@ export class CreateProfileDto {
 export class ProfileResponseDto {
   id: string;
   userId: string;
+  // User identity fields (from UserReference)
+  name?: string;
+  email?: string;
+  avatarUrl?: string;
+  // Profile fields (from UserProfile)
   goals: string[];
   interests: string[];
   bio?: string;
+  role?: string; // Alias for currentRole
   currentRole?: string;
   company?: string;
   industry?: string;
