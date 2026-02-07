@@ -900,10 +900,21 @@ export class RecommendationsService {
       // Fetch user1's profile
       const user1ProfileData = await this.getUserProfileData(user1Id);
 
-      // Fetch event candidates (exclude both user1 and user2)
+      // Fetch ALL already-connected users to exclude from candidates
+      const connectedRecs = await this.prisma.recommendation.findMany({
+        where: { userId: user1Id, eventId, connected: true },
+        select: { recommendedUserId: true },
+      });
+      const connectedUserIds = new Set(
+        connectedRecs.map((r) => r.recommendedUserId),
+      );
+
+      // Fetch event candidates (exclude user1)
       const candidateData = await this.getEventCandidates(eventId, user1Id);
+
+      // Filter out: 1) user they just connected with, 2) ALL previously connected users
       const filteredCandidates = candidateData.filter(
-        (c) => c.id !== user2Id, // Exclude the user they just connected with
+        (c) => c.id !== user2Id && !connectedUserIds.has(c.id),
       );
 
       // Build enriched Kafka payload
@@ -947,7 +958,7 @@ export class RecommendationsService {
       });
 
       this.logger.log(
-        `Published enriched network connection event for ${user1Id} with ${candidates.length} candidates`,
+        `Published enriched network connection event for ${user1Id} with ${candidates.length} candidates (excluded ${connectedUserIds.size} already-connected users)`,
       );
     } catch (error) {
       // If enrichment fails, send basic event without enrichment
