@@ -240,6 +240,16 @@ class SessionType:
         return root.polls_open
 
     @strawberry.field
+    def reactionsEnabled(self, root: SessionModel) -> bool:
+        """Whether emoji reactions are enabled for this session."""
+        return getattr(root, "reactions_enabled", True)
+
+    @strawberry.field
+    def reactionsOpen(self, root: SessionModel) -> bool:
+        """Whether emoji reactions are currently open for this session (runtime control)."""
+        return getattr(root, "reactions_open", False)
+
+    @strawberry.field
     def breakoutEnabled(self, root: SessionModel) -> bool:
         """Whether breakout rooms are enabled for this session."""
         return getattr(root, "breakout_enabled", False)
@@ -333,6 +343,18 @@ class SessionType:
     def greenRoomNotes(self, root: SessionModel) -> Optional[str]:
         """Producer notes visible in green room."""
         return getattr(root, "green_room_notes", None)
+
+    # ==== AUTO CAPTIONS & LOBBY ====
+
+    @strawberry.field
+    def autoCaptions(self, root: SessionModel) -> bool:
+        """Whether AI auto-captions are enabled."""
+        return getattr(root, "auto_captions", False)
+
+    @strawberry.field
+    def lobbyEnabled(self, root: SessionModel) -> bool:
+        """Whether lobby/waiting room is shown before session starts."""
+        return getattr(root, "lobby_enabled", False)
 
     @strawberry.field
     def greenRoomOpen(self, root: SessionModel) -> bool:

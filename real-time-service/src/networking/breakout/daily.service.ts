@@ -38,6 +38,7 @@ export class DailyService {
     name: string;
     maxParticipants?: number;
     expiryMinutes?: number;
+    enableRecording?: boolean;
   }): Promise<DailyRoom | null> {
     if (!this.apiKey) {
       this.logger.warn('Cannot create room - DAILY_API_KEY not configured');
@@ -66,6 +67,7 @@ export class DailyService {
             max_participants: options.maxParticipants || 10,
             enable_chat: true,
             enable_screenshare: true,
+            ...(options.enableRecording ? { enable_recording: 'cloud' } : {}),
             start_video_off: false,
             start_audio_off: false,
           },

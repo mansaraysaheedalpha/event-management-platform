@@ -41,10 +41,12 @@ class Session(BaseModel):
     chat_enabled: bool = True
     qa_enabled: bool = True
     polls_enabled: bool = True
+    reactions_enabled: bool = True
     breakout_enabled: bool = False
     chat_open: bool = False
     qa_open: bool = False
     polls_open: bool = False
+    reactions_open: bool = False
     speakers: List[Speaker] = []
     organization_id: Optional[str] = None
 
@@ -68,6 +70,10 @@ class Session(BaseModel):
     green_room_opens_minutes_before: int = Field(15, ge=5, le=60, description="Minutes before session green room opens")
     green_room_notes: Optional[str] = Field(None, max_length=1000, description="Producer notes visible in green room")
 
+    # Auto Captions & Lobby
+    auto_captions: bool = Field(False, description="Enable AI auto-captions")
+    lobby_enabled: bool = Field(False, description="Show lobby/waiting room before session starts")
+
     model_config = {"from_attributes": True}
 
 
@@ -79,6 +85,7 @@ class SessionCreate(BaseModel):
     chat_enabled: bool = True
     qa_enabled: bool = True
     polls_enabled: bool = True
+    reactions_enabled: bool = True
     breakout_enabled: bool = False
     # Virtual Session Support (Phase 1)
     session_type: SessionType = SessionType.MAINSTAGE
@@ -94,6 +101,9 @@ class SessionCreate(BaseModel):
     green_room_enabled: bool = True
     green_room_opens_minutes_before: int = Field(15, ge=5, le=60)
     green_room_notes: Optional[str] = Field(None, max_length=1000)
+    # Auto Captions & Lobby
+    auto_captions: bool = False
+    lobby_enabled: bool = False
 
     @field_validator('streaming_url')
     @classmethod
@@ -109,10 +119,12 @@ class SessionUpdate(BaseModel):
     chat_enabled: Optional[bool] = None
     qa_enabled: Optional[bool] = None
     polls_enabled: Optional[bool] = None
+    reactions_enabled: Optional[bool] = None
     breakout_enabled: Optional[bool] = None
     chat_open: Optional[bool] = None
     qa_open: Optional[bool] = None
     polls_open: Optional[bool] = None
+    reactions_open: Optional[bool] = None
     # Virtual Session Support (Phase 1)
     session_type: Optional[SessionType] = None
     streaming_provider: Optional[str] = None
@@ -128,6 +140,9 @@ class SessionUpdate(BaseModel):
     green_room_enabled: Optional[bool] = None
     green_room_opens_minutes_before: Optional[int] = Field(None, ge=5, le=60)
     green_room_notes: Optional[str] = Field(None, max_length=1000)
+    # Auto Captions & Lobby
+    auto_captions: Optional[bool] = None
+    lobby_enabled: Optional[bool] = None
 
     @field_validator('streaming_url', 'recording_url')
     @classmethod

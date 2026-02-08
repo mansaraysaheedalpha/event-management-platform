@@ -24,6 +24,7 @@ export class VirtualStageService {
       name: `stage-${dto.sessionId}`,
       maxParticipants: dto.maxParticipants || 200,
       expiryMinutes: dto.expiryMinutes || 480, // 8 hours default
+      enableRecording: dto.enableRecording ?? false,
     });
 
     if (!room) {

@@ -167,6 +167,7 @@ class SessionCreateInput:
     chatEnabled: Optional[bool] = True  # Defaults to enabled
     qaEnabled: Optional[bool] = True  # Defaults to enabled
     pollsEnabled: Optional[bool] = True  # Defaults to enabled
+    reactionsEnabled: Optional[bool] = True  # Defaults to enabled
     breakoutEnabled: Optional[bool] = False  # Defaults to disabled
     # Virtual Session Support (Phase 1)
     sessionType: Optional[SessionTypeInput] = SessionTypeInput.MAINSTAGE
@@ -182,6 +183,9 @@ class SessionCreateInput:
     greenRoomEnabled: Optional[bool] = True
     greenRoomOpensMinutesBefore: Optional[int] = 15
     greenRoomNotes: Optional[str] = None
+    # Auto Captions & Lobby
+    autoCaptions: Optional[bool] = False
+    lobbyEnabled: Optional[bool] = False
 
 
 @strawberry.input
@@ -218,6 +222,7 @@ class SessionUpdateInput:
     chatEnabled: Optional[bool] = None
     qaEnabled: Optional[bool] = None
     pollsEnabled: Optional[bool] = None
+    reactionsEnabled: Optional[bool] = None
     breakoutEnabled: Optional[bool] = None
     # Virtual Session Support (Phase 1)
     sessionType: Optional[SessionTypeInput] = None
@@ -234,6 +239,9 @@ class SessionUpdateInput:
     greenRoomEnabled: Optional[bool] = None
     greenRoomOpensMinutesBefore: Optional[int] = None
     greenRoomNotes: Optional[str] = None
+    # Auto Captions & Lobby
+    autoCaptions: Optional[bool] = None
+    lobbyEnabled: Optional[bool] = None
 
 
 @strawberry.input
@@ -494,6 +502,7 @@ class Mutation:
             chat_enabled=sessionIn.chatEnabled if sessionIn.chatEnabled is not None else True,
             qa_enabled=sessionIn.qaEnabled if sessionIn.qaEnabled is not None else True,
             polls_enabled=sessionIn.pollsEnabled if sessionIn.pollsEnabled is not None else True,
+            reactions_enabled=sessionIn.reactionsEnabled if sessionIn.reactionsEnabled is not None else True,
             breakout_enabled=sessionIn.breakoutEnabled if sessionIn.breakoutEnabled is not None else False,
             # Virtual Session Support (Phase 1)
             session_type=sessionIn.sessionType.value if sessionIn.sessionType else "MAINSTAGE",
@@ -509,6 +518,9 @@ class Mutation:
             green_room_enabled=sessionIn.greenRoomEnabled if sessionIn.greenRoomEnabled is not None else True,
             green_room_opens_minutes_before=sessionIn.greenRoomOpensMinutesBefore if sessionIn.greenRoomOpensMinutesBefore is not None else 15,
             green_room_notes=sessionIn.greenRoomNotes,
+            # Auto Captions & Lobby
+            auto_captions=sessionIn.autoCaptions if sessionIn.autoCaptions is not None else False,
+            lobby_enabled=sessionIn.lobbyEnabled if sessionIn.lobbyEnabled is not None else False,
         )
         return crud.session.create_with_event(
             db, obj_in=session_schema, event_id=sessionIn.eventId, producer=producer
@@ -577,6 +589,8 @@ class Mutation:
             update_data["qa_enabled"] = update_data.pop("qaEnabled")
         if "pollsEnabled" in update_data:
             update_data["polls_enabled"] = update_data.pop("pollsEnabled")
+        if "reactionsEnabled" in update_data:
+            update_data["reactions_enabled"] = update_data.pop("reactionsEnabled")
         if "breakoutEnabled" in update_data:
             update_data["breakout_enabled"] = update_data.pop("breakoutEnabled")
 
@@ -610,6 +624,12 @@ class Mutation:
             update_data["green_room_opens_minutes_before"] = update_data.pop("greenRoomOpensMinutesBefore")
         if "greenRoomNotes" in update_data:
             update_data["green_room_notes"] = update_data.pop("greenRoomNotes")
+
+        # Handle Auto Captions & Lobby fields
+        if "autoCaptions" in update_data:
+            update_data["auto_captions"] = update_data.pop("autoCaptions")
+        if "lobbyEnabled" in update_data:
+            update_data["lobby_enabled"] = update_data.pop("lobbyEnabled")
 
         update_schema = SessionUpdate(**update_data)
         return crud.session.update(db, db_obj=session, obj_in=update_schema)
@@ -1079,6 +1099,58 @@ class Mutation:
             json.dumps({
                 "sessionId": id,
                 "pollsOpen": open,
+                "eventId": session.event_id,
+            })
+        )
+
+        return session
+
+    @strawberry.mutation
+    def toggleSessionReactions(self, id: str, open: bool, info: Info) -> SessionType:
+        """
+        Toggle the reactions open/closed state for a session.
+        Only works if reactions are enabled for this session.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        user_role = user.get("role")
+        user_id = user["sub"]
+
+        session = crud.session.get(db, id=id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        event = crud.event.get(db, id=session.event_id)
+        if not event or event.organization_id != org_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+        if event.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+
+        if not getattr(session, "reactions_enabled", True):
+            raise HTTPException(
+                status_code=400, detail="Reactions are disabled for this session"
+            )
+
+        # Update the reactions_open state
+        session.reactions_open = open
+        db.commit()
+        db.refresh(session)
+
+        # Publish to Redis for real-time broadcast
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.reactions.v1",
+            json.dumps({
+                "sessionId": id,
+                "reactionsOpen": open,
                 "eventId": session.event_id,
             })
         )

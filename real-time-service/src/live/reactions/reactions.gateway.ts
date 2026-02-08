@@ -8,6 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { ReactionsService } from './reactions.service';
 import { SendReactionDto } from './dto/send-reactions.dto';
@@ -198,5 +199,28 @@ export class ReactionsGateway {
     const eventName = 'mood.analytics.updated'; // A more specific event name
     this.server.to(publicRoom).emit(eventName, analyticsPayload);
     this.logger.log(`Broadcasted mood analytics to room ${publicRoom}`);
+  }
+
+  /**
+   * Handles Redis events for reactions status changes.
+   * Broadcasts the status change to all clients in the session room.
+   */
+  @OnEvent('platform.sessions.reactions.v1')
+  handleReactionsStatusChange(payload: {
+    sessionId: string;
+    reactionsOpen: boolean;
+    eventId: string;
+  }) {
+    const { sessionId, reactionsOpen } = payload;
+    const publicRoom = `session:${sessionId}`;
+
+    this.server.to(publicRoom).emit('reactions.status.changed', {
+      sessionId,
+      isOpen: reactionsOpen,
+    });
+
+    this.logger.log(
+      `📢 Broadcasted reactions.status.changed (isOpen: ${reactionsOpen}) to room ${publicRoom}`,
+    );
   }
 }

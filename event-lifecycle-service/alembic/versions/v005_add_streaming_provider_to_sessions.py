@@ -1,7 +1,7 @@
 """Add streaming_provider to sessions
 
 Revision ID: v005_add_streaming_provider
-Revises: v004_add_breakout_enabled
+Revises: ep001
 Create Date: 2026-02-08
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "v005_add_streaming_provider"
-down_revision: Union[str, None] = "v004_add_breakout_enabled"
+down_revision: Union[str, None] = "ep001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

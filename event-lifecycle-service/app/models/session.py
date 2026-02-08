@@ -34,10 +34,13 @@ class Session(Base):
     polls_enabled = Column(Boolean, nullable=False, server_default=text("true"))
     breakout_enabled = Column(Boolean, nullable=False, server_default=text("false"), comment="Enable breakout rooms for this session")
 
+    reactions_enabled = Column(Boolean, nullable=False, server_default=text("true"), comment="Enable emoji reactions for this session")
+
     # Runtime state (controlled live by organizer/speaker)
     chat_open = Column(Boolean, nullable=False, server_default=text("false"))
     qa_open = Column(Boolean, nullable=False, server_default=text("false"))
     polls_open = Column(Boolean, nullable=False, server_default=text("false"))
+    reactions_open = Column(Boolean, nullable=False, server_default=text("false"))
 
     # Virtual Session Support (Phase 1)
     session_type = Column(
@@ -60,6 +63,10 @@ class Session(Base):
     green_room_enabled = Column(Boolean, nullable=False, server_default=text("true"), comment="Enable green room for speakers")
     green_room_opens_minutes_before = Column(Integer, nullable=False, server_default=text("15"), comment="Minutes before session green room opens")
     green_room_notes = Column(String, nullable=True, comment="Producer notes visible in green room")
+
+    # Auto Captions & Lobby
+    auto_captions = Column(Boolean, nullable=False, server_default=text("false"), comment="Enable AI auto-captions for this session")
+    lobby_enabled = Column(Boolean, nullable=False, server_default=text("false"), comment="Show lobby/waiting room before session starts")
 
     # Relationships
     speakers = relationship(
