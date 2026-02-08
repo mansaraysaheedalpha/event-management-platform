@@ -73,7 +73,7 @@ export class LinkedInController {
     @Query('error_description') errorDescription: string,
     @Res() res: Response,
   ) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim();
 
     // Handle error from LinkedIn
     if (error) {

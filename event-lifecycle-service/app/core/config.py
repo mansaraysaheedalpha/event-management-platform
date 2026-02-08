@@ -1,6 +1,7 @@
 # event-lifecycle-service/app/core/config.py
 
 from typing import Optional
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,8 +62,14 @@ class Settings(BaseSettings):
     IP_HASH_SALT: str  # For IP anonymization (GDPR compliance) - MUST be set in environment
     ALLOWED_ORIGINS: str = "http://localhost:3000"  # Comma-separated list of allowed CORS origins
 
-    # Frontend URL for redirects
+    # Frontend URL for redirects (if comma-separated, only the first URL is used)
     FRONTEND_URL: str = "http://localhost:3000"
+
+    @field_validator("FRONTEND_URL")
+    @classmethod
+    def clean_frontend_url(cls, v: str) -> str:
+        """Take only the first URL if comma-separated, and strip trailing slashes."""
+        return v.split(",")[0].strip().rstrip("/")
 
     # Internal service URLs for inter-service communication
     REAL_TIME_SERVICE_URL_INTERNAL: Optional[str] = "http://real-time-service:3002"

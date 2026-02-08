@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import List, Optional
@@ -67,8 +68,14 @@ class Settings(BaseSettings):
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_DOMAIN: str = "onboarding@resend.dev"
 
-    # Frontend URL for notification links
+    # Frontend URL for notification links (if comma-separated, only the first URL is used)
     FRONTEND_URL: str = "http://localhost:3000"
+
+    @field_validator("FRONTEND_URL")
+    @classmethod
+    def clean_frontend_url(cls, v: str) -> str:
+        """Take only the first URL if comma-separated, and strip trailing slashes."""
+        return v.split(",")[0].strip().rstrip("/")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

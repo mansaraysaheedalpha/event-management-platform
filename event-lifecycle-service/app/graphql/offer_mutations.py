@@ -18,6 +18,7 @@ import os
 import logging
 
 from .. import crud
+from ..core.config import settings
 from ..models.offer import Offer
 from ..schemas.offer import OfferCreate, OfferUpdate
 from .types import OfferType
@@ -371,8 +372,8 @@ class OfferMutations:
 
         try:
             # Create Stripe checkout session
-            success_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-            cancel_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+            success_url = settings.FRONTEND_URL
+            cancel_url = settings.FRONTEND_URL
 
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=["card"],
