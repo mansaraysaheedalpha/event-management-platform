@@ -64,6 +64,9 @@ from app.models.session_reminder import SessionReminder
 from app.models.email_preference import EmailPreference
 from app.models.pre_event_email import PreEventEmail
 
+# Demo request models
+from app.models.demo_request import DemoRequest
+
 __all__ = [
     "Base",
     "Event",
@@ -114,4 +117,5 @@ __all__ = [
     "SessionReminder",
     "EmailPreference",
     "PreEventEmail",
+    "DemoRequest",
 ]

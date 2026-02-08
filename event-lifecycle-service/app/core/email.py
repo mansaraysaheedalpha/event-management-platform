@@ -950,3 +950,218 @@ def send_people_to_meet_email(
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send people-to-meet email: {type(e).__name__}")
         return {"success": False, "error": "Failed to send email"}
+
+
+def send_demo_request_notification(
+    requester_name: str,
+    requester_email: str,
+    company: str,
+    job_title: str = None,
+    company_size: str = None,
+    solution_interest: str = None,
+    preferred_date: str = None,
+    preferred_time: str = None,
+    message: str = None,
+) -> dict:
+    """
+    Send a notification email to the team when a demo request is submitted.
+
+    Args:
+        requester_name: Full name of the person requesting the demo
+        requester_email: Email of the requester
+        company: Company name
+        job_title: Job title of the requester
+        company_size: Company size range
+        solution_interest: Which solution they're interested in
+        preferred_date: Preferred demo date
+        preferred_time: Preferred demo time
+        message: Additional notes/message
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    # Escape all user-controlled content
+    requester_name = _escape_html(requester_name)
+    requester_email_escaped = _escape_html(requester_email)
+    company = _escape_html(company)
+    job_title = _escape_html(job_title)
+    company_size = _escape_html(company_size)
+    solution_interest = _escape_html(solution_interest)
+    preferred_date = _escape_html(preferred_date)
+    preferred_time = _escape_html(preferred_time)
+    message = _escape_html(message)
+
+    # Build detail rows
+    details_html = f"""
+    <tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Name</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{requester_name}</td></tr>
+    <tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Email</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><a href="mailto:{requester_email_escaped}" style="color: #667eea;">{requester_email_escaped}</a></td></tr>
+    <tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Company</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{company}</td></tr>
+    """
+    if job_title:
+        details_html += f'<tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Job Title</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{job_title}</td></tr>'
+    if company_size:
+        details_html += f'<tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Company Size</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{company_size}</td></tr>'
+    if solution_interest:
+        details_html += f'<tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Solution Interest</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{solution_interest}</td></tr>'
+    if preferred_date:
+        details_html += f'<tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Preferred Date</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{preferred_date}</td></tr>'
+    if preferred_time:
+        details_html += f'<tr><td style="padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #eee;">Preferred Time</td><td style="padding: 8px 12px; border-bottom: 1px solid #eee;">{preferred_time}</td></tr>'
+
+    message_html = ""
+    if message:
+        message_html = f"""
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0 0 5px 0; font-weight: bold; color: #555;">Message</p>
+            <p style="margin: 0; color: #333;">{message}</p>
+        </div>
+        """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .details-table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; margin: 20px 0; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1 style="margin: 0;">New Demo Request</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Someone wants to see Event Dynamics in action</p>
+            </div>
+            <div class="content">
+                <p>A new demo request has been submitted. Here are the details:</p>
+
+                <table class="details-table">
+                    {details_html}
+                </table>
+
+                {message_html}
+
+                <p style="color: #666; font-size: 14px;">Please follow up within 24 hours.</p>
+            </div>
+            <div class="footer">
+                <p>Event Dynamics Platform - Demo Request Notification</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    solution_label = f" - {solution_interest}" if solution_interest else ""
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [f"noreply@{settings.RESEND_FROM_DOMAIN}"],
+        "subject": f"New Demo Request: {requester_name} at {company}{solution_label}",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Demo request notification sent for {company}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send demo notification: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_demo_request_confirmation(
+    to_email: str,
+    requester_name: str,
+    solution_interest: str = None,
+) -> dict:
+    """
+    Send a confirmation email to the person who requested a demo.
+
+    Args:
+        to_email: Requester's email address
+        requester_name: First name of the requester
+        solution_interest: Which solution they're interested in
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    # Validate email format
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    # Escape all user-controlled content
+    requester_name = _escape_html(requester_name)
+    solution_interest = _escape_html(solution_interest)
+
+    solution_text = f" for <strong>{solution_interest}</strong>" if solution_interest else ""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .check-icon {{ font-size: 48px; margin-bottom: 10px; }}
+            .next-steps {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="check-icon">&#10003;</div>
+                <h1 style="margin: 0;">Demo Request Received</h1>
+            </div>
+            <div class="content">
+                <p>Hi {requester_name},</p>
+                <p>Thank you for your interest in Event Dynamics{solution_text}! We've received your demo request and our team will be in touch shortly.</p>
+
+                <div class="next-steps">
+                    <h3 style="margin: 0 0 10px 0; color: #667eea;">What happens next?</h3>
+                    <ol style="margin: 0; padding-left: 20px; color: #555;">
+                        <li style="margin-bottom: 8px;">Our team will review your request within 24 hours</li>
+                        <li style="margin-bottom: 8px;">We'll reach out to confirm a time that works for you</li>
+                        <li style="margin-bottom: 8px;">You'll get a personalized demo tailored to your needs</li>
+                    </ol>
+                </div>
+
+                <p>In the meantime, feel free to explore our platform features on our website.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": "Demo Request Confirmed - Event Dynamics",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Demo confirmation sent")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send demo confirmation: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
