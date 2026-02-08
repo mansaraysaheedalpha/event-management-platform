@@ -1157,6 +1157,132 @@ class Mutation:
 
         return session
 
+    @strawberry.mutation
+    def goLiveSession(self, id: str, info: Info) -> SessionType:
+        """
+        Set session start_time to now, making it LIVE immediately.
+        If end_time is already in the past, extends it by the original duration.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        user_role = user.get("role")
+        user_id = user["sub"]
+
+        session = crud.session.get(db, id=id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        event = crud.event.get(db, id=session.event_id)
+        if not event or event.organization_id != org_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+        if event.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+
+        now = datetime.now(session.start_time.tzinfo)
+
+        # Only allow going live if session hasn't started yet
+        if now >= session.start_time and now <= session.end_time:
+            raise HTTPException(
+                status_code=400, detail="Session is already live"
+            )
+        if now > session.end_time:
+            raise HTTPException(
+                status_code=400, detail="Session has already ended"
+            )
+
+        # Calculate original duration to preserve it
+        original_duration = session.end_time - session.start_time
+
+        # Set start_time to now
+        session.start_time = now
+
+        # Ensure end_time is in the future
+        if session.end_time <= now:
+            session.end_time = now + original_duration
+
+        db.commit()
+        db.refresh(session)
+
+        # Publish to Redis for real-time broadcast
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.status.v1",
+            json.dumps({
+                "sessionId": id,
+                "status": "LIVE",
+                "eventId": session.event_id,
+            })
+        )
+
+        return session
+
+    @strawberry.mutation
+    def endSession(self, id: str, info: Info) -> SessionType:
+        """
+        Set session end_time to now, making it ENDED immediately.
+        Only works on currently LIVE sessions.
+        """
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        user_role = user.get("role")
+        user_id = user["sub"]
+
+        session = crud.session.get(db, id=id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        event = crud.event.get(db, id=session.event_id)
+        if not event or event.organization_id != org_id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+        if event.owner_id != user_id and user_role not in ["OWNER", "ADMIN"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to modify this session"
+            )
+
+        now = datetime.now(session.start_time.tzinfo)
+
+        # Only allow ending if session is currently LIVE
+        if now < session.start_time:
+            raise HTTPException(
+                status_code=400, detail="Session has not started yet"
+            )
+        if now > session.end_time:
+            raise HTTPException(
+                status_code=400, detail="Session has already ended"
+            )
+
+        # Set end_time to now
+        session.end_time = now
+        db.commit()
+        db.refresh(session)
+
+        # Publish to Redis for real-time broadcast
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.status.v1",
+            json.dumps({
+                "sessionId": id,
+                "status": "ENDED",
+                "eventId": session.event_id,
+            })
+        )
+
+        return session
+
     # --- PAYMENT MUTATIONS ---
 
     @strawberry.mutation
