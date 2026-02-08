@@ -53,6 +53,7 @@ class Session(BaseModel):
         SessionType.MAINSTAGE,
         description="Session type: MAINSTAGE, BREAKOUT, WORKSHOP, NETWORKING, EXPO"
     )
+    streaming_provider: Optional[str] = Field(None, description="Streaming provider (daily, youtube, vimeo, etc.)")
     virtual_room_id: Optional[str] = Field(None, description="External virtual room identifier")
     streaming_url: Optional[str] = Field(None, description="Live stream URL for virtual sessions")
     recording_url: Optional[str] = Field(None, description="Recording URL for on-demand playback")
@@ -81,6 +82,7 @@ class SessionCreate(BaseModel):
     breakout_enabled: bool = False
     # Virtual Session Support (Phase 1)
     session_type: SessionType = SessionType.MAINSTAGE
+    streaming_provider: Optional[str] = None
     virtual_room_id: Optional[str] = None
     streaming_url: Optional[str] = None
     is_recordable: bool = True
@@ -113,6 +115,7 @@ class SessionUpdate(BaseModel):
     polls_open: Optional[bool] = None
     # Virtual Session Support (Phase 1)
     session_type: Optional[SessionType] = None
+    streaming_provider: Optional[str] = None
     virtual_room_id: Optional[str] = None
     streaming_url: Optional[str] = None
     recording_url: Optional[str] = None

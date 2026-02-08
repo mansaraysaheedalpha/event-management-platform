@@ -46,6 +46,7 @@ class Session(Base):
         server_default=text("'MAINSTAGE'"),
         index=True
     )
+    streaming_provider = Column(String, nullable=True, comment="Streaming provider for this session: daily, youtube, vimeo, etc.")
     virtual_room_id = Column(String, nullable=True, comment="External virtual room identifier")
     streaming_url = Column(String, nullable=True, comment="Live stream URL for virtual sessions")
     recording_url = Column(String, nullable=True, comment="Recording URL for on-demand playback")

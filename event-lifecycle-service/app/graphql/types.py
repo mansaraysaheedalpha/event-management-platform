@@ -273,6 +273,11 @@ class SessionType:
         return SessionTypeEnum(session_type_value)
 
     @strawberry.field
+    def streamingProvider(self, root: SessionModel) -> Optional[str]:
+        """Streaming provider for this session (daily, youtube, vimeo, etc.)."""
+        return getattr(root, "streaming_provider", None)
+
+    @strawberry.field
     def virtualRoomId(self, root: SessionModel) -> Optional[str]:
         """External virtual room identifier."""
         return getattr(root, "virtual_room_id", None)

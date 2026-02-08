@@ -96,6 +96,9 @@ export class DailyService {
     userId: string;
     isOwner?: boolean;
     expiryMinutes?: number;
+    enableScreenShare?: boolean;
+    startVideoOff?: boolean;
+    startAudioOff?: boolean;
   }): Promise<string | null> {
     if (!this.apiKey) {
       this.logger.warn('Cannot create token - DAILY_API_KEY not configured');
@@ -120,9 +123,9 @@ export class DailyService {
             user_id: options.userId,
             is_owner: options.isOwner || false,
             exp: expiryTime,
-            enable_screenshare: true,
-            start_video_off: false,
-            start_audio_off: false,
+            enable_screenshare: options.enableScreenShare ?? true,
+            start_video_off: options.startVideoOff ?? false,
+            start_audio_off: options.startAudioOff ?? false,
           },
         }),
       });

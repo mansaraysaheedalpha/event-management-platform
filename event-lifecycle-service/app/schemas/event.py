@@ -27,6 +27,7 @@ class StreamingProvider(str, Enum):
     YOUTUBE = "youtube"
     VIMEO = "vimeo"
     RTMP = "rtmp"
+    DAILY = "daily"
 
 
 class VirtualSettings(BaseModel):

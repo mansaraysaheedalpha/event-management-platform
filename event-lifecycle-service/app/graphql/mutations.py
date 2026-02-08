@@ -170,6 +170,7 @@ class SessionCreateInput:
     breakoutEnabled: Optional[bool] = False  # Defaults to disabled
     # Virtual Session Support (Phase 1)
     sessionType: Optional[SessionTypeInput] = SessionTypeInput.MAINSTAGE
+    streamingProvider: Optional[str] = None
     virtualRoomId: Optional[str] = None
     streamingUrl: Optional[str] = None
     isRecordable: Optional[bool] = True
@@ -220,6 +221,7 @@ class SessionUpdateInput:
     breakoutEnabled: Optional[bool] = None
     # Virtual Session Support (Phase 1)
     sessionType: Optional[SessionTypeInput] = None
+    streamingProvider: Optional[str] = None
     virtualRoomId: Optional[str] = None
     streamingUrl: Optional[str] = None
     recordingUrl: Optional[str] = None
@@ -495,6 +497,7 @@ class Mutation:
             breakout_enabled=sessionIn.breakoutEnabled if sessionIn.breakoutEnabled is not None else False,
             # Virtual Session Support (Phase 1)
             session_type=sessionIn.sessionType.value if sessionIn.sessionType else "MAINSTAGE",
+            streaming_provider=sessionIn.streamingProvider,
             virtual_room_id=sessionIn.virtualRoomId,
             streaming_url=sessionIn.streamingUrl,
             is_recordable=sessionIn.isRecordable if sessionIn.isRecordable is not None else True,
@@ -581,6 +584,8 @@ class Mutation:
         if "sessionType" in update_data:
             session_type_input = update_data.pop("sessionType")
             update_data["session_type"] = session_type_input.value if session_type_input else None
+        if "streamingProvider" in update_data:
+            update_data["streaming_provider"] = update_data.pop("streamingProvider")
         if "virtualRoomId" in update_data:
             update_data["virtual_room_id"] = update_data.pop("virtualRoomId")
         if "streamingUrl" in update_data:
