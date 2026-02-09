@@ -52,6 +52,11 @@ export class VirtualStageService {
   }): Promise<string | null> {
     const isAttendeeInBroadcast = !options.isSpeaker && options.broadcastOnly;
 
+    this.logger.log(
+      `Generating token for ${options.userName} (${options.isSpeaker ? 'SPEAKER' : 'ATTENDEE'}) - ` +
+      `broadcastOnly: ${options.broadcastOnly}, startAudioOff: ${isAttendeeInBroadcast}`
+    );
+
     return this.dailyService.createMeetingToken({
       roomName: options.roomName,
       userName: options.userName,

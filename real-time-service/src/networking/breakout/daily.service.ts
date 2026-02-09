@@ -112,24 +112,28 @@ export class DailyService {
         ? Math.floor(Date.now() / 1000) + (options.expiryMinutes * 60)
         : Math.floor(Date.now() / 1000) + (60 * 60); // Default 1 hour
 
+      const tokenPayload = {
+        properties: {
+          room_name: options.roomName,
+          user_name: options.userName,
+          user_id: options.userId,
+          is_owner: options.isOwner || false,
+          exp: expiryTime,
+          enable_screenshare: options.enableScreenShare ?? true,
+          start_video_off: options.startVideoOff ?? false,
+          start_audio_off: options.startAudioOff ?? false,
+        },
+      };
+
+      this.logger.log(`Creating Daily.co token with payload: ${JSON.stringify(tokenPayload.properties, null, 2)}`);
+
       const response = await fetch(`${this.baseUrl}/meeting-tokens`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({
-          properties: {
-            room_name: options.roomName,
-            user_name: options.userName,
-            user_id: options.userId,
-            is_owner: options.isOwner || false,
-            exp: expiryTime,
-            enable_screenshare: options.enableScreenShare ?? true,
-            start_video_off: options.startVideoOff ?? false,
-            start_audio_off: options.startAudioOff ?? false,
-          },
-        }),
+        body: JSON.stringify(tokenPayload),
       });
 
       if (!response.ok) {
