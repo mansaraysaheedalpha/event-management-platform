@@ -677,15 +677,28 @@ class OfferType:
     @strawberry.field
     def inventory(self, root) -> InventoryStatusType:
         """Returns inventory status."""
-        inv = root.get("inventory") if isinstance(root, dict) else getattr(root, "inventory", None)
-        if inv:
-            return InventoryStatusType(
-                total=inv.get("total") if isinstance(inv, dict) else getattr(inv, "total", None),
-                available=inv.get("available", 0) if isinstance(inv, dict) else getattr(inv, "available", 0),
-                sold=inv.get("sold", 0) if isinstance(inv, dict) else getattr(inv, "sold", 0),
-                reserved=inv.get("reserved", 0) if isinstance(inv, dict) else getattr(inv, "reserved", 0)
-            )
-        return InventoryStatusType(total=None, available=0, sold=0, reserved=0)
+        if isinstance(root, dict):
+            inv = root.get("inventory")
+            if inv:
+                return InventoryStatusType(
+                    total=inv.get("total"),
+                    available=inv.get("available", 0),
+                    sold=inv.get("sold", 0),
+                    reserved=inv.get("reserved", 0)
+                )
+            # Fallback: read flat keys from dict
+            total = root.get("inventory_total")
+            sold = root.get("inventory_sold", 0)
+            reserved = root.get("inventory_reserved", 0)
+            available = (total - (sold + reserved)) if total is not None else 9999999
+            return InventoryStatusType(total=total, available=available, sold=sold, reserved=reserved)
+        else:
+            # SQLAlchemy model object — read columns directly
+            total = getattr(root, "inventory_total", None)
+            sold = getattr(root, "inventory_sold", 0) or 0
+            reserved = getattr(root, "inventory_reserved", 0) or 0
+            available = getattr(root, "inventory_available", 0)
+            return InventoryStatusType(total=total, available=available, sold=sold, reserved=reserved)
 
     # Targeting & Placement
     @strawberry.field
