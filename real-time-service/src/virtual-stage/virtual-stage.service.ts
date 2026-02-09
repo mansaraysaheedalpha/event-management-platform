@@ -50,11 +50,17 @@ export class VirtualStageService {
     broadcastOnly?: boolean;
     sessionDurationMinutes?: number;
   }): Promise<string | null> {
+    // Attendees in broadcast mode start with video/audio off
     const isAttendeeInBroadcast = !options.isSpeaker && options.broadcastOnly;
+
+    // IMPORTANT: Speakers ALWAYS start with audio/video ON, regardless of broadcast mode
+    // This ensures organizers/speakers can always communicate
+    const startVideoOff = options.isSpeaker ? false : isAttendeeInBroadcast;
+    const startAudioOff = options.isSpeaker ? false : isAttendeeInBroadcast;
 
     this.logger.log(
       `Generating token for ${options.userName} (${options.isSpeaker ? 'SPEAKER' : 'ATTENDEE'}) - ` +
-      `broadcastOnly: ${options.broadcastOnly}, startAudioOff: ${isAttendeeInBroadcast}`
+      `broadcastOnly: ${options.broadcastOnly}, startAudioOff: ${startAudioOff}, startVideoOff: ${startVideoOff}`
     );
 
     return this.dailyService.createMeetingToken({
@@ -64,8 +70,8 @@ export class VirtualStageService {
       isOwner: options.isSpeaker,
       expiryMinutes: options.sessionDurationMinutes || 480,
       enableScreenShare: options.isSpeaker, // Only speakers can screenshare
-      startVideoOff: isAttendeeInBroadcast,
-      startAudioOff: isAttendeeInBroadcast,
+      startVideoOff: startVideoOff,
+      startAudioOff: startAudioOff,
     });
   }
 
