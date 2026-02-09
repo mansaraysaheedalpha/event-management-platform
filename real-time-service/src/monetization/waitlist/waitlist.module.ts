@@ -2,9 +2,10 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { WaitlistService } from './waitlist.service';
 import { MonetizationModule } from '../ads/monetization.module';
+import { GamificationModule } from 'src/gamification/gamification.module';
 
 @Module({
-  imports: [forwardRef(() => MonetizationModule)],
+  imports: [forwardRef(() => MonetizationModule), GamificationModule],
   providers: [WaitlistService],
   exports: [WaitlistService],
 })

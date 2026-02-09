@@ -80,7 +80,7 @@ export class PollsService {
 
     // Use a transaction to ensure that if any part fails, the whole operation is rolled back.
     // This guarantees we never have a poll without options.
-    return this.prisma.$transaction(async (tx) => {
+    const poll = await this.prisma.$transaction(async (tx) => {
       // 1. Create the main Poll record
       const poll = await tx.poll.create({
         data: {
@@ -112,6 +112,21 @@ export class PollsService {
         },
       });
     });
+
+    // Award gamification points for poll creation (outside transaction to avoid rollback on failure)
+    try {
+      await this.gamificationService.awardPoints(
+        creatorId,
+        sessionId,
+        'POLL_CREATED',
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Gamification points could not be awarded for poll creation by user ${creatorId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    return poll;
   }
 
   /**

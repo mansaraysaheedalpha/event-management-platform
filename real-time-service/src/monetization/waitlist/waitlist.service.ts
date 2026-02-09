@@ -4,6 +4,7 @@ import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
 import { MonetizationGateway } from '../ads/monetization.gateway';
+import { GamificationService } from 'src/gamification/gamification.service';
 
 /**
  * The `WaitlistService` manages a FIFO waitlist for event sessions using Redis.
@@ -34,6 +35,7 @@ export class WaitlistService {
     private readonly idempotencyService: IdempotencyService,
     @Inject(forwardRef(() => MonetizationGateway))
     private readonly gateway: MonetizationGateway,
+    private readonly gamificationService: GamificationService,
   ) {}
 
   /**
@@ -72,6 +74,13 @@ export class WaitlistService {
       await this.redis.rpush(redisKey, userId);
       this.logger.log(
         `User ${userId} added to waitlist for session ${sessionId}`,
+      );
+
+      // Award gamification points for joining the waitlist
+      void this.gamificationService.awardPoints(
+        userId,
+        sessionId,
+        'WAITLIST_JOINED',
       );
 
       // Emit position updates to all users in the waitlist
