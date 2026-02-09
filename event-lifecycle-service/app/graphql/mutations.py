@@ -359,9 +359,25 @@ class Mutation:
                 }
 
         update_schema = EventUpdate(**update_data)
-        return crud.event.update(
+        updated_event = crud.event.update(
             db, db_obj=db_obj, obj_in=update_schema, user_id=user_id
         )
+
+        # Publish to Redis for real-time attendee notifications
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.events.updated.v1",
+            json.dumps({
+                "eventId": id,
+                "eventName": updated_event.name,
+                "startDate": updated_event.start_date.isoformat() if updated_event.start_date else None,
+                "endDate": updated_event.end_date.isoformat() if updated_event.end_date else None,
+                "organizationId": updated_event.organization_id,
+            })
+        )
+
+        return updated_event
 
     @strawberry.mutation
     def archiveEvent(self, id: str, info: Info) -> EventType:
@@ -551,6 +567,14 @@ class Mutation:
             )
 
         update_data = {k: v for k, v in sessionIn.__dict__.items() if v is not None}
+
+        # Allow explicitly clearing virtualRoomId and streamingUrl by setting them to None
+        # This is needed when a Daily.co room expires and needs to be recreated
+        if hasattr(sessionIn, 'virtualRoomId'):
+            update_data['virtualRoomId'] = sessionIn.virtualRoomId
+        if hasattr(sessionIn, 'streamingUrl'):
+            update_data['streamingUrl'] = sessionIn.streamingUrl
+
         if "startTime" in update_data:
             session_date = update_data.get("sessionDate")
             start_time_raw = update_data.pop("startTime")
@@ -632,7 +656,23 @@ class Mutation:
             update_data["lobby_enabled"] = update_data.pop("lobbyEnabled")
 
         update_schema = SessionUpdate(**update_data)
-        return crud.session.update(db, db_obj=session, obj_in=update_schema)
+        updated_session = crud.session.update(db, db_obj=session, obj_in=update_schema)
+
+        # Publish to Redis for real-time attendee notifications
+        from app.db.redis import redis_client
+        import json
+        redis_client.publish(
+            "platform.sessions.updated.v1",
+            json.dumps({
+                "sessionId": id,
+                "sessionTitle": updated_session.title,
+                "startTime": updated_session.start_time.isoformat() if updated_session.start_time else None,
+                "endTime": updated_session.end_time.isoformat() if updated_session.end_time else None,
+                "eventId": updated_session.event_id,
+            })
+        )
+
+        return updated_session
 
     @strawberry.mutation
     def archiveSession(self, id: str, info: Info) -> SessionType:

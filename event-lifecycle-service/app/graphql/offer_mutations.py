@@ -121,7 +121,8 @@ class OfferMutations:
     """Offer mutation resolvers"""
 
     @strawberry.mutation
-    def create_offer(self, offer_in: OfferCreateInput, info: Info) -> OfferType:
+    @staticmethod
+    def create_offer(offer_in: OfferCreateInput, info: Info) -> OfferType:
         """
         Create a new offer for an event.
 
@@ -192,7 +193,8 @@ class OfferMutations:
         return _convert_offer_to_type(offer)
 
     @strawberry.mutation
-    def update_offer(self, id: str, offer_in: OfferUpdateInput, info: Info) -> OfferType:
+    @staticmethod
+    def update_offer(id: str, offer_in: OfferUpdateInput, info: Info) -> OfferType:
         """
         Update an existing offer.
 
@@ -290,7 +292,8 @@ class OfferMutations:
         return _convert_offer_to_type(updated_offer)
 
     @strawberry.mutation
-    def delete_offer(self, id: str, info: Info) -> bool:
+    @staticmethod
+    def delete_offer(id: str, info: Info) -> bool:
         """
         Delete (archive) an offer.
 
@@ -320,8 +323,8 @@ class OfferMutations:
         return True
 
     @strawberry.mutation
+    @staticmethod
     async def purchase_offer(
-        self,
         offer_id: str,
         quantity: int,
         info: Info

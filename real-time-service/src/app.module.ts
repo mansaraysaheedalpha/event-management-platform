@@ -30,6 +30,7 @@ import { ConnectionModule } from './system/connection/connection.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { HealthModule } from './health/health.module';
 import { VirtualStageModule } from './virtual-stage/virtual-stage.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { VirtualStageModule } from './virtual-stage/virtual-stage.module';
     TicketsModule,
     HealthModule,
     VirtualStageModule,
+    NotificationsModule,
     ThrottlerModule.forRoot([
       {
         name: 'default', // Name for the default tier

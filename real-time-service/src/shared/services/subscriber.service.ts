@@ -52,6 +52,8 @@ export class SubscriberService implements OnModuleInit {
         'platform.sessions.qa.v1', // Q&A open/close status changes
         'platform.sessions.polls.v1', // Polls open/close status changes
         'platform.sessions.reactions.v1', // Reactions open/close status changes
+        'platform.events.updated.v1', // Event update notifications for attendees
+        'platform.sessions.updated.v1', // Session update notifications for attendees
         'agent.interventions', // Agent intervention commands from engagement conductor
         'engagement:update', // Engagement score updates from agent-service
         'anomaly:detected', // Anomaly detection events from agent-service
