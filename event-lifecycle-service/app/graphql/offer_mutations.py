@@ -183,8 +183,7 @@ class OfferMutations:
         )
 
         # Create the offer with organization ID
-        offer = crud.offer.create(db, obj_in=offer_create)
-        offer.organization_id = org_id
+        offer = crud.offer.create_with_organization(db, obj_in=offer_create, org_id=org_id)
         offer.is_active = offer_in.is_active if offer_in.is_active is not None else True
         db.commit()
         db.refresh(offer)
