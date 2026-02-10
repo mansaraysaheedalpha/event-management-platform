@@ -1,12 +1,17 @@
 # app/models/registration.py
 import uuid
-from sqlalchemy import Column, String, ForeignKey, text, Enum, DateTime
+from sqlalchemy import Column, String, ForeignKey, text, Enum, DateTime, Index
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
 
 class Registration(Base):
     __tablename__ = "registrations"
+
+    __table_args__ = (
+        Index("ix_registrations_event_status_archived", "event_id", "status", "is_archived"),
+        Index("ix_registrations_user_archived_status", "user_id", "is_archived", "status"),
+    )
 
     id = Column(
         String, primary_key=True, default=lambda: f"reg_{uuid.uuid4().hex[:12]}"

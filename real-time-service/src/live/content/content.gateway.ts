@@ -238,10 +238,10 @@ export class ContentGateway {
     await client.join(room);
     this.logger.log(`Client ${client.id} (user ${user.sub}) joined room: ${room}`);
 
-    // Send chat history to the joining client
+    // Send latest chat history to the joining client (paginated, newest 50)
     try {
-      const messages = await this.chatService.getSessionHistory(sessionId);
-      client.emit('chat.history', { messages });
+      const messages = await this.chatService.getSessionHistory(sessionId, 50);
+      client.emit('chat.history', { messages, hasMore: messages.length === 50 });
       this.logger.log(
         `Sent ${messages.length} chat history messages to client ${client.id}`,
       );

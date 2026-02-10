@@ -598,16 +598,24 @@ export class ChatService {
   }
 
   /**
-   * Retrieves chat history for a session.
+   * Retrieves chat history for a session with cursor-based pagination.
    * Used when a client joins a session to send them existing messages.
    *
    * @param sessionId - The session ID to get history for.
+   * @param limit - Max messages to return (default 50).
+   * @param before - Cursor: return messages before this message ID.
    * @returns Array of messages with author info and reactions.
    */
-  async getSessionHistory(sessionId: string) {
+  async getSessionHistory(
+    sessionId: string,
+    limit: number = 50,
+    before?: string,
+  ) {
     const messages = await this.prisma.message.findMany({
       where: { sessionId },
-      orderBy: { timestamp: 'asc' },
+      orderBy: { timestamp: 'desc' },
+      take: limit,
+      ...(before ? { cursor: { id: before }, skip: 1 } : {}),
       include: {
         author: { select: { id: true, firstName: true, lastName: true } },
         parentMessage: {
@@ -620,6 +628,9 @@ export class ChatService {
         },
       },
     });
+
+    // Reverse to chronological order for the client
+    messages.reverse();
 
     // Transform messages to include reaction summaries
     return messages.map((message) => {

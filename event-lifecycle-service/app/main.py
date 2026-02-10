@@ -27,10 +27,15 @@ async def lifespan(app: FastAPI):
 
     print("Application shutting down...")
 
-    # Shutdown background scheduler
+    # Shutdown scheduler first — stop producing new work before closing Kafka
     from app.scheduler import shutdown_scheduler
     shutdown_scheduler()
     print("Background scheduler shut down.")
+
+    # Shutdown Kafka producer — flush remaining messages then close
+    from app.core.kafka_producer import shutdown_kafka_producer
+    shutdown_kafka_producer()
+    print("Kafka producer shut down.")
 
 
 app = FastAPI(

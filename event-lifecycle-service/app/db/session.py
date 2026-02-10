@@ -5,7 +5,14 @@ from app.core.config import settings
 
 # The engine is the entry point to the database. It's configured with the
 # database URL and handles the connection pooling.
-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=20,
+    max_overflow=50,
+    pool_recycle=3600,
+    pool_timeout=30,
+)
 
 # SessionLocal is a factory for creating new Session objects.
 # Think of a session as a temporary workspace for all your database
