@@ -70,13 +70,13 @@ export class TeamsGateway {
           this.logger.warn(`Failed to award TEAM_CREATED points: ${getErrorMessage(err)}`),
         );
 
-      return { success: true, team: newTeam };
+      return { event: 'team.create.response', data: { success: true, team: newTeam } };
     } catch (error) {
       this.logger.error(
         `Failed to create team for user ${user.sub}`,
         getErrorMessage(error),
       );
-      return { success: false, error: getErrorMessage(error) };
+      return { event: 'team.create.response', data: { success: false, error: getErrorMessage(error) } };
     }
   }
 
@@ -104,13 +104,13 @@ export class TeamsGateway {
           this.logger.warn(`Failed to award TEAM_JOINED points: ${getErrorMessage(err)}`),
         );
 
-      return { success: true, teamId: dto.teamId };
+      return { event: 'team.join.response', data: { success: true, teamId: dto.teamId } };
     } catch (error) {
       this.logger.error(
         `Failed to join team for user ${user.sub}`,
         getErrorMessage(error),
       );
-      return { success: false, error: getErrorMessage(error) };
+      return { event: 'team.join.response', data: { success: false, error: getErrorMessage(error) } };
     }
   }
 
@@ -130,13 +130,13 @@ export class TeamsGateway {
       this.server
         .to(`session:${sessionId}`)
         .emit('team.roster.updated', updatedTeam);
-      return { success: true, teamId: dto.teamId };
+      return { event: 'team.leave.response', data: { success: true, teamId: dto.teamId } };
     } catch (error) {
       this.logger.error(
         `Failed to leave team for user ${user.sub}`,
         getErrorMessage(error),
       );
-      return { success: false, error: getErrorMessage(error) };
+      return { event: 'team.leave.response', data: { success: false, error: getErrorMessage(error) } };
     }
   }
 }
