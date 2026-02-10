@@ -32,6 +32,7 @@ import { DashboardService } from './live/dashboard/dashboard.service';
 import { OnEvent } from '@nestjs/event-emitter';
 import { CapacityUpdateDto } from './live/dashboard/dto/capacity-update.dto';
 import { PublisherService } from './shared/services/publisher.service';
+import { GamificationService } from './gamification/gamification.service';
 
 interface MultitenantMetricsDto {
   orgId: string;
@@ -76,6 +77,7 @@ export class AppGateway
     @Inject(forwardRef(() => DashboardService))
     private readonly dashboardService: DashboardService,
     private readonly publisherService: PublisherService,
+    private readonly gamificationService: GamificationService,
   ) {}
 
   afterInit(server: Server) {
@@ -228,6 +230,15 @@ export class AppGateway
       eventId: eventId,
       userId: user.sub,
     });
+
+    // Award gamification points for joining a session (deduplicated via upsert in service)
+    void this.gamificationService
+      .awardPoints(user.sub, data.sessionId, 'SESSION_JOINED')
+      .catch((err) =>
+        this.logger.warn(
+          `Failed to award SESSION_JOINED points: ${err?.message || err}`,
+        ),
+      );
 
     return { success: true };
   }

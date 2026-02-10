@@ -11,7 +11,6 @@ import { GamificationService } from './gamification.service';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
-import { GamificationAchievement } from '@prisma/client';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -42,7 +41,6 @@ export class GamificationGateway {
         user.sub,
       );
 
-      // Respond directly to the client that made the request.
       return {
         success: true,
         event: 'leaderboard.data',
@@ -58,11 +56,70 @@ export class GamificationGateway {
   }
 
   /**
+   * Handles a client's request to fetch their unlocked achievements and progress.
+   */
+  @SubscribeMessage('achievements.request')
+  async handleRequestAchievements(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      const [achievements, progress] = await Promise.all([
+        this.gamificationService.getUserAchievements(user.sub),
+        this.gamificationService.getAchievementProgress(user.sub, sessionId),
+      ]);
+
+      return {
+        success: true,
+        event: 'achievements.data',
+        data: { achievements, progress },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch achievements for user ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Handles a client's request to fetch their gamification stats.
+   */
+  @SubscribeMessage('user.stats.request')
+  async handleRequestUserStats(
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      const stats = await this.gamificationService.getUserStats(
+        user.sub,
+        sessionId,
+      );
+
+      return {
+        success: true,
+        event: 'user.stats.data',
+        data: stats,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch user stats for user ${user.sub}`,
+        getErrorMessage(error),
+      );
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  /**
    * Fetches the latest individual and team leaderboards and broadcasts them.
    */
   public async broadcastLeaderboardUpdate(sessionId: string) {
     try {
-      // Fetch both leaderboards simultaneously
       const [individualLeaderboard, teamLeaderboard] = await Promise.all([
         this.gamificationService.getLeaderboard(sessionId),
         this.gamificationService.getTeamLeaderboard(sessionId),
@@ -70,12 +127,10 @@ export class GamificationGateway {
 
       const publicRoom = `session:${sessionId}`;
 
-      // Broadcast individual leaderboard
       this.server.to(publicRoom).emit('leaderboard.updated', {
         topEntries: individualLeaderboard.topEntries,
       });
 
-      // Broadcast team leaderboard
       this.server.to(publicRoom).emit('team.leaderboard.updated', {
         teamScores: teamLeaderboard,
       });
@@ -91,16 +146,10 @@ export class GamificationGateway {
 
   /**
    * Sends a private notification to a user when they unlock an achievement.
-   * This is a public method called by the GamificationService.
    */
-  public sendAchievementNotification(
-    targetUserId: string,
-    achievement: GamificationAchievement,
-  ) {
+  public sendAchievementNotification(targetUserId: string, achievement: any) {
     const userRoom = `user:${targetUserId}`;
-    const eventName = 'achievement.unlocked';
-
-    this.server.to(userRoom).emit(eventName, achievement);
+    this.server.to(userRoom).emit('achievement.unlocked', achievement);
     this.logger.log(
       `Sent achievement notification '${achievement.badgeName}' to user ${targetUserId}`,
     );
@@ -111,7 +160,20 @@ export class GamificationGateway {
    */
   public sendPointsAwardedNotification(targetUserId: string, payload: any) {
     const userRoom = `user:${targetUserId}`;
-    const eventName = 'gamification.points.awarded';
-    this.server.to(userRoom).emit(eventName, payload);
+    this.server.to(userRoom).emit('gamification.points.awarded', payload);
+  }
+
+  /**
+   * Sends a private notification to a user about their streak status change.
+   */
+  public sendStreakNotification(
+    targetUserId: string,
+    payload: { count: number; multiplier: number; active: boolean },
+  ) {
+    const userRoom = `user:${targetUserId}`;
+    this.server.to(userRoom).emit('gamification.streak.updated', payload);
+    this.logger.log(
+      `Sent streak notification to user ${targetUserId}: ${payload.count}x (${payload.multiplier}x multiplier)`,
+    );
   }
 }

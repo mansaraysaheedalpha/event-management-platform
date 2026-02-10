@@ -15,6 +15,7 @@ import { TeamsService } from './teams.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { LeaveTeamDto } from './dto/leave-team.dto';
 import { JoinTeamDto } from './dto/join-team.dto';
+import { GamificationService } from '../gamification.service';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
@@ -24,7 +25,10 @@ export class TeamsGateway {
   private readonly logger = new Logger(TeamsGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly teamsService: TeamsService) {}
+  constructor(
+    private readonly teamsService: TeamsService,
+    private readonly gamificationService: GamificationService,
+  ) {}
 
   /**
    * Handles a user's request to create a new team in a session.
@@ -59,6 +63,13 @@ export class TeamsGateway {
         );
       }
 
+      // Award gamification points for creating a team
+      void this.gamificationService
+        .awardPoints(user.sub, sessionId, 'TEAM_CREATED')
+        .catch((err) =>
+          this.logger.warn(`Failed to award TEAM_CREATED points: ${getErrorMessage(err)}`),
+        );
+
       return { success: true, team: newTeam };
     } catch (error) {
       this.logger.error(
@@ -85,6 +96,14 @@ export class TeamsGateway {
       this.server
         .to(`session:${sessionId}`)
         .emit('team.roster.updated', updatedTeam);
+
+      // Award gamification points for joining a team
+      void this.gamificationService
+        .awardPoints(user.sub, sessionId, 'TEAM_JOINED')
+        .catch((err) =>
+          this.logger.warn(`Failed to award TEAM_JOINED points: ${getErrorMessage(err)}`),
+        );
+
       return { success: true, teamId: dto.teamId };
     } catch (error) {
       this.logger.error(

@@ -41,6 +41,9 @@ enum PointReason {
   POLL_CREATED
   POLL_VOTED
   WAITLIST_JOINED
+  TEAM_CREATED
+  TEAM_JOINED
+  SESSION_JOINED
 }
 
 // Connection tracking enums
@@ -495,10 +498,11 @@ model Presentation {
 }
 
 model GamificationPointEntry {
-  id        String     @id @default(cuid())
-  createdAt DateTime   @default(now())
-  points    Int
-  reason    PointReason
+  id          String     @id @default(cuid())
+  createdAt   DateTime   @default(now())
+  points      Int
+  actionCount Int        @default(0)
+  reason      PointReason
 
   userId    String
   user      UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
