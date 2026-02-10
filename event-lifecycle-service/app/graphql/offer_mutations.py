@@ -389,8 +389,8 @@ class OfferMutations:
                     }
                 ],
                 mode="payment",
-                success_url=f"{success_url}/events/{event.id}?purchase=success&offer_id={offer_id}",
-                cancel_url=f"{cancel_url}/events/{event.id}?purchase=cancelled&offer_id={offer_id}",
+                success_url=f"{success_url}/attendee/events/{event.id}?purchase=success&offer_id={offer_id}",
+                cancel_url=f"{cancel_url}/attendee/events/{event.id}?purchase=cancelled&offer_id={offer_id}",
                 customer_email=user_email,
                 metadata={
                     "offer_id": offer_id,
