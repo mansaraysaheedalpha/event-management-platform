@@ -917,8 +917,15 @@ class EngagementConductorAgent:
             }
         )
 
-        # Decide → Check Approval
-        workflow.add_edge("decide", "check_approval")
+        # Decide → Check Approval (if intervention selected) or END (if skipped)
+        workflow.add_conditional_edges(
+            "decide",
+            self._has_selected_intervention,
+            {
+                True: "check_approval",
+                False: END
+            }
+        )
 
         # Check Approval → Wait (if needed) or Act (if auto-approved)
         workflow.add_conditional_edges(
@@ -1045,7 +1052,7 @@ class EngagementConductorAgent:
                 f"Intervention skipped: confidence {confidence:.0%} is below "
                 f"minimum threshold {event_settings.min_confidence_threshold:.0%}"
             )
-            state["anomaly_detected"] = False  # This will cause workflow to skip to END
+            # selected_intervention remains None → _has_selected_intervention routes to END
             return state
 
         # Generate reasoning
@@ -1300,6 +1307,10 @@ class EngagementConductorAgent:
     def _should_decide(self, state: AgentState) -> bool:
         """Should we proceed to decision making?"""
         return state.get("anomaly_detected", False)
+
+    def _has_selected_intervention(self, state: AgentState) -> bool:
+        """Was an intervention selected? (False when confidence is below threshold)"""
+        return state.get("selected_intervention") is not None
 
     def _should_wait_approval(self, state: AgentState) -> bool:
         """Should we wait for approval?"""

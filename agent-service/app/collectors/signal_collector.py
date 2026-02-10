@@ -154,6 +154,12 @@ class EngagementSignalCollector:
         # Track last status per session for change detection
         self._last_status: Dict[str, str] = {}
 
+        # Anomaly cooldown: prevent publishing repeated anomaly events for the same condition
+        # Key: "session_id:anomaly_type", Value: datetime of last publish
+        self._anomaly_cooldowns: Dict[str, datetime] = {}
+        # Minimum seconds between anomaly events of the same type for the same session
+        self.ANOMALY_COOLDOWN_SECONDS = 30
+
     async def start(self):
         """Start collecting signals and calculating engagement"""
         # Check if actually running (has active tasks), not just the flag
@@ -706,6 +712,18 @@ class EngagementSignalCollector:
 
             if not anomaly_event:
                 return
+
+            # Anomaly cooldown: skip if we recently published the same type for this session
+            cooldown_key = f"{session_id}:{anomaly_event.anomaly_type}"
+            now = datetime.now(timezone.utc)
+            last_published = self._anomaly_cooldowns.get(cooldown_key)
+            if last_published and (now - last_published).total_seconds() < self.ANOMALY_COOLDOWN_SECONDS:
+                logger.debug(
+                    f"Anomaly cooldown active for {session_id[:8]}... "
+                    f"({anomaly_event.anomaly_type}), skipping publish"
+                )
+                return
+            self._anomaly_cooldowns[cooldown_key] = now
 
             # Store anomaly in database
             async with AsyncSessionLocal() as db:
