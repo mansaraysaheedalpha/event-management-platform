@@ -20,6 +20,10 @@ export class GamificationGateway {
   private readonly logger = new Logger(GamificationGateway.name);
   @WebSocketServer() server: Server;
 
+  // Per-session debounce timers to prevent leaderboard query flooding
+  private leaderboardDebounceTimers = new Map<string, NodeJS.Timeout>();
+  private static readonly LEADERBOARD_DEBOUNCE_MS = 3000;
+
   constructor(
     @Inject(forwardRef(() => GamificationService))
     private readonly gamificationService: GamificationService,
@@ -116,9 +120,22 @@ export class GamificationGateway {
   }
 
   /**
-   * Fetches the latest individual and team leaderboards and broadcasts them.
+   * Debounced leaderboard broadcast. Coalesces rapid-fire calls (e.g. from
+   * many concurrent awardPoints) into a single DB query per session.
    */
-  public async broadcastLeaderboardUpdate(sessionId: string) {
+  public broadcastLeaderboardUpdate(sessionId: string) {
+    const existing = this.leaderboardDebounceTimers.get(sessionId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.leaderboardDebounceTimers.delete(sessionId);
+      this._doBroadcastLeaderboardUpdate(sessionId);
+    }, GamificationGateway.LEADERBOARD_DEBOUNCE_MS);
+
+    this.leaderboardDebounceTimers.set(sessionId, timer);
+  }
+
+  private async _doBroadcastLeaderboardUpdate(sessionId: string) {
     try {
       const [individualLeaderboard, teamLeaderboard] = await Promise.all([
         this.gamificationService.getLeaderboard(sessionId),

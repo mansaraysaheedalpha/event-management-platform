@@ -588,6 +588,8 @@ model Team {
   members   TeamMembership[]
 
   @@unique([sessionId, name])
+  @@index([sessionId])
+  @@index([creatorId])
   @@map("teams")
 }
 
@@ -596,11 +598,12 @@ model TeamMembership {
 
   userId String
   user   UserReference @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   teamId String
   team   Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
+
   @@id([userId, teamId])
+  @@index([teamId])
   @@map("team_memberships")
 }
 

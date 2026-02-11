@@ -174,6 +174,13 @@ const POINT_VALUES: Record<PointReason, number> = {
 const STREAK_TTL_SECONDS = 300; // 5 minutes of inactivity resets streak
 const STREAK_INCREMENT_COOLDOWN_MS = 60_000; // 1 minute between streak increments
 
+// Actions that should only award points once per user per session.
+// Subsequent calls (e.g. from socket reconnections) are silently ignored.
+const ONCE_PER_SESSION_REASONS = new Set<PointReason>([
+  'SESSION_JOINED' as PointReason,
+  'WAITLIST_JOINED' as PointReason,
+]);
+
 @Injectable()
 export class GamificationService {
   private readonly logger = new Logger(GamificationService.name);
@@ -199,6 +206,21 @@ export class GamificationService {
     if (!pointsToAward) {
       this.logger.warn(`No point value defined for reason: ${reason}`);
       return 0;
+    }
+
+    // For one-time actions, deduplicate via Redis to prevent repeated awards
+    // from multiple socket connections or reconnections
+    if (ONCE_PER_SESSION_REASONS.has(reason)) {
+      const dedupeKey = `points:dedup:${userId}:${sessionId}:${reason}`;
+      const isNew = await this.redis.set(dedupeKey, '1', 'EX', 86400, 'NX');
+      if (!isNew) {
+        // Already awarded for this session - return current total silently
+        const aggregate = await this.prisma.gamificationPointEntry.aggregate({
+          _sum: { points: true },
+          where: { userId, sessionId },
+        });
+        return aggregate._sum.points || 0;
+      }
     }
 
     try {
@@ -461,48 +483,40 @@ export class GamificationService {
 
   /**
    * Calculates and returns the team leaderboard for a given session.
+   * Uses a single SQL query with aggregation instead of N+1 Prisma queries.
    */
   async getTeamLeaderboard(sessionId: string, limit = 10) {
-    const teamsWithScores = await this.prisma.team.findMany({
-      where: { sessionId },
-      include: {
-        _count: { select: { members: true } },
-        members: {
-          include: {
-            user: {
-              include: {
-                gamificationPointEntries: {
-                  where: { sessionId },
-                  select: { points: true },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        teamId: string;
+        name: string;
+        memberCount: bigint;
+        score: bigint;
+      }>
+    >`
+      SELECT
+        t.id AS "teamId",
+        t.name,
+        COUNT(DISTINCT tm."userId") AS "memberCount",
+        COALESCE(SUM(gpe.points), 0) AS score
+      FROM teams t
+      LEFT JOIN team_memberships tm ON tm."teamId" = t.id
+      LEFT JOIN gamification_point_entries gpe
+        ON gpe."userId" = tm."userId"
+        AND gpe."sessionId" = ${sessionId}
+      WHERE t."sessionId" = ${sessionId}
+      GROUP BY t.id, t.name
+      ORDER BY score DESC
+      LIMIT ${limit}
+    `;
 
-    const teamScores = teamsWithScores.map((team) => {
-      const totalScore = team.members.reduce((sum, member) => {
-        const userScore = member.user.gamificationPointEntries.reduce(
-          (userSum, entry) => userSum + entry.points,
-          0,
-        );
-        return sum + userScore;
-      }, 0);
-
-      return {
-        teamId: team.id,
-        name: team.name,
-        memberCount: team._count.members,
-        score: totalScore,
-      };
-    });
-
-    return teamScores
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map((team, index) => ({ ...team, rank: index + 1 }));
+    return rows.map((row, index) => ({
+      teamId: row.teamId,
+      name: row.name,
+      memberCount: Number(row.memberCount),
+      score: Number(row.score),
+      rank: index + 1,
+    }));
   }
 
   /**

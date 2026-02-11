@@ -6,7 +6,7 @@ import { useSessionSocket } from '@/context/SessionSocketContext';
 import { useAuthStore } from '@/store/auth.store';
 import type { Team, CreateTeamResponse, JoinLeaveResponse } from '@/types/gamification';
 
-const SOCKET_TIMEOUT = 10000;
+const SOCKET_TIMEOUT = 30000;
 
 let idempotencyCounter = 0;
 function generateIdempotencyKey(): string {
