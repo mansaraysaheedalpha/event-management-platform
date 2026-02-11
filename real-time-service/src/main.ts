@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Transport, KafkaOptions } from '@nestjs/microservices';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import { RedisIoAdapter } from './redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -18,7 +19,17 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.useWebSocketAdapter(new IoAdapter(app));
+  // Configure Redis adapter for horizontal scaling
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    const redisIoAdapter = new RedisIoAdapter(app, redisUrl);
+    await redisIoAdapter.connectToRedis();
+    app.useWebSocketAdapter(redisIoAdapter);
+  } else {
+    // Fallback to default adapter if Redis not configured
+    app.useWebSocketAdapter(new IoAdapter(app));
+    console.warn('Redis URL not found - using default Socket.IO adapter (no horizontal scaling)');
+  }
 
   // Build Kafka client configuration with optional SASL authentication
   const kafkaBrokers = (process.env.KAFKA_BOOTSTRAP_SERVERS || 'kafka:29092').split(',');

@@ -138,12 +138,11 @@ class EventType:
         return root["end_date"] if isinstance(root, dict) else root.end_date
 
     @strawberry.field
-    def venue(self, info: Info, root: EventModel) -> Optional[VenueType]:
-        """Resolves the full Venue object from the venue_id stored on the event."""
-        db = info.context.db
+    async def venue(self, info: Info, root: EventModel) -> Optional[VenueType]:
+        """Resolves the full Venue object via DataLoader (batched)."""
         venue_id = root.get("venue_id") if isinstance(root, dict) else root.venue_id
         if venue_id:
-            return crud.venue.get(db, id=venue_id)
+            return await info.context.loaders["venue_loader"].load(venue_id)
         return None
 
     @strawberry.field
@@ -184,6 +183,31 @@ class EventType:
             maxConcurrentViewers=settings.get("max_concurrent_viewers"),
             geoRestrictions=settings.get("geo_restrictions")
         )
+
+    # ==== EVENT CAPACITY SUPPORT ====
+
+    @strawberry.field
+    def maxAttendees(self, root) -> typing.Optional[int]:
+        """Maximum number of attendees. Null means unlimited."""
+        return root.get("max_attendees") if isinstance(root, dict) else getattr(root, "max_attendees", None)
+
+    @strawberry.field
+    def availableSpots(self, root) -> typing.Optional[int]:
+        """Available registration spots. Null means unlimited."""
+        max_att = root.get("max_attendees") if isinstance(root, dict) else getattr(root, "max_attendees", None)
+        if max_att is None:
+            return None
+        current = root.get("registrationsCount", 0) if isinstance(root, dict) else 0
+        return max(0, max_att - current)
+
+    @strawberry.field
+    def isSoldOut(self, root) -> bool:
+        """Whether the event has reached max capacity."""
+        max_att = root.get("max_attendees") if isinstance(root, dict) else getattr(root, "max_attendees", None)
+        if max_att is None:
+            return False
+        current = root.get("registrationsCount", 0) if isinstance(root, dict) else 0
+        return current >= max_att
 
 
 # The rest of the types are correct.
@@ -473,6 +497,36 @@ class PublicEventType:
             return root.venue
         return None
 
+    # ==== EVENT CAPACITY SUPPORT ====
+
+    @strawberry.field
+    def maxAttendees(self, root) -> typing.Optional[int]:
+        """Maximum number of attendees. Null means unlimited."""
+        return getattr(root, "max_attendees", None)
+
+    @strawberry.field
+    async def registrationsCount(self, info: Info, root) -> int:
+        """Registration count for capacity display (batched via DataLoader)."""
+        return await info.context.loaders["registration_count_loader"].load(root.id)
+
+    @strawberry.field
+    async def isSoldOut(self, info: Info, root) -> bool:
+        """Whether the event is at capacity (batched via DataLoader)."""
+        max_att = getattr(root, "max_attendees", None)
+        if max_att is None:
+            return False
+        count = await info.context.loaders["registration_count_loader"].load(root.id)
+        return count >= max_att
+
+    @strawberry.field
+    async def availableSpots(self, info: Info, root) -> typing.Optional[int]:
+        """Spots remaining. Null means unlimited (batched via DataLoader)."""
+        max_att = getattr(root, "max_attendees", None)
+        if max_att is None:
+            return None
+        count = await info.context.loaders["registration_count_loader"].load(root.id)
+        return max(0, max_att - count)
+
 
 @strawberry.type
 class PublicEventsResponse:
@@ -519,11 +573,10 @@ class MyRegistrationEventType:
         return root.imageUrl
 
     @strawberry.field
-    def venue(self, info: Info, root) -> Optional[VenueType]:
-        """Resolves the full Venue object from the venue relationship."""
-        db = info.context.db
+    async def venue(self, info: Info, root) -> Optional[VenueType]:
+        """Resolves the full Venue object via DataLoader (batched)."""
         if root.venue_id:
-            return crud.venue.get(db, id=root.venue_id)
+            return await info.context.loaders["venue_loader"].load(root.venue_id)
         return None
 
 

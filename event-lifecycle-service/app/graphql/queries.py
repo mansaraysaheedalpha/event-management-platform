@@ -1013,10 +1013,16 @@ class Query:
             event_id=str(eventId)
         )
 
+        # Batch-load all offers in one query instead of N+1
+        offer_ids = [p.offer_id for p in purchases]
+        from app.models.offer import Offer
+        offers = db.query(Offer).filter(Offer.id.in_(offer_ids)).all()
+        offer_map = {o.id: o for o in offers}
+
         # Convert to response type
         result = []
         for purchase in purchases:
-            offer = crud.offer.get(db, id=purchase.offer_id)
+            offer = offer_map.get(purchase.offer_id)
             result.append(OfferPurchaseType(
                 id=purchase.id,
                 offer=offer,
@@ -1582,18 +1588,59 @@ class Query:
         # Get event-level stats
         event_stats = crud.virtual_attendance.get_event_stats(db, event_id=str(eventId))
 
-        # Get per-session stats
+        # Get per-session stats — batched to avoid N+1
         sessions = crud.session.get_multi_by_event(db, event_id=str(eventId))
+        session_ids = [s.id for s in sessions]
+
+        # Batch aggregation: 1 query for all sessions instead of N
+        from app.models.virtual_attendance import VirtualAttendance
+        from sqlalchemy import func as sa_func
+
+        batch_stats = (
+            db.query(
+                VirtualAttendance.session_id,
+                sa_func.count(VirtualAttendance.id).label("total_views"),
+                sa_func.count(sa_func.distinct(VirtualAttendance.user_id)).label("unique_viewers"),
+                sa_func.avg(VirtualAttendance.watch_duration_seconds).label("avg_duration"),
+            )
+            .filter(VirtualAttendance.session_id.in_(session_ids))
+            .group_by(VirtualAttendance.session_id)
+            .all()
+        )
+        stats_map = {
+            row.session_id: {
+                "total_views": row.total_views,
+                "unique_viewers": row.unique_viewers,
+                "avg_duration": float(row.avg_duration or 0),
+            }
+            for row in batch_stats
+        }
+
+        # Active viewers per session (separate query, still batched)
+        active_stats = (
+            db.query(
+                VirtualAttendance.session_id,
+                sa_func.count(VirtualAttendance.id).label("active"),
+            )
+            .filter(
+                VirtualAttendance.session_id.in_(session_ids),
+                VirtualAttendance.left_at.is_(None),
+            )
+            .group_by(VirtualAttendance.session_id)
+            .all()
+        )
+        active_map = {row.session_id: row.active for row in active_stats}
+
         session_stats = []
         for session in sessions:
-            stats = crud.virtual_attendance.get_session_stats(db, session_id=session.id)
+            s = stats_map.get(session.id, {})
             session_stats.append(VirtualAttendanceStatsType(
                 sessionId=session.id,
-                totalViews=stats["total_views"],
-                uniqueViewers=stats["unique_viewers"],
-                currentViewers=stats["current_viewers"],
-                avgWatchDurationSeconds=stats["avg_watch_duration_seconds"],
-                peakViewers=stats.get("peak_viewers", stats["current_viewers"]),
+                totalViews=s.get("total_views", 0),
+                uniqueViewers=s.get("unique_viewers", 0),
+                currentViewers=active_map.get(session.id, 0),
+                avgWatchDurationSeconds=s.get("avg_duration", 0),
+                peakViewers=active_map.get(session.id, 0),
             ))
 
         return EventVirtualAttendanceStatsType(
