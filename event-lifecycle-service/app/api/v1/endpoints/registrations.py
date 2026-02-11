@@ -56,6 +56,17 @@ def create_registration(
         )
     # --- END IMPLEMENTATION ---
 
+    # --- Event capacity check ---
+    if event.max_attendees is not None:
+        current_count = crud_registration.registration.get_count_by_event(
+            db, event_id=eventId
+        )
+        if current_count >= event.max_attendees:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This event has reached its maximum capacity.",
+            )
+
     return crud_registration.registration.create_for_event(
         db, obj_in=registration_in, event_id=eventId
     )

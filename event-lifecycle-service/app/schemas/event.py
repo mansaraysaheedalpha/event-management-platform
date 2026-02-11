@@ -96,6 +96,7 @@ class Event(BaseModel):
     virtual_settings: Optional[Dict[str, Any]] = Field(
         None, description="Virtual event configuration"
     )
+    max_attendees: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -120,6 +121,7 @@ class EventCreate(BaseModel):
     virtual_settings: Optional[Dict[str, Any]] = Field(
         None, description="Virtual event configuration"
     )
+    max_attendees: Optional[int] = Field(None, ge=1)
 
 
 # NEW: Helper schema for pagination details
@@ -147,6 +149,7 @@ class EventUpdate(BaseModel):
     # Virtual Event Support (Phase 1)
     event_type: Optional[EventType] = None
     virtual_settings: Optional[Dict[str, Any]] = None
+    max_attendees: Optional[int] = Field(None, ge=1)
 
 
 # ✅ --- NEW SCHEMAS FOR IMAGE UPLOAD ---

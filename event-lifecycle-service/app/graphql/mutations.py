@@ -140,6 +140,8 @@ class EventCreateInput:
     # Virtual Event Support (Phase 1)
     eventType: Optional[EventTypeInput] = EventTypeInput.IN_PERSON
     virtualSettings: Optional[VirtualSettingsInput] = None
+    # Event Capacity
+    maxAttendees: Optional[int] = None
 
 
 @strawberry.input
@@ -154,6 +156,8 @@ class EventUpdateInput:
     # Virtual Event Support (Phase 1)
     eventType: Optional[EventTypeInput] = None
     virtualSettings: Optional[VirtualSettingsInput] = None
+    # Event Capacity
+    maxAttendees: Optional[int] = None
 
 
 @strawberry.input
@@ -307,6 +311,7 @@ class Mutation:
             imageUrl=eventIn.imageUrl,
             event_type=eventIn.eventType.value if eventIn.eventType else "IN_PERSON",
             virtual_settings=virtual_settings_dict,
+            max_attendees=eventIn.maxAttendees,
         )
         return crud.event.create_with_organization(
             db, obj_in=event_schema, org_id=org_id
@@ -357,6 +362,8 @@ class Mutation:
                     "max_concurrent_viewers": vs.maxConcurrentViewers,
                     "geo_restrictions": vs.geoRestrictions,
                 }
+        if "maxAttendees" in update_data:
+            update_data["max_attendees"] = update_data.pop("maxAttendees")
 
         update_schema = EventUpdate(**update_data)
         updated_event = crud.event.update(
@@ -864,6 +871,17 @@ class Mutation:
                 status_code=409,
                 detail="A registration already exists for this user or email.",
             )
+
+        # --- Event capacity check ---
+        if event.max_attendees is not None:
+            current_count = crud.registration.get_count_by_event(
+                db, event_id=eventId
+            )
+            if current_count >= event.max_attendees:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This event has reached its maximum capacity.",
+                )
 
         registration = crud.registration.create_for_event(
             db, obj_in=reg_schema, event_id=eventId

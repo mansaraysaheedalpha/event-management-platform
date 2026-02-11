@@ -46,8 +46,7 @@ openpyxl  # For Excel export
 scipy  # For A/B test statistical significance
 
 # GraphQL and Federation
-strawberry-graphql[fastapi]
-strawberry-graphql-dataloaders  # For batching and eliminating N+1 queries
+strawberry-graphql[fastapi]  # Includes DataLoader for batching N+1 queries
 
 # --- TESTING ---
 pytest

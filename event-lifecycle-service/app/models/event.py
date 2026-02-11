@@ -49,6 +49,9 @@ class Event(Base):
         comment="Virtual event configuration: streaming_provider, streaming_url, recording_enabled, auto_captions, lobby_enabled, lobby_video_url, max_concurrent_viewers, geo_restrictions"
     )
 
+    # Event Capacity (nullable = unlimited)
+    max_attendees = Column(Integer, nullable=True)
+
     # Relationships for eager loading
     registrations = relationship("Registration", back_populates="event")
     venue = relationship("Venue", foreign_keys=[venue_id])
