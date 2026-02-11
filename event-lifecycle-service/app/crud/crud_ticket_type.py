@@ -105,7 +105,7 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
     def increment_quantity_sold(
         self, db: Session, *, ticket_type_id: str, quantity: int
     ) -> Optional[TicketType]:
-        """Increment the quantity sold for a ticket type."""
+        """Increment the quantity sold and release corresponding reservation."""
         ticket_type = self.get(db, id=ticket_type_id)
         if not ticket_type:
             return None
@@ -116,6 +116,8 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
                 return None
 
         ticket_type.quantity_sold += quantity
+        # Release the reservation that was held for this purchase
+        ticket_type.quantity_reserved = max(0, ticket_type.quantity_reserved - quantity)
         ticket_type.updated_at = datetime.now(timezone.utc)
         db.add(ticket_type)
         db.commit()
@@ -137,6 +139,39 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
         db.refresh(ticket_type)
         return ticket_type
 
+    def reserve_quantity(
+        self, db: Session, *, ticket_type_id: str, quantity: int
+    ) -> bool:
+        """Reserve inventory for a pending order. Returns False if insufficient stock."""
+        ticket_type = self.get(db, id=ticket_type_id)
+        if not ticket_type:
+            return False
+
+        if ticket_type.quantity_total is not None:
+            available = ticket_type.quantity_total - ticket_type.quantity_sold - ticket_type.quantity_reserved
+            if available < quantity:
+                return False
+
+        ticket_type.quantity_reserved += quantity
+        ticket_type.updated_at = datetime.now(timezone.utc)
+        db.add(ticket_type)
+        db.commit()
+        return True
+
+    def release_quantity(
+        self, db: Session, *, ticket_type_id: str, quantity: int
+    ) -> bool:
+        """Release reserved inventory (order cancelled/expired)."""
+        ticket_type = self.get(db, id=ticket_type_id)
+        if not ticket_type:
+            return False
+
+        ticket_type.quantity_reserved = max(0, ticket_type.quantity_reserved - quantity)
+        ticket_type.updated_at = datetime.now(timezone.utc)
+        db.add(ticket_type)
+        db.commit()
+        return True
+
     def is_available(
         self, db: Session, *, ticket_type_id: str, quantity: int = 1
     ) -> bool:
@@ -156,9 +191,9 @@ class CRUDTicketType(CRUDBase[TicketType, TicketTypeCreate, TicketTypeUpdate]):
         if ticket_type.sales_end_at and now > ticket_type.sales_end_at:
             return False
 
-        # Check quantity
+        # Check quantity (include reserved tickets from pending orders)
         if ticket_type.quantity_total is not None:
-            available = ticket_type.quantity_total - ticket_type.quantity_sold
+            available = ticket_type.quantity_total - ticket_type.quantity_sold - ticket_type.quantity_reserved
             if available < quantity:
                 return False
 

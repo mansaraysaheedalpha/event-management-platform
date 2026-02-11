@@ -193,7 +193,7 @@ class PaymentService:
         self.db.add(order)
         self.db.commit()
 
-        # Add order items
+        # Add order items and reserve inventory
         for item_data in items_data:
             crud.order.add_item(
                 self.db,
@@ -204,6 +204,13 @@ class PaymentService:
                 ticket_type_name=item_data["ticket_type"].name,
                 ticket_type_description=item_data["ticket_type"].description,
             )
+            # Reserve inventory so other buyers see reduced availability
+            if not crud.ticket_type.reserve_quantity(
+                self.db,
+                ticket_type_id=item_data["ticket_type"].id,
+                quantity=item_data["quantity"],
+            ):
+                raise ValueError(f"Ticket type {item_data['ticket_type'].name} is no longer available")
 
         # Log order creation
         self._log_audit(
@@ -406,6 +413,14 @@ class PaymentService:
             except Exception as e:
                 logger.warning(f"Failed to cancel payment intent: {e}")
 
+        # Release reserved inventory
+        for item in order.items:
+            crud.ticket_type.release_quantity(
+                self.db,
+                ticket_type_id=item.ticket_type_id,
+                quantity=item.quantity,
+            )
+
         # Mark order as cancelled
         crud.order.mark_cancelled(self.db, order_id=order.id)
 
@@ -570,6 +585,16 @@ class PaymentService:
                         )
                     except Exception as e:
                         logger.warning(f"Failed to cancel payment intent for order {order.id}: {e}")
+
+                # Release reserved inventory
+                order_with_items = crud.order.get_with_items(self.db, order_id=order.id)
+                if order_with_items:
+                    for item in order_with_items.items:
+                        crud.ticket_type.release_quantity(
+                            self.db,
+                            ticket_type_id=item.ticket_type_id,
+                            quantity=item.quantity,
+                        )
 
                 crud.order.mark_expired(self.db, order_id=order.id)
 

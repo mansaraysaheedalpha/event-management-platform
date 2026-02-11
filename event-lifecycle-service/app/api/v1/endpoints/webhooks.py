@@ -302,6 +302,16 @@ async def _handle_payment_cancelled(db: Session, event) -> dict:
 
     # Only cancel if still pending
     if order.status == "pending":
+        # Release reserved inventory
+        order_with_items = crud.order.get_with_items(db, order_id=order.id)
+        if order_with_items:
+            for item in order_with_items.items:
+                crud.ticket_type.release_quantity(
+                    db,
+                    ticket_type_id=item.ticket_type_id,
+                    quantity=item.quantity,
+                )
+
         crud.order.mark_cancelled(db, order_id=order.id)
 
         crud.audit_log.log_action(
