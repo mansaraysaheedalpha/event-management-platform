@@ -1,0 +1,100 @@
+{
+  "expo": {
+    "name": "Event Dynamics",
+    "slug": "event-dynamics-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "eventdynamics",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#132144"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.eventdynamics.mobile",
+      "buildNumber": "1",
+      "associatedDomains": ["applinks:eventdynamics.app"],
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSCameraUsageDescription": "Event Dynamics needs camera access for QR code scanning and video calls.",
+        "NSMicrophoneUsageDescription": "Event Dynamics needs microphone access for breakout room video calls.",
+        "NSLocationWhenInUseUsageDescription": "Event Dynamics uses your location for proximity networking features.",
+        "NSFaceIDUsageDescription": "Event Dynamics uses Face ID for secure login."
+      },
+      "privacyManifests": {
+        "NSPrivacyTracking": false,
+        "NSPrivacyTrackingDomains": [],
+        "NSPrivacyCollectedDataTypes": [],
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          }
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#132144"
+      },
+      "package": "com.eventdynamics.mobile",
+      "versionCode": 1,
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "USE_BIOMETRIC"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "eventdynamics.app",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#132144"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Event Dynamics to access your camera for video calls."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Event Dynamics to access your microphone for video calls."
+        }
+      ],
+      "expo-screen-orientation",
+      "@sentry/react-native/expo",
+      [
+        "react-native-reanimated/plugin"
+      ]
+    ]
+  }
+}
