@@ -146,10 +146,23 @@ def create_dataloaders(db: Session) -> Dict[str, DataLoader]:
     Factory function to create all DataLoaders for a GraphQL request.
 
     Called once per request in the GraphQL context getter.
+    Strawberry's DataLoader.load() returns an awaitable, so load_fn must be async.
     """
+    async def _load_venues(keys: List[str]) -> List[Optional["Venue"]]:
+        return batch_load_venues(keys, db)
+
+    async def _load_registration_counts(keys: List[str]) -> List[int]:
+        return batch_load_registration_counts(keys, db)
+
+    async def _load_offers(keys: List[str]) -> List[Optional["Offer"]]:
+        return batch_load_offers(keys, db)
+
+    async def _load_session_stats(keys: List[str]) -> List[Dict]:
+        return batch_load_session_attendance_stats(keys, db)
+
     return {
-        "venue_loader": DataLoader(load_fn=lambda keys: batch_load_venues(keys, db)),
-        "registration_count_loader": DataLoader(load_fn=lambda keys: batch_load_registration_counts(keys, db)),
-        "offer_loader": DataLoader(load_fn=lambda keys: batch_load_offers(keys, db)),
-        "session_stats_loader": DataLoader(load_fn=lambda keys: batch_load_session_attendance_stats(keys, db)),
+        "venue_loader": DataLoader(load_fn=_load_venues),
+        "registration_count_loader": DataLoader(load_fn=_load_registration_counts),
+        "offer_loader": DataLoader(load_fn=_load_offers),
+        "session_stats_loader": DataLoader(load_fn=_load_session_stats),
     }
