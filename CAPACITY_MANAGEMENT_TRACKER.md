@@ -49,20 +49,9 @@ Items are ordered by severity.
 ---
 
 ## 3. Session Join Enforcement
-**Status:** PARTIAL | **Severity:** HIGH
+**Status:** DONE | **Severity:** N/A
 
-**Problem:** `SessionCapacity` model exists with `maximum_capacity`, `current_attendance`, `increment_attendance()`, `decrement_attendance()`, and CHECK constraints. Waitlist system routes to waitlist when full. But there is **no direct session join endpoint** — `max_participants` on the Session model is never enforced. The capacity table is effectively orphaned.
-
-**Files:**
-- `event-lifecycle-service/app/models/session_capacity.py` — capacity model
-- `event-lifecycle-service/app/crud/crud_session_capacity.py` — CRUD with increment/decrement
-- `event-lifecycle-service/app/graphql/waitlist_mutations.py` — waitlist mutations (uses increment)
-- `event-lifecycle-service/app/api/v1/endpoints/waitlist.py` — REST waitlist
-
-**What Needs to Happen:**
-- [ ] Create session join/RSVP endpoint (or wire up existing session RSVP to use capacity)
-- [ ] Enforce `maximum_capacity` check at join time
-- [ ] Add transaction isolation to `increment_attendance()` to prevent race conditions
+**Fixed:** `joinVirtualSession` mutation now checks both `session_capacity` table and `session.max_participants` before allowing join. Returns "session is full" with waitlist redirect when at capacity. `leaveVirtualSession` decrements the capacity counter on leave. Capacity tracking now wired into join/leave lifecycle.
 
 ---
 

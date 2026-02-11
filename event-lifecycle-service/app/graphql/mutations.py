@@ -1917,6 +1917,25 @@ class Mutation:
                 message="Already joined"
             )
 
+        # Enforce session capacity if configured
+        capacity = crud.session_capacity_crud.get_by_session(db, sessionId)
+        if capacity and capacity.current_attendance >= capacity.maximum_capacity:
+            return JoinVirtualSessionResponse(
+                success=False,
+                attendance=None,
+                message="This session is full. Please join the waitlist."
+            )
+
+        # Also check max_participants on the session model itself
+        if session.max_participants is not None:
+            active_count = crud.virtual_attendance.get_active_viewers_count(db, session_id=sessionId)
+            if active_count >= session.max_participants:
+                return JoinVirtualSessionResponse(
+                    success=False,
+                    attendance=None,
+                    message="This session is full. Please join the waitlist."
+                )
+
         # Create new attendance record
         attendance = crud.virtual_attendance.join_session(
             db,
@@ -1926,6 +1945,9 @@ class Mutation:
             device_type=deviceType,
             user_agent=userAgent,
         )
+
+        # Increment capacity tracking
+        crud.session_capacity_crud.increment_attendance(db, sessionId)
 
         return JoinVirtualSessionResponse(
             success=True,
@@ -1971,6 +1993,9 @@ class Mutation:
                 watchDurationSeconds=None,
                 message="No active session found"
             )
+
+        # Decrement capacity tracking
+        crud.session_capacity_crud.decrement_attendance(db, sessionId)
 
         return LeaveVirtualSessionResponse(
             success=True,
