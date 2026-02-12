@@ -31,6 +31,25 @@ export class TeamsGateway {
   ) {}
 
   /**
+   * Returns all existing teams for the session when a client connects or requests the list.
+   */
+  @SubscribeMessage('teams.list')
+  async handleListTeams(@ConnectedSocket() client: AuthenticatedSocket) {
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      const teams = await this.teamsService.getSessionTeams(sessionId);
+      return { event: 'teams.list.response', data: { success: true, teams } };
+    } catch (error) {
+      this.logger.error(
+        `Failed to list teams for session ${sessionId}`,
+        getErrorMessage(error),
+      );
+      return { event: 'teams.list.response', data: { success: false, teams: [] } };
+    }
+  }
+
+  /**
    * Handles a user's request to create a new team in a session.
    */
   @SubscribeMessage('team.create')

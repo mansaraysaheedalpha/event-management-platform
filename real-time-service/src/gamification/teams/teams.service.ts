@@ -150,6 +150,28 @@ export class TeamsService {
   }
 
   /**
+   * Returns all teams for a given session, including their members.
+   */
+  async getSessionTeams(sessionId: string) {
+    return this.prisma.team.findMany({
+      where: { sessionId },
+      include: {
+        creator: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        members: {
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
    * Private helper to get a team with its current list of members.
    */
   private async _getTeamWithRoster(teamId: string) {
