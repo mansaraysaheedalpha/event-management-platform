@@ -12,8 +12,11 @@ import { DailyService } from 'src/networking/breakout/daily.service';
 import {
   BoothVisitorStatus,
   BoothVideoSessionStatus,
+  BoothQueueStatus,
   StaffPresenceStatus,
   Prisma,
+  BoothQueueEntry,
+  BoothVisit,
 } from '@prisma/client';
 
 export interface ExpoBoothWithCount {
@@ -30,10 +33,12 @@ export interface ExpoBoothWithCount {
   ctaButtons: unknown;
   chatEnabled: boolean;
   videoEnabled: boolean;
+  maxVisitors: number | null;
   category: string | null;
   sponsorId: string;
   _count: {
     visits: number;
+    queueEntries?: number;
   };
   staffPresence: Array<{
     staffId: string;
@@ -41,6 +46,22 @@ export interface ExpoBoothWithCount {
     staffAvatarUrl: string | null;
     status: StaffPresenceStatus;
   }>;
+}
+
+export interface EnterBoothResult {
+  status: 'entered' | 'queued';
+  visit?: BoothVisit;
+  queued?: BoothQueueEntry;
+}
+
+export interface LeaveBoothResult {
+  visit: BoothVisit | null;
+  admittedEntry: BoothQueueEntry | null;
+}
+
+export interface CloseVisitResult {
+  boothId: string;
+  admittedEntry: BoothQueueEntry | null;
 }
 
 @Injectable()
@@ -72,6 +93,9 @@ export class ExpoService {
                 visits: {
                   where: { exitedAt: null },
                 },
+                queueEntries: {
+                  where: { status: 'WAITING' },
+                },
               },
             },
           },
@@ -102,6 +126,7 @@ export class ExpoService {
             _count: {
               select: {
                 visits: { where: { exitedAt: null } },
+                queueEntries: { where: { status: 'WAITING' } },
               },
             },
           },
@@ -129,6 +154,7 @@ export class ExpoService {
             _count: {
               select: {
                 visits: { where: { exitedAt: null } },
+                queueEntries: { where: { status: 'WAITING' } },
               },
             },
           },
@@ -225,6 +251,7 @@ export class ExpoService {
       videoUrl?: string;
       category?: string;
       sponsorId?: string;
+      maxVisitors?: number;
     },
   ) {
     // Generate booth number based on existing count
@@ -252,6 +279,7 @@ export class ExpoService {
         staffIds: [],
         chatEnabled: true,
         videoEnabled: true,
+        maxVisitors: data.maxVisitors ?? null,
       },
       include: {
         _count: { select: { visits: true } },
@@ -322,6 +350,7 @@ export class ExpoService {
       chatEnabled?: boolean;
       videoEnabled?: boolean;
       displayOrder?: number;
+      maxVisitors?: number | null;
     },
   ) {
     const booth = await this.prisma.expoBooth.findUnique({
@@ -376,13 +405,15 @@ export class ExpoService {
 
   /**
    * Records a user entering a booth.
+   * If the booth is at capacity, adds the user to the queue instead.
    */
   async enterBooth(
     userId: string,
     boothId: string,
     eventId: string,
     socketId: string,
-  ) {
+    userName: string,
+  ): Promise<EnterBoothResult> {
     const booth = await this.prisma.expoBooth.findUnique({
       where: { id: boothId },
     });
@@ -402,10 +433,49 @@ export class ExpoService {
 
     if (existingVisit) {
       // Update socket ID and return existing visit
-      return this.prisma.boothVisit.update({
+      const visit = await this.prisma.boothVisit.update({
         where: { id: existingVisit.id },
         data: { socketId },
       });
+      return { status: 'entered', visit };
+    }
+
+    // Check if user is already in queue
+    const existingQueue = await this.prisma.boothQueueEntry.findUnique({
+      where: { boothId_userId: { boothId, userId } },
+    });
+
+    if (existingQueue && existingQueue.status === 'WAITING') {
+      // Update socket and return queue info
+      const updated = await this.prisma.boothQueueEntry.update({
+        where: { id: existingQueue.id },
+        data: { socketId },
+      });
+      return { status: 'queued', queued: updated };
+    }
+
+    // If user was ADMITTED, let them enter (fall through to enter logic)
+    if (existingQueue && existingQueue.status === 'ADMITTED') {
+      await this.prisma.boothQueueEntry.update({
+        where: { id: existingQueue.id },
+        data: { status: 'ENTERED', enteredAt: new Date() },
+      });
+    }
+
+    // Check capacity
+    if (booth.maxVisitors) {
+      const currentCount = await this.getBoothVisitorCount(boothId);
+      if (currentCount >= booth.maxVisitors && existingQueue?.status !== 'ADMITTED') {
+        // Booth is full -- add to queue
+        const queueEntry = await this.addToQueue(
+          userId,
+          userName,
+          boothId,
+          eventId,
+          socketId,
+        );
+        return { status: 'queued', queued: queueEntry };
+      }
     }
 
     // Exit any other active booth visits for this user
@@ -417,6 +487,11 @@ export class ExpoService {
       data: {
         exitedAt: new Date(),
       },
+    });
+
+    // Clean up any stale queue entry for this user
+    await this.prisma.boothQueueEntry.deleteMany({
+      where: { boothId, userId },
     });
 
     // Create new visit
@@ -432,7 +507,7 @@ export class ExpoService {
 
     this.logger.log(`User ${userId} entered booth ${boothId}`);
 
-    return visit;
+    return { status: 'entered', visit };
   }
 
   /**
@@ -484,9 +559,12 @@ export class ExpoService {
   }
 
   /**
-   * Records a user leaving a booth.
+   * Records a user leaving a booth. Admits next queued visitor if applicable.
    */
-  async leaveBooth(userId: string, boothId: string) {
+  async leaveBooth(
+    userId: string,
+    boothId: string,
+  ): Promise<LeaveBoothResult> {
     const visit = await this.prisma.boothVisit.findFirst({
       where: {
         boothId,
@@ -496,7 +574,7 @@ export class ExpoService {
     });
 
     if (!visit) {
-      return null;
+      return { visit: null, admittedEntry: null };
     }
 
     // Calculate duration
@@ -516,7 +594,10 @@ export class ExpoService {
       `User ${userId} left booth ${boothId} (duration: ${durationSeconds}s)`,
     );
 
-    return updatedVisit;
+    // Admit next person from queue
+    const admittedEntry = await this.admitNextFromQueue(boothId);
+
+    return { visit: updatedVisit, admittedEntry };
   }
 
   /**
@@ -529,6 +610,162 @@ export class ExpoService {
         exitedAt: null,
       },
     });
+  }
+
+  // ==========================================
+  // BOOTH QUEUE MANAGEMENT
+  // ==========================================
+
+  /**
+   * Adds a user to the booth visitor queue.
+   */
+  async addToQueue(
+    userId: string,
+    userName: string,
+    boothId: string,
+    eventId: string,
+    socketId: string,
+  ): Promise<BoothQueueEntry> {
+    // Get next position
+    const lastEntry = await this.prisma.boothQueueEntry.findFirst({
+      where: { boothId, status: 'WAITING' },
+      orderBy: { position: 'desc' },
+    });
+    const nextPosition = (lastEntry?.position ?? 0) + 1;
+
+    const entry = await this.prisma.boothQueueEntry.create({
+      data: {
+        boothId,
+        userId,
+        userName,
+        eventId,
+        position: nextPosition,
+        status: 'WAITING',
+        socketId,
+      },
+    });
+
+    this.logger.log(
+      `User ${userId} joined queue for booth ${boothId} at position ${nextPosition}`,
+    );
+
+    return entry;
+  }
+
+  /**
+   * Returns the queue count (WAITING entries) for a booth.
+   */
+  async getBoothQueueCount(boothId: string): Promise<number> {
+    return this.prisma.boothQueueEntry.count({
+      where: { boothId, status: 'WAITING' },
+    });
+  }
+
+  /**
+   * Gets a user's position in the queue (1-based). Returns null if not in queue.
+   */
+  async getQueuePosition(
+    boothId: string,
+    userId: string,
+  ): Promise<number | null> {
+    const entry = await this.prisma.boothQueueEntry.findUnique({
+      where: { boothId_userId: { boothId, userId } },
+    });
+    if (!entry || entry.status !== 'WAITING') return null;
+
+    // Count how many are ahead
+    const ahead = await this.prisma.boothQueueEntry.count({
+      where: {
+        boothId,
+        status: 'WAITING',
+        position: { lt: entry.position },
+      },
+    });
+    return ahead + 1;
+  }
+
+  /**
+   * Removes a user from the queue (voluntary leave).
+   */
+  async leaveQueue(userId: string, boothId: string): Promise<void> {
+    await this.prisma.boothQueueEntry.updateMany({
+      where: { boothId, userId, status: { in: ['WAITING', 'ADMITTED'] } },
+      data: { status: 'LEFT', leftAt: new Date() },
+    });
+
+    this.logger.log(`User ${userId} left queue for booth ${boothId}`);
+  }
+
+  /**
+   * Admits the next person in queue if capacity is available.
+   * Expires stale ADMITTED entries (>60s) before checking.
+   */
+  async admitNextFromQueue(
+    boothId: string,
+  ): Promise<BoothQueueEntry | null> {
+    const booth = await this.prisma.expoBooth.findUnique({
+      where: { id: boothId },
+    });
+
+    if (!booth?.maxVisitors) return null;
+
+    // Expire stale ADMITTED entries (older than 60 seconds)
+    const expiryThreshold = new Date(Date.now() - 60_000);
+    await this.prisma.boothQueueEntry.updateMany({
+      where: {
+        boothId,
+        status: 'ADMITTED',
+        admittedAt: { lt: expiryThreshold },
+      },
+      data: { status: 'EXPIRED', leftAt: new Date() },
+    });
+
+    const currentCount = await this.getBoothVisitorCount(boothId);
+    if (currentCount >= booth.maxVisitors) return null;
+
+    // Find next waiting person
+    const nextEntry = await this.prisma.boothQueueEntry.findFirst({
+      where: { boothId, status: 'WAITING' },
+      orderBy: { position: 'asc' },
+    });
+
+    if (!nextEntry) return null;
+
+    // Mark as admitted
+    const admitted = await this.prisma.boothQueueEntry.update({
+      where: { id: nextEntry.id },
+      data: { status: 'ADMITTED', admittedAt: new Date() },
+    });
+
+    this.logger.log(
+      `Admitted user ${admitted.userId} from queue for booth ${boothId}`,
+    );
+
+    return admitted;
+  }
+
+  /**
+   * Cleans up a queue entry when a user disconnects.
+   */
+  async removeFromQueueBySocket(
+    socketId: string,
+  ): Promise<BoothQueueEntry | null> {
+    const entry = await this.prisma.boothQueueEntry.findFirst({
+      where: { socketId, status: { in: ['WAITING', 'ADMITTED'] } },
+    });
+
+    if (!entry) return null;
+
+    await this.prisma.boothQueueEntry.update({
+      where: { id: entry.id },
+      data: { status: 'LEFT', leftAt: new Date() },
+    });
+
+    this.logger.log(
+      `Removed user ${entry.userId} from queue (disconnect) for booth ${entry.boothId}`,
+    );
+
+    return entry;
   }
 
   /**
@@ -597,6 +834,25 @@ export class ExpoService {
   /**
    * Requests a video call with booth staff.
    */
+  /**
+   * Gets staff availability summary for a booth.
+   */
+  async getStaffAvailability(boothId: string) {
+    const presence = await this.prisma.boothStaffPresence.findMany({
+      where: { boothId },
+    });
+
+    const online = presence.filter((p) => p.status === 'ONLINE').length;
+    const busy = presence.filter((p) => p.status === 'BUSY').length;
+
+    return {
+      total: presence.filter((p) => p.status !== 'OFFLINE').length,
+      available: online,
+      busy,
+      allBusy: online === 0 && busy > 0,
+    };
+  }
+
   async requestVideoCall(
     userId: string,
     userName: string,
@@ -606,9 +862,7 @@ export class ExpoService {
     const booth = await this.prisma.expoBooth.findUnique({
       where: { id: boothId },
       include: {
-        staffPresence: {
-          where: { status: 'ONLINE' },
-        },
+        staffPresence: true, // Get ALL staff, not just ONLINE
       },
     });
 
@@ -622,8 +876,14 @@ export class ExpoService {
       );
     }
 
-    if (booth.staffPresence.length === 0) {
-      throw new BadRequestException('No staff members are currently available');
+    // Only reject when ALL staff are OFFLINE (nobody at the booth)
+    const nonOfflineStaff = booth.staffPresence.filter(
+      (s) => s.status !== 'OFFLINE',
+    );
+    if (nonOfflineStaff.length === 0) {
+      throw new BadRequestException(
+        'No staff members are currently at this booth',
+      );
     }
 
     // Check for existing pending request
@@ -638,18 +898,20 @@ export class ExpoService {
     if (existingRequest) {
       // Auto-cleanup stale sessions to handle network disconnections
       const now = new Date();
-      const sessionAge = now.getTime() - new Date(existingRequest.requestedAt).getTime();
+      const sessionAge =
+        now.getTime() - new Date(existingRequest.requestedAt).getTime();
       const fiveMinutes = 5 * 60 * 1000;
       const twoMinutes = 2 * 60 * 1000;
 
-      // If session is ACTIVE for >5 min or REQUESTED/ACCEPTED for >2 min, it's stale
       const isStale =
         (existingRequest.status === 'ACTIVE' && sessionAge > fiveMinutes) ||
-        (['REQUESTED', 'ACCEPTED'].includes(existingRequest.status) && sessionAge > twoMinutes);
+        (['REQUESTED', 'ACCEPTED'].includes(existingRequest.status) &&
+          sessionAge > twoMinutes);
 
       if (isStale) {
-        // Auto-end the stale session
-        this.logger.warn(`Auto-ending stale video session ${existingRequest.id} for user ${userId}`);
+        this.logger.warn(
+          `Auto-ending stale video session ${existingRequest.id} for user ${userId}`,
+        );
         await this.prisma.boothVideoSession.update({
           where: { id: existingRequest.id },
           data: {
@@ -659,7 +921,6 @@ export class ExpoService {
           },
         });
       } else {
-        // Session is recent and valid - reject new request
         throw new ConflictException(
           'You already have an active or pending video request',
         );
@@ -672,12 +933,27 @@ export class ExpoService {
         attendeeId: userId,
         attendeeName: userName,
         status: 'REQUESTED',
+        staffNotes: message,
       },
     });
 
     this.logger.log(`Video call requested for booth ${boothId} by ${userId}`);
 
-    return session;
+    // Return session with staff availability info
+    const onlineStaff = booth.staffPresence.filter(
+      (s) => s.status === 'ONLINE',
+    );
+    const busyStaff = booth.staffPresence.filter((s) => s.status === 'BUSY');
+
+    return {
+      session,
+      staffAvailability: {
+        total: nonOfflineStaff.length,
+        available: onlineStaff.length,
+        busy: busyStaff.length,
+        allBusy: onlineStaff.length === 0 && busyStaff.length > 0,
+      },
+    };
   }
 
   /**
@@ -844,11 +1120,28 @@ export class ExpoService {
       },
     });
 
+    // Set staff back to ONLINE if they were BUSY
+    if (session.staffId) {
+      await this.prisma.boothStaffPresence.updateMany({
+        where: {
+          boothId: session.boothId,
+          staffId: session.staffId,
+          status: 'BUSY',
+        },
+        data: { status: 'ONLINE' },
+      });
+    }
+
     this.logger.log(
       `Video call ${sessionId} ended by ${endedBy} (duration: ${durationSeconds}s)`,
     );
 
-    return updatedSession;
+    // Check for pending requests to auto-route to newly available staff
+    const pendingRequests = await this.getPendingVideoRequests(
+      session.boothId,
+    );
+
+    return { ...updatedSession, pendingRequests };
   }
 
   /**
@@ -958,14 +1251,16 @@ export class ExpoService {
   }
 
   /**
-   * Closes a user's visit when they disconnect.
+   * Closes a user's visit when they disconnect. Admits next queued visitor.
    */
-  async closeVisitBySocket(socketId: string) {
+  async closeVisitBySocket(
+    socketId: string,
+  ): Promise<CloseVisitResult | null> {
     const visit = await this.prisma.boothVisit.findFirst({
       where: { socketId, exitedAt: null },
     });
 
-    if (!visit) return;
+    if (!visit) return null;
 
     const durationSeconds = Math.floor(
       (Date.now() - visit.enteredAt.getTime()) / 1000,
@@ -978,6 +1273,11 @@ export class ExpoService {
         durationSeconds,
       },
     });
+
+    // Admit next person from queue
+    const admittedEntry = await this.admitNextFromQueue(visit.boothId);
+
+    return { boothId: visit.boothId, admittedEntry };
   }
 
   // ==========================================

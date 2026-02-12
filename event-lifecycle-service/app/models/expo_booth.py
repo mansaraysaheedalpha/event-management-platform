@@ -68,6 +68,9 @@ class ExpoBooth(Base):
     chat_enabled = Column(Boolean, nullable=False, server_default=text("true"))
     video_enabled = Column(Boolean, nullable=False, server_default=text("true"))
 
+    # Visitor capacity (null = unlimited)
+    max_visitors = Column(Integer, nullable=True)
+
     # Floor plan positioning (for FLOOR_PLAN layout)
     position_x = Column(Integer, nullable=True)
     position_y = Column(Integer, nullable=True)

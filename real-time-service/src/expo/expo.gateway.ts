@@ -30,6 +30,7 @@ import {
   CaptureLeadDto,
   UpdateStaffPresenceDto,
   JoinBoothAsStaffDto,
+  LeaveQueueDto,
 } from './dto';
 
 // Uses ALLOWED_ORIGINS env var (consistent with main.ts and cors.config.ts)
@@ -116,8 +117,33 @@ export class ExpoGateway
     const socketId = client.id;
 
     try {
-      // Cleanup visitor
-      await this.expoService.closeVisitBySocket(socketId);
+      // Cleanup visitor and admit next from queue
+      const closeResult =
+        await this.expoService.closeVisitBySocket(socketId);
+      if (closeResult?.admittedEntry) {
+        this.server
+          .to(`booth-queue:${closeResult.boothId}`)
+          .emit('expo.booth.queue.admitted', {
+            boothId: closeResult.boothId,
+            userId: closeResult.admittedEntry.userId,
+          });
+        await this.broadcastBoothStatus(closeResult.boothId);
+      }
+
+      // Cleanup queue entry
+      const removedQueueEntry =
+        await this.expoService.removeFromQueueBySocket(socketId);
+      if (removedQueueEntry) {
+        const queueCount = await this.expoService.getBoothQueueCount(
+          removedQueueEntry.boothId,
+        );
+        this.server
+          .to(`booth-queue:${removedQueueEntry.boothId}`)
+          .emit('expo.booth.queue.update', {
+            boothId: removedQueueEntry.boothId,
+            queueSize: queueCount,
+          });
+      }
 
       // Cleanup staff presence
       await this.expoService.markStaffOffline(socketId);
@@ -312,6 +338,7 @@ export class ExpoGateway
       bannerUrl?: string;
       videoUrl?: string;
       category?: string;
+      maxVisitors?: number;
     },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
@@ -336,6 +363,7 @@ export class ExpoGateway
           name: data.name,
           tagline: data.tagline,
           description: data.description,
+          maxVisitors: data.maxVisitors,
           tier: data.tier as
             | 'PLATINUM'
             | 'GOLD'
@@ -442,60 +470,74 @@ export class ExpoGateway
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     const user = getAuthenticatedUser(client);
+    const userName =
+      user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.email || 'Anonymous';
 
     try {
-      const visit = await this.expoService.enterBooth(
+      const result = await this.expoService.enterBooth(
         user.sub,
         dto.boothId,
         dto.eventId,
         client.id,
+        userName,
       );
 
-      // Join booth room for chat and updates
+      if (result.status === 'queued') {
+        // Join queue-specific room for position updates
+        await client.join(`booth-queue:${dto.boothId}`);
+
+        const position = await this.expoService.getQueuePosition(
+          dto.boothId,
+          user.sub,
+        );
+        const queueCount =
+          await this.expoService.getBoothQueueCount(dto.boothId);
+
+        // Broadcast updated booth status
+        await this.broadcastBoothStatus(dto.boothId, dto.eventId);
+
+        return {
+          success: true,
+          queued: true,
+          queuePosition: position,
+          queueSize: queueCount,
+        };
+      }
+
+      // Normal enter flow
       await client.join(`booth:${dto.boothId}`);
 
       // Track for disconnect cleanup
       this.userVisits.set(client.id, {
         boothId: dto.boothId,
-        visitId: visit.id,
+        visitId: result.visit!.id,
       });
 
       // Update analytics
       await this.analyticsService.updateVisitorMetrics(dto.boothId);
 
-      // Get current visitor count
-      const visitorCount = await this.expoService.getBoothVisitorCount(
-        dto.boothId,
-      );
-
-      // Broadcast visitor update to booth and expo hall
-      this.server
-        .to(`booth:${dto.boothId}`)
-        .emit('expo.booth.visitors.update', {
-          boothId: dto.boothId,
-          visitorCount,
-        });
-
-      this.server.to(`expo:${dto.eventId}`).emit('expo.booth.visitors.update', {
-        boothId: dto.boothId,
-        visitorCount,
-      });
+      // Broadcast updated booth status
+      await this.broadcastBoothStatus(dto.boothId, dto.eventId);
 
       // Notify booth staff of new visitor
       this.server
         .to(`booth-staff:${dto.boothId}`)
         .emit('expo.booth.visitor.entered', {
           visitorId: user.sub,
-          visitorName:
-            user.firstName && user.lastName
-              ? `${user.firstName} ${user.lastName}`
-              : user.email,
-          visitId: visit.id,
+          visitorName: userName,
+          visitId: result.visit!.id,
         });
 
       const booth = await this.expoService.getBooth(dto.boothId);
 
-      return { success: true, booth, visitId: visit.id };
+      return {
+        success: true,
+        booth,
+        visitId: result.visit!.id,
+        queued: false,
+      };
     } catch (error) {
       this.logger.error(`Failed to enter booth: ${getErrorMessage(error)}`);
       return { success: false, error: getErrorMessage(error) };
@@ -513,14 +555,14 @@ export class ExpoGateway
     const user = getAuthenticatedUser(client);
 
     try {
-      const visit = await this.expoService.leaveBooth(user.sub, dto.boothId);
+      const result = await this.expoService.leaveBooth(user.sub, dto.boothId);
 
-      if (visit) {
+      if (result.visit) {
         // Update analytics
         await this.analyticsService.updateVisitorMetrics(dto.boothId);
         await this.analyticsService.updateAvgVisitDuration(
           dto.boothId,
-          visit.durationSeconds,
+          result.visit.durationSeconds,
         );
       }
 
@@ -528,22 +570,69 @@ export class ExpoGateway
       await client.leave(`booth:${dto.boothId}`);
       this.userVisits.delete(client.id);
 
-      // Get current visitor count
-      const visitorCount = await this.expoService.getBoothVisitorCount(
-        dto.boothId,
-      );
+      // Broadcast updated booth status
+      await this.broadcastBoothStatus(dto.boothId);
 
-      // Broadcast visitor update
-      this.server
-        .to(`booth:${dto.boothId}`)
-        .emit('expo.booth.visitors.update', {
-          boothId: dto.boothId,
-          visitorCount,
-        });
+      // If someone was admitted from queue, notify them
+      if (result.admittedEntry) {
+        this.server
+          .to(`booth-queue:${dto.boothId}`)
+          .emit('expo.booth.queue.admitted', {
+            boothId: dto.boothId,
+            userId: result.admittedEntry.userId,
+          });
+
+        // Update queue sizes for remaining people
+        const queueCount =
+          await this.expoService.getBoothQueueCount(dto.boothId);
+        this.server
+          .to(`booth-queue:${dto.boothId}`)
+          .emit('expo.booth.queue.update', {
+            boothId: dto.boothId,
+            queueSize: queueCount,
+          });
+      }
 
       return { success: true };
     } catch (error) {
       this.logger.error(`Failed to leave booth: ${getErrorMessage(error)}`);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  // ==========================================
+  // BOOTH QUEUE EVENTS
+  // ==========================================
+
+  /**
+   * Leave the booth queue voluntarily
+   */
+  @SubscribeMessage('expo.booth.queue.leave')
+  async handleLeaveQueue(
+    @MessageBody() dto: LeaveQueueDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const user = getAuthenticatedUser(client);
+
+    try {
+      await this.expoService.leaveQueue(user.sub, dto.boothId);
+      await client.leave(`booth-queue:${dto.boothId}`);
+
+      // Broadcast updated queue count
+      const queueCount =
+        await this.expoService.getBoothQueueCount(dto.boothId);
+      this.server
+        .to(`booth-queue:${dto.boothId}`)
+        .emit('expo.booth.queue.update', {
+          boothId: dto.boothId,
+          queueSize: queueCount,
+        });
+
+      await this.broadcastBoothStatus(dto.boothId);
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Failed to leave queue: ${getErrorMessage(error)}`);
       return { success: false, error: getErrorMessage(error) };
     }
   }
@@ -687,12 +776,13 @@ export class ExpoGateway
           ? `${user.firstName} ${user.lastName}`
           : user.email || 'Anonymous';
 
-      const session = await this.expoService.requestVideoCall(
-        user.sub,
-        userName,
-        dto.boothId,
-        dto.message,
-      );
+      const { session, staffAvailability } =
+        await this.expoService.requestVideoCall(
+          user.sub,
+          userName,
+          dto.boothId,
+          dto.message,
+        );
 
       // Notify staff of video request
       this.server
@@ -705,7 +795,7 @@ export class ExpoGateway
           requestedAt: session.requestedAt,
         });
 
-      return { success: true, session };
+      return { success: true, session, staffAvailability };
     } catch (error) {
       this.logger.error(
         `Failed to request video call: ${getErrorMessage(error)}`,
@@ -828,7 +918,7 @@ export class ExpoGateway
     const user = getAuthenticatedUser(client);
 
     try {
-      const session = await this.expoService.endVideoCall(
+      const result = await this.expoService.endVideoCall(
         dto.sessionId,
         user.sub,
       );
@@ -836,19 +926,48 @@ export class ExpoGateway
       // Track video session completion (also updates lead intent score)
       await this.analyticsService.trackVideoSession(
         user.sub,
-        session.boothId,
-        session.durationSeconds,
+        result.boothId,
+        result.durationSeconds,
         true,
       );
 
       // Notify both parties
       this.server
-        .to(`booth:${session.boothId}`)
+        .to(`booth:${result.boothId}`)
         .emit('expo.booth.video.ended', {
-          sessionId: session.id,
+          sessionId: result.id,
           endedBy: user.sub,
-          durationSeconds: session.durationSeconds,
+          durationSeconds: result.durationSeconds,
         });
+
+      // Broadcast updated staff availability
+      const staffPresence = await this.expoService.getBoothStaffPresence(
+        result.boothId,
+      );
+      this.server
+        .to(`booth:${result.boothId}`)
+        .emit('expo.booth.staff.available', {
+          boothId: result.boothId,
+          staff: staffPresence,
+        });
+
+      // Re-notify staff of pending requests
+      if (result.pendingRequests && result.pendingRequests.length > 0) {
+        const mapped = result.pendingRequests.map((req) => ({
+          sessionId: req.id,
+          attendeeId: req.attendeeId,
+          attendeeName: req.attendeeName,
+          message: req.staffNotes,
+          requestedAt: req.requestedAt,
+        }));
+
+        this.server
+          .to(`booth-staff:${result.boothId}`)
+          .emit('expo.booth.video.pending.refresh', {
+            boothId: result.boothId,
+            pendingRequests: mapped,
+          });
+      }
 
       return { success: true };
     } catch (error) {
@@ -1093,6 +1212,26 @@ export class ExpoGateway
           staff: staffPresence,
         });
 
+      // When staff goes ONLINE, send them any pending video requests
+      if (dto.status === 'ONLINE') {
+        const pendingRequests =
+          await this.expoService.getPendingVideoRequests(dto.boothId);
+        if (pendingRequests.length > 0) {
+          const mapped = pendingRequests.map((req) => ({
+            sessionId: req.id,
+            attendeeId: req.attendeeId,
+            attendeeName: req.attendeeName,
+            message: req.staffNotes,
+            requestedAt: req.requestedAt,
+          }));
+
+          client.emit('expo.booth.video.pending.refresh', {
+            boothId: dto.boothId,
+            pendingRequests: mapped,
+          });
+        }
+      }
+
       return { success: true };
     } catch (error) {
       this.logger.error(
@@ -1170,6 +1309,38 @@ export class ExpoGateway
     } catch (error) {
       this.logger.error(`Failed to get leads: ${getErrorMessage(error)}`);
       return { success: false, error: getErrorMessage(error) };
+    }
+  }
+
+  // ==========================================
+  // HELPERS
+  // ==========================================
+
+  /**
+   * Broadcasts booth status (visitor count, queue count, capacity) to booth and expo rooms.
+   */
+  private async broadcastBoothStatus(boothId: string, eventId?: string) {
+    const visitorCount =
+      await this.expoService.getBoothVisitorCount(boothId);
+    const queueCount = await this.expoService.getBoothQueueCount(boothId);
+    const booth = await this.expoService.getBooth(boothId);
+
+    const payload = {
+      boothId,
+      visitorCount,
+      queueCount,
+      maxVisitors: booth.maxVisitors,
+    };
+
+    this.server
+      .to(`booth:${boothId}`)
+      .emit('expo.booth.visitors.update', payload);
+
+    // Also broadcast to expo hall room if we have the eventId
+    if (eventId) {
+      this.server
+        .to(`expo:${eventId}`)
+        .emit('expo.booth.visitors.update', payload);
     }
   }
 }

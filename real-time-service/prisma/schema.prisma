@@ -44,6 +44,41 @@ enum PointReason {
   TEAM_CREATED
   TEAM_JOINED
   SESSION_JOINED
+  CHALLENGE_COMPLETED
+  CHALLENGE_WON_FIRST
+  CHALLENGE_WON_SECOND
+  CHALLENGE_WON_THIRD
+  TRIVIA_CORRECT
+  TRIVIA_SPEED_BONUS
+  TEAM_SYNERGY_BONUS
+}
+
+enum ChallengeStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ChallengeType {
+  CHAT_BLITZ
+  POLL_RUSH
+  QA_SPRINT
+  POINTS_RACE
+  MULTI_ACTION
+  CUSTOM
+}
+
+enum TriviaGameStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+}
+
+enum TriviaQuestionStatus {
+  PENDING
+  ACTIVE
+  REVEALED
 }
 
 // Connection tracking enums
@@ -171,6 +206,10 @@ model UserReference {
   sentBackchannelMessages   BackchannelMessage[]
   createdTeams              Team[]
   teamMemberships           TeamMembership[]
+  teamMessages              TeamMessage[]
+  createdChallenges         TeamChallenge[]
+  createdTriviaGames        TriviaGame[]
+  triviaAnswers             TriviaAnswer[]
   contentDrops              ContentDropLog[]
   connectionsAsUserA        Connection[] @relation("ConnectionUserA")
   connectionsAsUserB        Connection[] @relation("ConnectionUserB")
@@ -223,6 +262,8 @@ model ChatSession {
   contentDrops                ContentDropLog[]
   giveawayWinners             GiveawayWinner[]
   quizSettings                SessionQuizSettings?
+  teamChallenges              TeamChallenge[]
+  triviaGames                 TriviaGame[]
   @@map("chat_sessions")
 }
 
@@ -585,7 +626,11 @@ model Team {
   sessionId String
   session   ChatSession   @relation(fields: [sessionId], references: [id])
   
-  members   TeamMembership[]
+  members            TeamMembership[]
+  challengeProgress  TeamChallengeProgress[]
+  messages           TeamMessage[]
+  triviaAnswers      TriviaAnswer[]
+  triviaScores       TriviaTeamScore[]
 
   @@unique([sessionId, name])
   @@index([sessionId])
@@ -1186,6 +1231,14 @@ enum StaffPresenceStatus {
   OFFLINE       // Not currently at booth
 }
 
+enum BoothQueueStatus {
+  WAITING       // In queue, waiting to enter
+  ADMITTED      // Notified to enter (60s window)
+  ENTERED       // Successfully entered after being admitted
+  LEFT          // Left the queue voluntarily
+  EXPIRED       // Admission notification expired
+}
+
 // ==========================
 // Virtual Expo Hall Models
 // ==========================
@@ -1259,6 +1312,9 @@ model ExpoBooth {
   chatEnabled       Boolean         @default(true)
   videoEnabled      Boolean         @default(true)
 
+  // Visitor capacity (null = unlimited)
+  maxVisitors       Int?
+
   // Floor plan positioning (for FLOOR_PLAN layout)
   positionX         Int?
   positionY         Int?
@@ -1276,6 +1332,7 @@ model ExpoBooth {
   chatMessages      BoothChatMessage[]
   videoSessions     BoothVideoSession[]
   staffPresence     BoothStaffPresence[]
+  queueEntries      BoothQueueEntry[]
 
   @@unique([expoHallId, boothNumber])
   @@index([expoHallId])
@@ -1319,6 +1376,37 @@ model BoothVisit {
   @@index([enteredAt])
   @@index([boothId, userId])            // For checking active visits
   @@map("booth_visits")
+}
+
+model BoothQueueEntry {
+  id                String            @id @default(cuid())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  boothId           String
+  booth             ExpoBooth         @relation(fields: [boothId], references: [id], onDelete: Cascade)
+
+  userId            String
+  userName          String            @db.VarChar(200)
+  eventId           String
+
+  // Queue management
+  position          Int               // 1-based queue position
+  status            BoothQueueStatus  @default(WAITING)
+
+  // Timing
+  admittedAt        DateTime?
+  enteredAt         DateTime?
+  leftAt            DateTime?
+
+  // Socket tracking for notifications
+  socketId          String?           @db.VarChar(100)
+
+  @@unique([boothId, userId])         // One queue entry per user per booth
+  @@index([boothId, status])          // For finding waiting entries
+  @@index([boothId, position])        // For position lookups
+  @@index([userId])
+  @@map("booth_queue_entries")
 }
 
 model BoothChatMessage {
@@ -1451,6 +1539,168 @@ model BoothAnalytics {
   @@index([boothId])
   @@index([eventId])
   @@map("booth_analytics")
+}
+
+// ==========================
+// Team Challenges & Trivia
+// ==========================
+
+model TeamChallenge {
+  id               String          @id @default(cuid())
+  createdAt        DateTime        @default(now())
+
+  sessionId        String
+  session          ChatSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  name             String          @db.VarChar(200)
+  description      String?         @db.Text
+  type             ChallengeType
+  status           ChallengeStatus @default(PENDING)
+
+  durationMinutes  Int             @default(10)
+  startedAt        DateTime?
+  endedAt          DateTime?
+
+  // Which PointReason actions count toward this challenge (e.g. MESSAGE_SENT for Chat Blitz)
+  trackedReason    PointReason?
+  // For MULTI_ACTION or CUSTOM: JSON map of { reason: weight } e.g. {"MESSAGE_SENT": 1, "POLL_VOTED": 2}
+  actionWeights    Json?
+
+  // Reward points for top 3 teams
+  rewardFirst      Int             @default(50)
+  rewardSecond     Int             @default(30)
+  rewardThird      Int             @default(15)
+
+  createdById      String
+  createdBy        UserReference   @relation(fields: [createdById], references: [id])
+
+  progress         TeamChallengeProgress[]
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([sessionId, status])
+  @@map("team_challenges")
+}
+
+model TeamChallengeProgress {
+  id            String         @id @default(cuid())
+
+  challengeId   String
+  challenge     TeamChallenge  @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  teamId        String
+  team          Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  score         Int            @default(0)
+  actionCount   Int            @default(0)
+  finalRank     Int?
+
+  @@unique([challengeId, teamId])
+  @@index([challengeId])
+  @@index([teamId])
+  @@map("team_challenge_progress")
+}
+
+model TeamMessage {
+  id         String        @id @default(cuid())
+  createdAt  DateTime      @default(now())
+
+  teamId     String
+  team       Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  authorId   String
+  author     UserReference @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  text       String        @db.Text
+  metadata   Json?
+  reactions  Json?         @default("{}")
+
+  @@index([teamId, createdAt])
+  @@map("team_messages")
+}
+
+model TriviaGame {
+  id                String            @id @default(cuid())
+  createdAt         DateTime          @default(now())
+
+  sessionId         String
+  session           ChatSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  name              String            @db.VarChar(200)
+  status            TriviaGameStatus  @default(DRAFT)
+
+  timePerQuestion   Int               @default(30)  // seconds
+  pointsCorrect     Int               @default(10)
+  pointsSpeedBonus  Int               @default(5)
+
+  createdById       String
+  createdBy         UserReference     @relation(fields: [createdById], references: [id])
+
+  questions         TriviaQuestion[]
+  teamScores        TriviaTeamScore[]
+
+  @@index([sessionId])
+  @@index([status])
+  @@map("trivia_games")
+}
+
+model TriviaQuestion {
+  id            String               @id @default(cuid())
+
+  gameId        String
+  game          TriviaGame           @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  questionText  String               @db.Text
+  options       String[]
+  correctIndex  Int
+  orderIndex    Int
+  status        TriviaQuestionStatus @default(PENDING)
+
+  answers       TriviaAnswer[]
+
+  @@index([gameId, orderIndex])
+  @@map("trivia_questions")
+}
+
+model TriviaAnswer {
+  id              String         @id @default(cuid())
+  createdAt       DateTime       @default(now())
+
+  questionId      String
+  question        TriviaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  teamId          String
+  team            Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  submittedById   String
+  submittedBy     UserReference  @relation(fields: [submittedById], references: [id])
+
+  selectedIndex   Int
+  isCorrect       Boolean
+  responseTimeMs  Int
+
+  @@unique([questionId, teamId])
+  @@index([questionId])
+  @@index([teamId])
+  @@map("trivia_answers")
+}
+
+model TriviaTeamScore {
+  id            String     @id @default(cuid())
+
+  gameId        String
+  game          TriviaGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  teamId        String
+  team          Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  totalScore    Int        @default(0)
+  correctCount  Int        @default(0)
+  speedBonuses  Int        @default(0)
+
+  @@unique([gameId, teamId])
+  @@index([gameId])
+  @@map("trivia_team_scores")
 }
 
 // ==========================
