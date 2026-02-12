@@ -12,7 +12,6 @@ from strawberry.types import Info
 from fastapi import HTTPException
 import logging
 
-from .. import crud
 from ..crud.crud_session_rsvp import session_rsvp as session_rsvp_crud
 from ..crud.crud_session_capacity import session_capacity_crud
 from ..utils.session_utils import require_event_registration
@@ -76,22 +75,17 @@ class RsvpMutations:
                 # Previously cancelled — reactivate if capacity allows
                 pass  # Fall through to capacity check below, will reactivate
 
-        # Check capacity
+        # Determine effective capacity (session model takes priority, fallback to capacity table)
         max_capacity = session_obj.max_participants
+        if max_capacity is None:
+            capacity_obj = session_capacity_crud.get_by_session(db, session_id)
+            if capacity_obj:
+                max_capacity = capacity_obj.maximum_capacity
+
+        # Check capacity if a limit exists
         if max_capacity is not None:
             rsvp_count = session_rsvp_crud.get_rsvp_count(db, session_id=session_id)
             if rsvp_count >= max_capacity:
-                return RsvpToSessionResponse(
-                    success=False,
-                    rsvp=None,
-                    message="Session is full. Join the waitlist for a chance to get a spot.",
-                )
-
-        # Also check session_capacity table
-        capacity_obj = session_capacity_crud.get_by_session(db, session_id)
-        if capacity_obj:
-            rsvp_count = session_rsvp_crud.get_rsvp_count(db, session_id=session_id)
-            if rsvp_count >= capacity_obj.maximum_capacity:
                 return RsvpToSessionResponse(
                     success=False,
                     rsvp=None,
@@ -175,8 +169,8 @@ def _to_rsvp_type(rsvp) -> SessionRsvpType:
 def _auto_offer_next_waitlist(db, session_id: str, info: Info) -> None:
     """When an RSVP is cancelled, auto-offer to the next person on the waitlist."""
     try:
-        import redis as redis_lib
         from ..api.deps import get_redis
+        from ..crud.crud_session_waitlist import session_waitlist, waitlist_event
         from ..utils.waitlist import (
             get_next_in_queue,
             generate_offer_token,
@@ -185,27 +179,30 @@ def _auto_offer_next_waitlist(db, session_id: str, info: Info) -> None:
 
         redis_client = next(get_redis())
 
-        next_user_id, next_priority = get_next_in_queue(session_id, redis_client)
-        if next_user_id:
-            next_entry = crud.waitlist.get_active_entry(
-                db, session_id=session_id, user_id=next_user_id
+        result = get_next_in_queue(session_id, redis_client)
+        if not result:
+            return
+        next_user_id, next_priority = result
+
+        next_entry = session_waitlist.get_active_entry(
+            db, session_id=session_id, user_id=next_user_id
+        )
+        if next_entry and next_entry.status == 'WAITING':
+            offer_token, expires_at = generate_offer_token(next_user_id, session_id, 5)
+            session_waitlist.set_offer(
+                db, entry=next_entry, offer_token=offer_token, expires_at=expires_at
             )
-            if next_entry and next_entry.status == 'WAITING':
-                offer_token, expires_at = generate_offer_token(next_user_id, session_id, 5)
-                crud.waitlist.set_offer(
-                    db, entry=next_entry, offer_token=offer_token, expires_at=expires_at
-                )
-                crud.waitlist_event.log_event(
-                    db,
-                    waitlist_entry_id=next_entry.id,
-                    event_type='OFFERED',
-                    metadata={'auto_offered_on_rsvp_cancel': True}
-                )
-                recalculate_all_positions(session_id, redis_client, db)
-                logger.info(
-                    f"Auto-offered waitlist spot to user {next_user_id} "
-                    f"for session {session_id} after RSVP cancellation"
-                )
+            waitlist_event.log_event(
+                db,
+                waitlist_entry_id=next_entry.id,
+                event_type='OFFERED',
+                metadata={'auto_offered_on_rsvp_cancel': True}
+            )
+            recalculate_all_positions(session_id, redis_client, db)
+            logger.info(
+                f"Auto-offered waitlist spot to user {next_user_id} "
+                f"for session {session_id} after RSVP cancellation"
+            )
     except Exception as e:
         # Waitlist auto-offer is best-effort; don't fail the cancellation
         logger.warning(f"Failed to auto-offer waitlist spot for session {session_id}: {e}")

@@ -415,31 +415,28 @@ class SessionType:
     @strawberry.field
     def rsvpAvailableSpots(self, info: Info, root: SessionModel) -> Optional[int]:
         """Available RSVP spots. Null if no capacity limit is set."""
+        db = info.context.db
         max_cap = getattr(root, "max_participants", None)
         if max_cap is None:
-            # Also check session_capacity table
-            db = info.context.db
             cap_obj = session_capacity_crud.get_by_session(db, root.id)
             if cap_obj:
                 max_cap = cap_obj.maximum_capacity
             else:
                 return None
-        db = info.context.db
         count = session_rsvp_crud.get_rsvp_count(db, session_id=root.id)
         return max(0, max_cap - count)
 
     @strawberry.field
     def isSessionFull(self, info: Info, root: SessionModel) -> bool:
         """Whether the session has reached RSVP capacity."""
+        db = info.context.db
         max_cap = getattr(root, "max_participants", None)
         if max_cap is None:
-            db = info.context.db
             cap_obj = session_capacity_crud.get_by_session(db, root.id)
             if cap_obj:
                 max_cap = cap_obj.maximum_capacity
             else:
                 return False
-        db = info.context.db
         count = session_rsvp_crud.get_rsvp_count(db, session_id=root.id)
         return count >= max_cap
 
