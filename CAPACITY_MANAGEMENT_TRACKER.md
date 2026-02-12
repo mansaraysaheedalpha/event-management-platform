@@ -26,19 +26,9 @@ Items are ordered by severity.
 ---
 
 ## 2. Max Concurrent Viewers (Virtual Events)
-**Status:** MISSING | **Severity:** CRITICAL
+**Status:** DONE | **Severity:** N/A
 
-**Problem:** `virtual_settings` JSONB on Event model stores `max_concurrent_viewers` but there is **zero enforcement**. No viewer tracking, no Redis counter, no rejection logic.
-
-**Files:**
-- `event-lifecycle-service/app/models/event.py` — virtual_settings column (line ~49)
-- `real-time-service/src/live/streaming/streaming.gateway.ts` — minimal gateway (only broadcasts subtitles)
-
-**What Needs to Happen:**
-- [ ] Track concurrent viewers via Redis counter (INCR on join, DECR on leave/disconnect)
-- [ ] Check counter against `max_concurrent_viewers` before allowing stream join
-- [ ] Return error when viewer limit reached
-- [ ] Handle disconnects (WebSocket close / heartbeat timeout) to decrement counter
+**Fixed:** `joinVirtualSession` mutation now checks `event.virtual_settings.max_concurrent_viewers` against the count of all active viewers (where `left_at IS NULL`) across all sessions for the event. When the limit is reached, returns `success: false` with "maximum viewer limit" message. Frontend `VirtualSessionView` handles the rejection by showing a "Session is Full" screen with AlertTriangle icon and toast notification, preventing video/stream from loading.
 
 ---
 

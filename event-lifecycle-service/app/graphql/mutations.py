@@ -1917,6 +1917,25 @@ class Mutation:
                 message="Already joined"
             )
 
+        # Enforce event-level max concurrent viewers if configured
+        event = crud.event.get(db, id=session.event_id)
+        if event and event.virtual_settings:
+            max_viewers = event.virtual_settings.get("max_concurrent_viewers") if isinstance(event.virtual_settings, dict) else None
+            if max_viewers is not None:
+                # Count all active viewers across ALL sessions for this event
+                from sqlalchemy import func as sa_func
+                from app.models.virtual_attendance import VirtualAttendance
+                event_viewer_count = db.query(sa_func.count(VirtualAttendance.id)).filter(
+                    VirtualAttendance.event_id == session.event_id,
+                    VirtualAttendance.left_at.is_(None),
+                ).scalar() or 0
+                if event_viewer_count >= max_viewers:
+                    return JoinVirtualSessionResponse(
+                        success=False,
+                        attendance=None,
+                        message="This event has reached its maximum viewer limit."
+                    )
+
         # Enforce session capacity if configured
         capacity = crud.session_capacity_crud.get_by_session(db, sessionId)
         if capacity and capacity.current_attendance >= capacity.maximum_capacity:
