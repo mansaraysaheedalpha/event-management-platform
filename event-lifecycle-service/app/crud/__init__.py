@@ -13,6 +13,7 @@ from .crud_speaker import speaker
 from .crud_venue import venue
 from .crud_waitlist import waitlist
 from .crud_session_capacity import session_capacity_crud
+from .crud_session_rsvp import session_rsvp
 from .crud_waitlist_analytics import waitlist_analytics_crud
 
 # Payment-related CRUD operations

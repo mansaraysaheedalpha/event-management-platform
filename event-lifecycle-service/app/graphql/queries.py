@@ -48,6 +48,10 @@ from .types import (
     AdPerformerType,
     WaitlistAnalyticsSummaryType,
 )
+from .rsvp_types import (
+    MyScheduleSessionType,
+    RsvpStatus,
+)
 from .payment_types import (
     TicketTypeType,
     OrderType,
@@ -964,32 +968,20 @@ class Query:
         if event.is_archived:
             return []
 
-        # Get active ads for the placement
-        ads = crud.ad.get_multi_by_event(db, event_id=str(eventId))
-
-        # Filter active ads
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-
-        filtered_ads = []
-        for ad in ads:
-            if ad.is_archived or not ad.is_active:
-                continue
-            if ad.starts_at and now < ad.starts_at:
-                continue
-            if ad.ends_at and now > ad.ends_at:
-                continue
-            if placement not in (ad.placements or []):
-                continue
-            if sessionId and ad.target_sessions and str(sessionId) not in ad.target_sessions:
-                continue
-            filtered_ads.append(ad)
+        # Use the optimized CRUD method that pushes all filtering into SQL
+        # (active, not archived, scheduling window, placement, session targeting)
+        ads = crud.ad.get_active_ads(
+            db,
+            event_id=str(eventId),
+            placement=placement,
+            session_id=str(sessionId) if sessionId else None
+        )
 
         # Sort by weight (higher weight = more likely to be shown)
-        filtered_ads.sort(key=lambda x: x.weight or 1, reverse=True)
+        ads.sort(key=lambda x: x.weight or 1, reverse=True)
 
         # Apply sanitized limit
-        return filtered_ads[:safe_limit]
+        return ads[:safe_limit]
 
     @strawberry.field
     def myPurchasedOffers(
@@ -1685,3 +1677,61 @@ class Query:
             )
             for r in records
         ]
+
+    # --- SESSION RSVP QUERIES ---
+
+    @strawberry.field
+    def mySchedule(
+        self, eventId: strawberry.ID, info: Info
+    ) -> List[MyScheduleSessionType]:
+        """
+        Get current user's RSVPed sessions for an event (their personal schedule).
+        Sorted by session start time.
+        """
+        user = info.context.user
+        if not user or not user.get("sub"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = info.context.db
+        user_id = user["sub"]
+
+        from app.crud.crud_session_rsvp import session_rsvp as session_rsvp_crud
+        from app.models.session import Session as SessionModel
+
+        rsvps = session_rsvp_crud.get_rsvps_by_user(
+            db, user_id=user_id, event_id=str(eventId)
+        )
+
+        if not rsvps:
+            return []
+
+        # Batch-load all sessions in one query
+        session_ids = [r.session_id for r in rsvps]
+        sessions = db.query(SessionModel).filter(
+            SessionModel.id.in_(session_ids)
+        ).all()
+        session_map = {s.id: s for s in sessions}
+
+        result = []
+        for rsvp in rsvps:
+            session_obj = session_map.get(rsvp.session_id)
+            if not session_obj:
+                continue
+            speaker_names = ", ".join(
+                s.name for s in (session_obj.speakers or [])
+            )
+            result.append(MyScheduleSessionType(
+                rsvp_id=rsvp.id,
+                rsvp_status=RsvpStatus[rsvp.status],
+                rsvp_at=rsvp.rsvp_at,
+                session_id=session_obj.id,
+                title=session_obj.title,
+                start_time=session_obj.start_time,
+                end_time=session_obj.end_time,
+                session_type=getattr(session_obj, "session_type", None),
+                speakers=speaker_names or None,
+            ))
+
+        # Sort by session start time
+        result.sort(key=lambda x: x.start_time)
+        return result

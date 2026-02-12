@@ -11,6 +11,8 @@ from strawberry.types import Info
 from ..models.venue import Venue as VenueModel
 from ..models.registration import Registration as RegistrationModel
 from ..models.session import Session as SessionModel
+from ..crud.crud_session_rsvp import session_rsvp as session_rsvp_crud
+from ..crud.crud_session_capacity import session_capacity_crud
 
 
 # ==== VIRTUAL EVENT ENUMS (Phase 1) ====
@@ -391,6 +393,56 @@ class SessionType:
         # Green room is open from X minutes before start until session ends
         return open_time <= now <= root.end_time
 
+    # ==== SESSION RSVP SUPPORT ====
+
+    @strawberry.field
+    def isRsvped(self, info: Info, root: SessionModel) -> bool:
+        """Whether the current user has RSVPed for this session."""
+        user = info.context.user
+        if not user or not user.get("sub"):
+            return False
+        db = info.context.db
+        return session_rsvp_crud.is_user_rsvped(
+            db, session_id=root.id, user_id=user["sub"]
+        )
+
+    @strawberry.field
+    def rsvpCount(self, info: Info, root: SessionModel) -> int:
+        """Number of confirmed RSVPs for this session."""
+        db = info.context.db
+        return session_rsvp_crud.get_rsvp_count(db, session_id=root.id)
+
+    @strawberry.field
+    def rsvpAvailableSpots(self, info: Info, root: SessionModel) -> Optional[int]:
+        """Available RSVP spots. Null if no capacity limit is set."""
+        max_cap = getattr(root, "max_participants", None)
+        if max_cap is None:
+            # Also check session_capacity table
+            db = info.context.db
+            cap_obj = session_capacity_crud.get_by_session(db, root.id)
+            if cap_obj:
+                max_cap = cap_obj.maximum_capacity
+            else:
+                return None
+        db = info.context.db
+        count = session_rsvp_crud.get_rsvp_count(db, session_id=root.id)
+        return max(0, max_cap - count)
+
+    @strawberry.field
+    def isSessionFull(self, info: Info, root: SessionModel) -> bool:
+        """Whether the session has reached RSVP capacity."""
+        max_cap = getattr(root, "max_participants", None)
+        if max_cap is None:
+            db = info.context.db
+            cap_obj = session_capacity_crud.get_by_session(db, root.id)
+            if cap_obj:
+                max_cap = cap_obj.maximum_capacity
+            else:
+                return False
+        db = info.context.db
+        count = session_rsvp_crud.get_rsvp_count(db, session_id=root.id)
+        return count >= max_cap
+
 
 @strawberry.type
 class RegistrationType:
@@ -694,12 +746,37 @@ class AdType:
     @strawberry.field
     def displayDuration(self, root) -> Optional[int]:
         """Display duration in seconds from the model."""
-        return root.display_duration_seconds if hasattr(root, 'display_duration_seconds') else None
+        return getattr(root, 'display_duration_seconds', None)
 
     @strawberry.field
     def weight(self, root) -> Optional[int]:
         """Ad weight for rotation priority."""
-        return root.weight if hasattr(root, 'weight') else None
+        return getattr(root, 'weight', None)
+
+    @strawberry.field
+    def startsAt(self, root) -> Optional[datetime]:
+        """When the ad becomes active."""
+        return getattr(root, 'starts_at', None)
+
+    @strawberry.field
+    def endsAt(self, root) -> Optional[datetime]:
+        """When the ad stops being served."""
+        return getattr(root, 'ends_at', None)
+
+    @strawberry.field
+    def isActive(self, root) -> bool:
+        """Whether the ad is currently active."""
+        return getattr(root, 'is_active', False)
+
+    @strawberry.field
+    def placements(self, root) -> typing.List[str]:
+        """Placement locations for this ad."""
+        return getattr(root, 'placements', []) or []
+
+    @strawberry.field
+    def frequencyCap(self, root) -> Optional[int]:
+        """Max impressions per user per session."""
+        return getattr(root, 'frequency_cap', None)
 
 
 @strawberry.type
@@ -729,29 +806,12 @@ class OfferType:
     # Inventory
     @strawberry.field
     def inventory(self, root) -> InventoryStatusType:
-        """Returns inventory status."""
-        if isinstance(root, dict):
-            inv = root.get("inventory")
-            if inv:
-                return InventoryStatusType(
-                    total=inv.get("total"),
-                    available=inv.get("available", 0),
-                    sold=inv.get("sold", 0),
-                    reserved=inv.get("reserved", 0)
-                )
-            # Fallback: read flat keys from dict
-            total = root.get("inventory_total")
-            sold = root.get("inventory_sold", 0)
-            reserved = root.get("inventory_reserved", 0)
-            available = (total - (sold + reserved)) if total is not None else 9999999
-            return InventoryStatusType(total=total, available=available, sold=sold, reserved=reserved)
-        else:
-            # SQLAlchemy model object — read columns directly
-            total = getattr(root, "inventory_total", None)
-            sold = getattr(root, "inventory_sold", 0) or 0
-            reserved = getattr(root, "inventory_reserved", 0) or 0
-            available = getattr(root, "inventory_available", 0)
-            return InventoryStatusType(total=total, available=available, sold=sold, reserved=reserved)
+        """Returns inventory status. Works with both ORM models and dicts."""
+        total = getattr(root, "inventory_total", None) if not isinstance(root, dict) else root.get("inventory_total")
+        sold = (getattr(root, "inventory_sold", 0) if not isinstance(root, dict) else root.get("inventory_sold", 0)) or 0
+        reserved = (getattr(root, "inventory_reserved", 0) if not isinstance(root, dict) else root.get("inventory_reserved", 0)) or 0
+        available = (total - sold - reserved) if total is not None else 9999999
+        return InventoryStatusType(total=total, available=max(0, available), sold=sold, reserved=reserved)
 
     # Targeting & Placement
     @strawberry.field

@@ -10,6 +10,7 @@ from app.models.session import Session
 from app.models.session_speaker import session_speaker_association
 from app.models.session_capacity import SessionCapacity
 from app.models.session_waitlist import SessionWaitlist, WaitlistEvent
+from app.models.session_rsvp import SessionRsvp
 from app.models.presentation import Presentation
 from app.models.registration import Registration
 from app.models.waitlist import WaitlistEntry
@@ -77,6 +78,7 @@ __all__ = [
     "SessionCapacity",
     "SessionWaitlist",
     "WaitlistEvent",
+    "SessionRsvp",
     "Presentation",
     "Registration",
     "WaitlistEntry",

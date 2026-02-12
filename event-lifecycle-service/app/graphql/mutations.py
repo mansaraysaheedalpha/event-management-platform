@@ -90,6 +90,13 @@ from .types import (
     JoinVirtualSessionResponse,
     LeaveVirtualSessionResponse,
 )
+from .rsvp_types import (
+    RsvpToSessionResponse,
+    CancelSessionRsvpResponse,
+    RsvpToSessionInput,
+    CancelSessionRsvpInput,
+)
+from .rsvp_mutations import RsvpMutations
 
 
 # ==== VIRTUAL EVENT ENUMS FOR INPUT (Phase 1) ====
@@ -2031,3 +2038,21 @@ class Mutation:
             watchDurationSeconds=attendance.watch_duration_seconds,
             message="Left successfully"
         )
+
+    # --- SESSION RSVP MUTATIONS ---
+
+    @strawberry.mutation
+    def rsvp_to_session(
+        self, input: RsvpToSessionInput, info: Info
+    ) -> RsvpToSessionResponse:
+        """RSVP to a session (in-person capacity booking)."""
+        rm = RsvpMutations()
+        return rm.rsvp_to_session(input, info)
+
+    @strawberry.mutation
+    def cancel_session_rsvp(
+        self, input: CancelSessionRsvpInput, info: Info
+    ) -> CancelSessionRsvpResponse:
+        """Cancel session RSVP."""
+        rm = RsvpMutations()
+        return rm.cancel_session_rsvp(input, info)
