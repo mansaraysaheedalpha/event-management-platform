@@ -45,10 +45,10 @@ class RsvpMutations:
         If session is full, returns error directing user to join waitlist.
         """
         user = info.context.user
-        if not user:
+        if not user or not user.get("sub"):
             raise HTTPException(status_code=401, detail="Authentication required")
 
-        user_id = user.get("sub")
+        user_id = user["sub"]
         db = info.context.db
         session_id = input.session_id
 
@@ -127,10 +127,10 @@ class RsvpMutations:
         Decrements capacity and auto-offers to next waitlist entry if applicable.
         """
         user = info.context.user
-        if not user:
+        if not user or not user.get("sub"):
             raise HTTPException(status_code=401, detail="Authentication required")
 
-        user_id = user.get("sub")
+        user_id = user["sub"]
         db = info.context.db
         session_id = input.session_id
 
@@ -203,6 +203,6 @@ def _auto_offer_next_waitlist(db, session_id: str, info: Info) -> None:
                 f"Auto-offered waitlist spot to user {next_user_id} "
                 f"for session {session_id} after RSVP cancellation"
             )
-    except Exception as e:
+    except Exception:
         # Waitlist auto-offer is best-effort; don't fail the cancellation
-        logger.warning(f"Failed to auto-offer waitlist spot for session {session_id}: {e}")
+        logger.warning(f"Failed to auto-offer waitlist spot for session {session_id}", exc_info=True)
