@@ -65,6 +65,10 @@ export class TeamChatGateway {
       // Verify team membership
       await this.teamChatService.assertTeamMembership(user.sub, dto.teamId);
 
+      // Ensure the client socket is in the team room (belt-and-suspenders:
+      // session.join auto-joins but is fire-and-forget; this guarantees it)
+      await client.join(`team:${dto.teamId}`);
+
       // Get the session ID for points (team belongs to session)
       const team = await this._getTeam(dto.teamId);
 
@@ -84,17 +88,23 @@ export class TeamChatGateway {
           this.logger.warn(`Failed to award MESSAGE_SENT points: ${err}`),
         );
 
-      // Broadcast to team room
+      // Broadcast to team room (all sockets in the room, including sender)
       this.server.to(`team:${dto.teamId}`).emit('team.chat.message.new', {
         message,
       });
 
-      return { success: true, message };
+      return {
+        event: 'team.chat.send.response',
+        data: { success: true, message },
+      };
     } catch (error: any) {
       this.logger.error(
         `Failed to send team message: ${error?.message || error}`,
       );
-      return { success: false, error: error?.message || 'Unknown error' };
+      return {
+        event: 'team.chat.send.response',
+        data: { success: false, error: error?.message || 'Unknown error' },
+      };
     }
   }
 
@@ -125,12 +135,18 @@ export class TeamChatGateway {
         message: updatedMessage,
       });
 
-      return { success: true, message: updatedMessage };
+      return {
+        event: 'team.chat.react.response',
+        data: { success: true, message: updatedMessage },
+      };
     } catch (error: any) {
       this.logger.error(
         `Failed to react to team message: ${error?.message || error}`,
       );
-      return { success: false, error: error?.message || 'Unknown error' };
+      return {
+        event: 'team.chat.react.response',
+        data: { success: false, error: error?.message || 'Unknown error' },
+      };
     }
   }
 
@@ -147,6 +163,9 @@ export class TeamChatGateway {
       // Verify team membership
       await this.teamChatService.assertTeamMembership(user.sub, dto.teamId);
 
+      // Ensure the client socket is in the team room so it receives broadcasts
+      await client.join(`team:${dto.teamId}`);
+
       // Fetch history
       const messages = await this.teamChatService.getHistory(
         dto.teamId,
@@ -155,15 +174,21 @@ export class TeamChatGateway {
       );
 
       return {
-        success: true,
-        messages,
-        hasMore: messages.length === (dto.limit ?? 50),
+        event: 'team.chat.history.response',
+        data: {
+          success: true,
+          messages,
+          hasMore: messages.length === (dto.limit ?? 50),
+        },
       };
     } catch (error: any) {
       this.logger.error(
         `Failed to fetch team chat history: ${error?.message || error}`,
       );
-      return { success: false, error: error?.message || 'Unknown error' };
+      return {
+        event: 'team.chat.history.response',
+        data: { success: false, error: error?.message || 'Unknown error' },
+      };
     }
   }
 
