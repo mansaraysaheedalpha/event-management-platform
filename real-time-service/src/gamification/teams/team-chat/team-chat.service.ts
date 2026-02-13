@@ -22,9 +22,11 @@ export class TeamChatService {
    * Throws ForbiddenException if not.
    */
   async assertTeamMembership(userId: string, teamId: string) {
-    const membership = await this.prisma.teamMembership.findFirst({
-      where: { userId, teamId },
-      select: { id: true },
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: {
+        userId_teamId: { userId, teamId },
+      },
+      select: { userId: true },
     });
     if (!membership) {
       throw new ForbiddenException(

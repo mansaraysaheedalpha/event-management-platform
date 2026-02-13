@@ -6,9 +6,10 @@ import { GamificationModule } from '../gamification.module';
 import { SynergyService } from './synergy/synergy.service';
 import { TeamNotificationsService } from './notifications/team-notifications.service';
 import { TeamChatModule } from './team-chat/team-chat.module';
+import { TriviaModule } from './trivia/trivia.module';
 
 @Module({
-  imports: [forwardRef(() => GamificationModule), TeamChatModule],
+  imports: [forwardRef(() => GamificationModule), TeamChatModule, TriviaModule],
   providers: [
     TeamsService,
     TeamsGateway,
