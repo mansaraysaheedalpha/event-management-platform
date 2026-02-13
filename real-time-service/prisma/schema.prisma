@@ -1406,6 +1406,7 @@ model BoothQueueEntry {
   @@index([boothId, status])          // For finding waiting entries
   @@index([boothId, position])        // For position lookups
   @@index([userId])
+  @@index([socketId])                 // For disconnect cleanup
   @@map("booth_queue_entries")
 }
 

@@ -18,6 +18,7 @@ import {
   BoothQueueEntry,
   BoothVisit,
 } from '@prisma/client';
+import { QUEUE_ADMISSION_TIMEOUT_MS } from './expo.constants';
 
 export interface ExpoBoothWithCount {
   id: string;
@@ -698,6 +699,7 @@ export class ExpoService {
 
   /**
    * Admits the next person in queue if capacity is available.
+   * Uses a transaction to prevent race conditions.
    * Expires stale ADMITTED entries (>60s) before checking.
    */
   async admitNextFromQueue(
@@ -709,39 +711,49 @@ export class ExpoService {
 
     if (!booth?.maxVisitors) return null;
 
-    // Expire stale ADMITTED entries (older than 60 seconds)
-    const expiryThreshold = new Date(Date.now() - 60_000);
-    await this.prisma.boothQueueEntry.updateMany({
-      where: {
-        boothId,
-        status: 'ADMITTED',
-        admittedAt: { lt: expiryThreshold },
-      },
-      data: { status: 'EXPIRED', leftAt: new Date() },
+    // Use transaction to prevent race conditions
+    return await this.prisma.$transaction(async (tx) => {
+      // Expire stale ADMITTED entries (older than 60 seconds)
+      const expiryThreshold = new Date(Date.now() - QUEUE_ADMISSION_TIMEOUT_MS);
+      await tx.boothQueueEntry.updateMany({
+        where: {
+          boothId,
+          status: 'ADMITTED',
+          admittedAt: { lt: expiryThreshold },
+        },
+        data: { status: 'EXPIRED', leftAt: new Date() },
+      });
+
+      // Check capacity within transaction
+      const currentCount = await tx.boothVisit.count({
+        where: {
+          boothId,
+          exitedAt: null,
+        },
+      });
+
+      if (currentCount >= booth.maxVisitors) return null;
+
+      // Find next waiting person
+      const nextEntry = await tx.boothQueueEntry.findFirst({
+        where: { boothId, status: 'WAITING' },
+        orderBy: { position: 'asc' },
+      });
+
+      if (!nextEntry) return null;
+
+      // Mark as admitted
+      const admitted = await tx.boothQueueEntry.update({
+        where: { id: nextEntry.id },
+        data: { status: 'ADMITTED', admittedAt: new Date() },
+      });
+
+      this.logger.log(
+        `Admitted user ${admitted.userId} from queue for booth ${boothId}`,
+      );
+
+      return admitted;
     });
-
-    const currentCount = await this.getBoothVisitorCount(boothId);
-    if (currentCount >= booth.maxVisitors) return null;
-
-    // Find next waiting person
-    const nextEntry = await this.prisma.boothQueueEntry.findFirst({
-      where: { boothId, status: 'WAITING' },
-      orderBy: { position: 'asc' },
-    });
-
-    if (!nextEntry) return null;
-
-    // Mark as admitted
-    const admitted = await this.prisma.boothQueueEntry.update({
-      where: { id: nextEntry.id },
-      data: { status: 'ADMITTED', admittedAt: new Date() },
-    });
-
-    this.logger.log(
-      `Admitted user ${admitted.userId} from queue for booth ${boothId}`,
-    );
-
-    return admitted;
   }
 
   /**
