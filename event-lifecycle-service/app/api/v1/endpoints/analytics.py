@@ -21,6 +21,31 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 logger = logging.getLogger(__name__)
 
 
+def _verify_analytics_access(db: Session, event_id: str, current_user: TokenPayload) -> None:
+    """Verify the user is the event owner or belongs to the event's organization."""
+    from app.models.event import Event
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Allow if user belongs to the event's organization
+    if hasattr(current_user, 'org_id') and current_user.org_id and event.organization_id == current_user.org_id:
+        return
+
+    # Allow if user is the event owner
+    if hasattr(event, 'owner_id') and event.owner_id == current_user.sub:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Not authorized to view analytics for this event"
+    )
+
+
 # ==================== Event Tracking Endpoints ====================
 
 @router.post("/track", response_model=TrackingResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -137,8 +162,8 @@ async def get_monetization_analytics(
 
     **Permissions**: Requires event organizer access
     """
-    # TODO: Verify user has access to this event
-    # verify_event_access(current_user, event_id, "ORGANIZER")
+    # Verify user has access to this event (must be event owner or org member)
+    _verify_analytics_access(db, event_id, current_user)
 
     analytics = monetization_event.get_event_analytics(
         db,
@@ -184,8 +209,8 @@ async def get_conversion_funnels(
 
     **Permissions**: Requires event organizer access
     """
-    # TODO: Verify user has access to this event
-    # verify_event_access(current_user, event_id, "ORGANIZER")
+    # Verify user has access to this event
+    _verify_analytics_access(db, event_id, current_user)
 
     funnels = monetization_event.get_conversion_funnels(
         db,
@@ -235,9 +260,9 @@ async def refresh_materialized_views(
 
     **Permissions**: Requires admin access
     """
-    # TODO: Check if user is admin
-    # if not current_user.is_admin:
-    #     raise HTTPException(status_code=403, detail="Admin access required")
+    # Check if user has admin access
+    if not getattr(current_user, 'is_admin', False):
+        raise HTTPException(status_code=403, detail="Admin access required")
 
     background_tasks.add_task(_refresh_views, db)
 

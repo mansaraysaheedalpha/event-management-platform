@@ -148,7 +148,7 @@ class OfferMutations:
                 detail="Not authorized to create offers for this event"
             )
 
-        # SECURITY: Validate all input fields
+        # M-CQ3: Single validation call (price bounds, inventory, cross-field checks all in validate_offer_input)
         validation_errors = validate_offer_input(offer_in)
         if validation_errors:
             raise HTTPException(
@@ -349,6 +349,24 @@ class OfferMutations:
         offer = crud.offer.get(db, id=offer_id)
         if not offer:
             raise HTTPException(status_code=404, detail="Offer not found")
+
+        # SECURITY: Verify quantity bounds
+        if quantity < 1 or quantity > 20:
+            raise HTTPException(status_code=400, detail="Quantity must be between 1 and 20")
+
+        # SECURITY: Verify user has access to the event (public or registered)
+        event = crud.event.get(db, id=offer.event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        if not getattr(event, 'is_public', False):
+            from ..services.offer_helpers import check_user_registered_for_event
+            is_registered = check_user_registered_for_event(db, user_id=user_id, event_id=offer.event_id)
+            if not is_registered:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You must be registered for this event to purchase offers"
+                )
 
         # Check availability
         is_available, reason = crud.offer.check_availability(db, offer_id=offer_id, quantity=quantity)

@@ -12,6 +12,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from datetime import datetime, timezone
 
 from app.background_tasks.waitlist_tasks import check_expired_offers, offer_spots_to_next_users
@@ -26,11 +27,44 @@ from app.background_tasks.pre_event_email_tasks import (
     send_pending_pre_event_emails,
     retry_failed_pre_event_emails,
 )
+from app.background_tasks.offer_tasks import (
+    auto_expire_offers,
+    cleanup_stale_reservations,
+    process_pending_fulfillments,
+)
+from app.background_tasks.ad_tasks import (
+    auto_expire_ads,
+    refresh_ad_analytics,
+    cleanup_old_ad_events,
+)
 
 logger = logging.getLogger(__name__)
 
 # Global scheduler instance
 scheduler = None
+
+
+def _on_job_error(event):
+    """M-OBS3: Log scheduler job errors with full context."""
+    job_id = event.job_id
+    exc = event.exception
+    tb = event.traceback
+    logger.error(
+        "Scheduled job FAILED: job_id=%s error=%s",
+        job_id, exc,
+        exc_info=(type(exc), exc, None) if exc else None,
+    )
+    if tb:
+        logger.error("Traceback for job %s:\n%s", job_id, tb)
+
+
+def _on_job_missed(event):
+    """M-OBS3: Log when a scheduled job misses its execution window."""
+    logger.warning(
+        "Scheduled job MISSED: job_id=%s scheduled_run_time=%s",
+        event.job_id,
+        event.scheduled_run_time,
+    )
 
 
 def init_scheduler():
@@ -154,6 +188,80 @@ def init_scheduler():
         replace_existing=True
     )
     logger.info("Scheduled job: retry_failed_pre_event_emails (every 10 minutes)")
+
+    # ===== OFFER MANAGEMENT JOBS =====
+
+    # Job 10: Auto-expire offers past their expiration date
+    # Runs every 30 minutes
+    scheduler.add_job(
+        func=auto_expire_offers,
+        trigger=IntervalTrigger(minutes=30),
+        id='auto_expire_offers',
+        name='Auto-Expire Offers Past Expiration Date',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: auto_expire_offers (every 30 minutes)")
+
+    # Job 11: Cleanup stale inventory reservations
+    # Runs every 5 minutes (Redis TTL is primary, this is safety net)
+    scheduler.add_job(
+        func=cleanup_stale_reservations,
+        trigger=IntervalTrigger(minutes=5),
+        id='cleanup_stale_reservations',
+        name='Cleanup Stale Offer Inventory Reservations',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: cleanup_stale_reservations (every 5 minutes)")
+
+    # Job 12: Process pending offer fulfillments
+    # Runs every 5 minutes
+    scheduler.add_job(
+        func=process_pending_fulfillments,
+        trigger=IntervalTrigger(minutes=5),
+        id='process_pending_fulfillments',
+        name='Process Pending Offer Fulfillments',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: process_pending_fulfillments (every 5 minutes)")
+
+    # ===== AD MANAGEMENT JOBS =====
+
+    # Job 13: Auto-expire ads past their end date
+    # Runs every 1 hour
+    scheduler.add_job(
+        func=auto_expire_ads,
+        trigger=IntervalTrigger(hours=1),
+        id='auto_expire_ads',
+        name='Auto-Expire Ads Past End Date',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: auto_expire_ads (every 1 hour)")
+
+    # Job 14: Refresh ad analytics materialized view
+    # Runs every 1 hour
+    scheduler.add_job(
+        func=refresh_ad_analytics,
+        trigger=IntervalTrigger(hours=1),
+        id='refresh_ad_analytics',
+        name='Refresh Ad Analytics Materialized View',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: refresh_ad_analytics (every 1 hour)")
+
+    # Job 15: Cleanup old ad events (older than 90 days)
+    # Runs daily at 2 AM UTC
+    scheduler.add_job(
+        func=cleanup_old_ad_events,
+        trigger=CronTrigger(hour=2, minute=0),
+        id='cleanup_old_ad_events',
+        name='Cleanup Old Ad Events (90+ days)',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: cleanup_old_ad_events (daily at 2 AM UTC)")
+
+    # M-OBS3: Listen for job errors and misfires so they don't fail silently
+    scheduler.add_listener(_on_job_error, EVENT_JOB_ERROR)
+    scheduler.add_listener(_on_job_missed, EVENT_JOB_MISSED)
 
     # Start the scheduler
     scheduler.start()

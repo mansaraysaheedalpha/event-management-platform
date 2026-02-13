@@ -26,6 +26,7 @@ import { WaitlistService } from '../waitlist/waitlist.service';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { WaitlistNotificationPayload } from 'src/common/interfaces/monetization.interface';
+import { MONETIZATION_EVENTS } from '../monetization.events';
 
 /**
  * WebSocket Gateway handling real-time monetization events.
@@ -89,8 +90,7 @@ export class MonetizationGateway {
       return;
     }
     const eventRoom = `event:${adContent.eventId}`;
-    const eventName = 'monetization.ad.injected';
-    this.server.to(eventRoom).emit(eventName, adContent);
+    this.server.to(eventRoom).emit(MONETIZATION_EVENTS.AD_INJECTED, adContent);
     this.logger.log(`Broadcasted ad ${adContent.id} to room: ${eventRoom}`);
   }
 
@@ -114,8 +114,7 @@ export class MonetizationGateway {
     offerContent: OfferContent,
   ): void {
     const userRoom = `user:${targetUserId}`;
-    const eventName = 'monetization.upsell.new';
-    this.server.to(userRoom).emit(eventName, offerContent);
+    this.server.to(userRoom).emit(MONETIZATION_EVENTS.UPSELL_NEW, offerContent);
     this.logger.log(
       `Sent upsell offer ${offerContent.id} to user ${targetUserId}`,
     );
@@ -166,6 +165,14 @@ export class MonetizationGateway {
       };
     }
 
+    // HR2: Validate idempotencyKey to prevent replay without proper key
+    if (!dto?.idempotencyKey || typeof dto.idempotencyKey !== 'string') {
+      return {
+        success: false,
+        error: 'Idempotency key is required.',
+      };
+    }
+
     try {
       await this.waitlistService.addUserToWaitlist(
         sessionId,
@@ -203,8 +210,7 @@ export class MonetizationGateway {
     payload: WaitlistNotificationPayload,
   ): void {
     const userRoom = `user:${targetUserId}`;
-    const eventName = 'WAITLIST_OFFER';
-    this.server.to(userRoom).emit(eventName, payload);
+    this.server.to(userRoom).emit(MONETIZATION_EVENTS.WAITLIST_OFFER, payload);
     this.logger.log(`Sent waitlist spot notification to user ${targetUserId}`);
   }
 
@@ -230,14 +236,13 @@ export class MonetizationGateway {
   ): void {
     userIds.forEach(({ userId, position }) => {
       const userRoom = `user:${userId}`;
-      const eventName = 'WAITLIST_POSITION_UPDATE';
       const payload = {
         position,
         total: totalInQueue,
         estimated_wait_minutes: estimatedWaitMinutes || Math.ceil(position * 2),
         session_id: sessionId,
       };
-      this.server.to(userRoom).emit(eventName, payload);
+      this.server.to(userRoom).emit(MONETIZATION_EVENTS.WAITLIST_POSITION_UPDATE, payload);
     });
     this.logger.log(
       `Sent position updates to ${userIds.length} users in session ${sessionId}`,
@@ -261,12 +266,11 @@ export class MonetizationGateway {
     message: string,
   ): void {
     const userRoom = `user:${targetUserId}`;
-    const eventName = 'WAITLIST_OFFER_EXPIRED';
     const payload = {
       message,
       session_id: sessionId,
     };
-    this.server.to(userRoom).emit(eventName, payload);
+    this.server.to(userRoom).emit(MONETIZATION_EVENTS.WAITLIST_OFFER_EXPIRED, payload);
     this.logger.log(`Sent offer expiration notification to user ${targetUserId}`);
   }
 }

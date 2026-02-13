@@ -186,6 +186,7 @@ class UpdateCapacityResponseType:
 class JoinWaitlistInput:
     """Input for joining a waitlist"""
     session_id: str
+    priority_tier_override: Optional[str] = None  # Optional organizer-configured tier (VIP, PREMIUM, STANDARD)
 
 
 @strawberry.input

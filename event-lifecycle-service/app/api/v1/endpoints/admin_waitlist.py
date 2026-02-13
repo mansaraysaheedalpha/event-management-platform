@@ -10,7 +10,7 @@ These endpoints allow organizers/admins to:
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 import redis
 import logging
@@ -25,10 +25,12 @@ from app.utils.waitlist import (
     remove_from_waitlist_queue,
     generate_offer_token,
     recalculate_all_positions,
-    get_total_waiting
+    get_total_waiting,
+    get_next_in_queue
 )
 from app.utils.validators import validate_session_id, validate_user_id
 from pydantic import BaseModel, Field
+from app.utils.waitlist_notifications import send_waitlist_offer_notification, offer_spot_to_next_user
 
 router = APIRouter(tags=["Admin - Waitlist"])
 logger = logging.getLogger(__name__)
@@ -186,6 +188,7 @@ def admin_remove_user_from_waitlist(
     session_id: str,
     user_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     reason: str = "Removed by admin",
     db: Session = Depends(deps.get_db),
     redis_client: redis.Redis = Depends(deps.get_redis),
@@ -264,7 +267,13 @@ def admin_remove_user_from_waitlist(
         f"Recalculated {updated_count} positions."
     )
 
-    # TODO: Offer spot to next person (same logic as leave_waitlist)
+    # M-CQ2: Offer spot to next person in line (shared helper)
+    next_offered = offer_spot_to_next_user(
+        session_id, redis_client, db, background_tasks,
+        trigger_metadata={'triggered_by_admin_remove': True},
+    )
+    if next_offered:
+        logger.info(f"Auto-offered spot to user {next_offered} after admin removed {user_id}")
 
     return None
 
@@ -373,6 +382,7 @@ def admin_offer_spot_to_user(
     session_id: str,
     user_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     expires_minutes: int = 5,
     db: Session = Depends(deps.get_db),
     current_user: TokenPayload = Depends(deps.get_current_user)
@@ -457,7 +467,24 @@ def admin_offer_spot_to_user(
         f"for session {session_id}. Expires in {expires_minutes} minutes."
     )
 
-    # TODO: Send email/notification to user
+    # Send notification via background task
+    from app.models.session import Session as SessionModel
+    session_obj = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+    session_title = session_obj.title if session_obj else "Session"
+    event_id = session_obj.event_id if session_obj else ""
+    event_name = session_obj.event.name if (session_obj and session_obj.event) else "Event"
+
+    background_tasks.add_task(
+        send_waitlist_offer_notification,
+        user_id=user_id,
+        session_id=session_id,
+        session_title=session_title,
+        event_id=event_id,
+        event_name=event_name,
+        offer_token=offer_token,
+        offer_expires_at=expires_at.isoformat(),
+        position=entry.position,
+    )
 
     return WaitlistEntryResponse.from_orm(entry)
 
@@ -556,16 +583,20 @@ def admin_list_waitlist_entries(
     session_id: str,
     request: Request,
     status_filter: str = None,
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(deps.get_db),
     current_user: TokenPayload = Depends(deps.get_current_user)
 ):
     """
-    **[ADMIN]** List all waitlist entries for a session.
+    **[ADMIN]** List all waitlist entries for a session (paginated).
 
     **Authorization**: Requires admin or event organizer role
 
     **Query Parameters**:
     - status_filter: Filter by status (WAITING, OFFERED, etc.)
+    - limit: Max entries to return (default 50, max 200)
+    - offset: Number of entries to skip (default 0)
 
     **Returns**:
     - List of waitlist entries with full details
@@ -582,12 +613,22 @@ def admin_list_waitlist_entries(
     # Check authorization
     require_admin_or_organizer(current_user, session_id, db)
 
-    # Get entries
-    entries = session_waitlist.get_session_waitlist(
-        db,
-        session_id=session_id,
-        status=status_filter
+    # Clamp pagination params
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    # Build query with pagination
+    query = db.query(session_waitlist.model).filter(
+        session_waitlist.model.session_id == session_id
     )
+
+    if status_filter:
+        query = query.filter(session_waitlist.model.status == status_filter)
+
+    entries = query.order_by(
+        session_waitlist.model.priority_tier.desc(),
+        session_waitlist.model.position.asc()
+    ).offset(offset).limit(limit).all()
 
     return [WaitlistEntryResponse.from_orm(entry) for entry in entries]
 
@@ -601,6 +642,7 @@ def admin_bulk_send_offers(
     session_id: str,
     request: Request,
     bulk_request: BulkSendOffersRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(deps.get_db),
     redis_client: redis.Redis = Depends(deps.get_redis),
     current_user: TokenPayload = Depends(deps.get_current_user)
@@ -720,7 +762,30 @@ def admin_bulk_send_offers(
             detail="No users in waitlist with WAITING status"
         )
 
-    # TODO: Send email/push notifications to all offered users
+    # Send notifications for all offered users via background tasks
+    from app.models.session import Session as SessionModel
+    session_obj = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+    session_title = session_obj.title if session_obj else "Session"
+    event_id_for_notif = session_obj.event_id if session_obj else ""
+    event_name_for_notif = session_obj.event.name if (session_obj and session_obj.event) else "Event"
+
+    # Re-fetch the offered entries to get their offer tokens and expiry times
+    for offered_user_id in user_ids_offered:
+        offered_entry = session_waitlist.get_by_session_and_user(
+            db, session_id=session_id, user_id=offered_user_id
+        )
+        if offered_entry and offered_entry.offer_token and offered_entry.offer_expires_at:
+            background_tasks.add_task(
+                send_waitlist_offer_notification,
+                user_id=offered_user_id,
+                session_id=session_id,
+                session_title=session_title,
+                event_id=event_id_for_notif,
+                event_name=event_name_for_notif,
+                offer_token=offered_entry.offer_token,
+                offer_expires_at=offered_entry.offer_expires_at.isoformat(),
+                position=offered_entry.position,
+            )
 
     logger.info(
         f"Admin {current_user.user_id} bulk sent {offers_sent} waitlist offers "

@@ -6,17 +6,18 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { forwardRef, Inject, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Logger, OnModuleDestroy } from '@nestjs/common';
 import { GamificationService } from './gamification.service';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
+import { TeamNotificationsService } from './teams/notifications/team-notifications.service';
 
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
   namespace: '/events',
 })
-export class GamificationGateway {
+export class GamificationGateway implements OnModuleDestroy {
   private readonly logger = new Logger(GamificationGateway.name);
   @WebSocketServer() server: Server;
 
@@ -24,9 +25,13 @@ export class GamificationGateway {
   private leaderboardDebounceTimers = new Map<string, NodeJS.Timeout>();
   private static readonly LEADERBOARD_DEBOUNCE_MS = 3000;
 
+  // Track previous team ranks per session for rank-change detection
+  private previousTeamRanks = new Map<string, Map<string, number>>();
+
   constructor(
     @Inject(forwardRef(() => GamificationService))
     private readonly gamificationService: GamificationService,
+    private readonly teamNotificationsService: TeamNotificationsService,
   ) {}
 
   /**
@@ -152,6 +157,9 @@ export class GamificationGateway {
         teamScores: teamLeaderboard,
       });
 
+      // Detect rank changes and notify teams
+      this._detectAndNotifyRankChanges(sessionId, teamLeaderboard);
+
       this.logger.log(`Broadcasted leaderboard updates to room ${publicRoom}`);
     } catch (error) {
       this.logger.error(
@@ -159,6 +167,41 @@ export class GamificationGateway {
         getErrorMessage(error),
       );
     }
+  }
+
+  /**
+   * Compares current team ranks against previous snapshot and sends
+   * notifications to teams whose rank changed.
+   */
+  private _detectAndNotifyRankChanges(
+    sessionId: string,
+    teamLeaderboard: Array<{
+      teamId: string;
+      name: string;
+      rank: number;
+      score: number;
+      memberCount: number;
+    }>,
+  ) {
+    const prevRanks = this.previousTeamRanks.get(sessionId);
+    const currentRanks = new Map<string, number>();
+
+    for (const entry of teamLeaderboard) {
+      currentRanks.set(entry.teamId, entry.rank);
+
+      if (prevRanks) {
+        const previousRank = prevRanks.get(entry.teamId);
+        if (previousRank !== undefined && previousRank !== entry.rank) {
+          this.teamNotificationsService.notifyRankChanged(entry.teamId, {
+            previousRank,
+            newRank: entry.rank,
+            teamName: entry.name,
+          });
+        }
+      }
+    }
+
+    this.previousTeamRanks.set(sessionId, currentRanks);
   }
 
   /**
@@ -192,5 +235,11 @@ export class GamificationGateway {
     this.logger.log(
       `Sent streak notification to user ${targetUserId}: ${payload.count}x (${payload.multiplier}x multiplier)`,
     );
+  }
+
+  onModuleDestroy() {
+    this.leaderboardDebounceTimers.forEach((timer) => clearTimeout(timer));
+    this.leaderboardDebounceTimers.clear();
+    this.previousTeamRanks.clear();
   }
 }

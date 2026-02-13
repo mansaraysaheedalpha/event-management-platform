@@ -15,6 +15,11 @@ class CRUDOfferPurchase:
         """Get a single offer purchase by ID."""
         return db.query(self.model).filter(self.model.id == id).first()
 
+    def get_by_order_id(self, db: Session, *, order_id: str) -> Optional[OfferPurchase]:
+        """Get a purchase by Stripe checkout session ID (order_id).
+        Used for webhook idempotency — prevents duplicate processing."""
+        return db.query(self.model).filter(self.model.order_id == order_id).first()
+
     def create(
         self,
         db: Session,
@@ -25,12 +30,14 @@ class CRUDOfferPurchase:
         unit_price: float,
         currency: str = "USD",
         order_id: Optional[str] = None,
-        fulfillment_type: Optional[str] = None
+        fulfillment_type: Optional[str] = None,
+        auto_commit: bool = True
     ) -> OfferPurchase:
         """
         Create a new offer purchase record.
 
         This should be called after payment is confirmed.
+        Set auto_commit=False when calling within a larger transaction.
         """
         total_price = unit_price * quantity
 
@@ -47,8 +54,11 @@ class CRUDOfferPurchase:
         )
 
         db.add(purchase)
-        db.commit()
-        db.refresh(purchase)
+        if auto_commit:
+            db.commit()
+            db.refresh(purchase)
+        else:
+            db.flush()
         return purchase
 
     def get_user_purchases(

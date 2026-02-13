@@ -153,7 +153,8 @@ class CRUDAdEvent:
         total_impressions = sum(row.impressions for row in result)
         total_viewable_impressions = sum(row.viewable_impressions for row in result)
         total_clicks = sum(row.clicks for row in result)
-        total_unique_users = len(set(row.unique_users for row in result if row.unique_users))
+        # M-CQ4: Sum daily unique user counts (per-day uniqueness from materialized view)
+        total_unique_users = sum(row.unique_users for row in result if row.unique_users)
 
         ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
 

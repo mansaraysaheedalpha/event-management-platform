@@ -1,5 +1,5 @@
 //src/monetization/waitlist/waitlist.service.ts
-import { ConflictException, Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, OnApplicationShutdown, forwardRef } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { IdempotencyService } from 'src/shared/services/idempotency.service';
@@ -7,28 +7,33 @@ import { MonetizationGateway } from '../ads/monetization.gateway';
 import { GamificationService } from 'src/gamification/gamification.service';
 
 /**
- * The `WaitlistService` manages a FIFO waitlist for event sessions using Redis.
- * It allows users to be added to or retrieved from the waitlist for a session.
+ * Priority tiers for waitlist ordering, checked in descending priority.
+ * Must match the Python backend's tier names in waitlist.py.
+ */
+const PRIORITY_TIERS = ['vip', 'premium', 'standard'] as const;
+type PriorityTier = (typeof PRIORITY_TIERS)[number];
+
+/** TTL in seconds for waitlist Redis keys (24 hours, matching Python backend). */
+const WAITLIST_TTL_SECONDS = 86400;
+
+/**
+ * The `WaitlistService` manages a priority-tiered waitlist for event sessions
+ * using Redis Sorted Sets (ZSET).
  *
- * This service supports use cases like handling full sessions where users are
- * placed in a queue and notified when a spot opens up.
+ * Uses the same data structure and key format as the Python event-lifecycle-service:
+ *   Key:   `waitlist:session:{sessionId}:{tier}`
+ *   Score: Unix timestamp (ms) for FIFO ordering within each tier
  *
- * @remarks
- * Waitlists can grow unbounded if sessions are abandoned. Redis keys persist indefinitely unless explicitly expired or deleted.
- * Implement cleanup or TTL strategies to avoid resource leaks and stale data.
+ * Priority order: VIP > PREMIUM > STANDARD
  *
  * @example
- * // Add a user to waitlist
- * await waitlistService.addUserToWaitlist('session-123', 'user-456');
- *
- * // Get the next user when a spot is available
+ * await waitlistService.addUserToWaitlist('session-123', 'user-456', 'key', 'standard');
  * const nextUser = await waitlistService.getNextUserFromWaitlist('session-123');
  */
 @Injectable()
-export class WaitlistService {
-  /** Compile-time constant for waitlist Redis key prefix */
-  private static readonly WAITLIST_KEY_PREFIX = 'waitlist:';
+export class WaitlistService implements OnApplicationShutdown {
   private readonly logger = new Logger(WaitlistService.name);
+  private readonly pendingTimers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -39,28 +44,35 @@ export class WaitlistService {
   ) {}
 
   /**
-   * Builds a Redis key for the waitlist associated with a session.
-   *
-   * @param sessionId - The unique ID of the session
-   * @returns The Redis key string for the session's waitlist
+   * Builds a Redis key for a specific tier queue of a session's waitlist.
+   * Format matches the Python backend: `waitlist:session:{sessionId}:{tier}`
    */
-  private getRedisKey(sessionId: string): string {
-    return `${WaitlistService.WAITLIST_KEY_PREFIX}${sessionId}`;
+  private getRedisKey(sessionId: string, tier: PriorityTier = 'standard'): string {
+    return `waitlist:session:${sessionId}:${tier}`;
   }
 
   /**
-   * Adds a user to the end of the waitlist for a given session.
-   * Redis `RPUSH` ensures FIFO order is maintained.
-   * Emits position updates to all users in the waitlist.
+   * Returns all three tier keys for a session in priority order.
+   */
+  private getAllTierKeys(sessionId: string): string[] {
+    return PRIORITY_TIERS.map((tier) => this.getRedisKey(sessionId, tier));
+  }
+
+  /**
+   * Adds a user to the waitlist for a given session using Redis ZADD.
+   * Uses the current timestamp as the score for FIFO ordering within the tier.
+   * The NX flag ensures a user is only added if not already present.
    *
    * @param sessionId - The ID of the session
    * @param userId - The ID of the user to be added
-   * @returns Promise that resolves once the user is added
+   * @param idempotencyKey - Key for idempotent request handling
+   * @param tier - Priority tier (default: 'standard')
    */
   async addUserToWaitlist(
     sessionId: string,
     userId: string,
     idempotencyKey: string,
+    tier: PriorityTier = 'standard',
   ): Promise<void> {
     const canProceed =
       await this.idempotencyService.checkAndSet(idempotencyKey);
@@ -69,11 +81,15 @@ export class WaitlistService {
         'This waitlist join request has already been processed.',
       );
     }
-    const redisKey = this.getRedisKey(sessionId);
+    const redisKey = this.getRedisKey(sessionId, tier);
     try {
-      await this.redis.rpush(redisKey, userId);
+      const score = Date.now();
+      // NX: only add if member does not already exist
+      await this.redis.zadd(redisKey, 'NX', score, userId);
+      // Set TTL to match Python backend (24 hours)
+      await this.redis.expire(redisKey, WAITLIST_TTL_SECONDS);
       this.logger.log(
-        `User ${userId} added to waitlist for session ${sessionId}`,
+        `User ${userId} added to waitlist for session ${sessionId} (tier: ${tier})`,
       );
 
       // Award gamification points for joining the waitlist
@@ -98,73 +114,78 @@ export class WaitlistService {
   }
 
   /**
-   * Retrieves and removes the next user from the front of the session waitlist.
-   * Redis `LPOP` ensures atomic removal in FIFO order.
-   * Emits position updates to remaining users in the waitlist.
+   * Retrieves and removes the next user from the session waitlist.
+   * Checks tiers in priority order: VIP -> PREMIUM -> STANDARD.
+   * Within each tier, picks the member with the lowest score (earliest join).
    *
    * @param sessionId - The ID of the session
    * @returns The user ID if one exists, otherwise null
    */
   async getNextUserFromWaitlist(sessionId: string): Promise<string | null> {
-    const redisKey = this.getRedisKey(sessionId);
-    const userId = await this.redis.lpop(redisKey);
-    if (userId) {
-      this.logger.log(
-        `User ${userId} popped from waitlist for session ${sessionId}`,
-      );
-    }
-    // Check if the list is now empty and clean up the key
-    const listLength = await this.redis.llen(redisKey);
-    if (listLength === 0) {
-      await this.redis.del(redisKey);
-      this.logger.log(
-        `Waitlist for session ${sessionId} is now empty and key deleted.`,
-      );
-    } else {
-      // Optionally set an expiration to avoid stale keys
-      await this.redis.expire(redisKey, 3600); // 1 hour
-      this.logger.log(
-        `Waitlist for session ${sessionId} still has users, expiration set.`,
-      );
+    for (const tier of PRIORITY_TIERS) {
+      const redisKey = this.getRedisKey(sessionId, tier);
+      // Atomic pop: ZPOPMIN removes and returns the member with the lowest score
+      const result = await this.redis.zpopmin(redisKey, 1);
+      if (result && result.length >= 2) {
+        // zpopmin returns [member, score, member, score, ...]
+        const userId = result[0];
+        this.logger.log(
+          `User ${userId} popped from waitlist for session ${sessionId} (tier: ${tier})`,
+        );
 
-      // Emit position updates to remaining users
-      await this.emitPositionUpdates(sessionId);
+        // Clean up empty keys
+        const remaining = await this.redis.zcard(redisKey);
+        if (remaining === 0) {
+          await this.redis.del(redisKey);
+        }
+
+        // Emit position updates to remaining users
+        await this.emitPositionUpdates(sessionId);
+        return userId;
+      }
     }
-    return userId;
+
+    this.logger.log(
+      `Waitlist for session ${sessionId} is empty across all tiers.`,
+    );
+    return null;
   }
 
   /**
    * Emits position updates to all users currently in the waitlist.
-   * This method fetches all user IDs in the queue and sends each user
-   * their current position and estimated wait time.
+   * Aggregates across all tiers in priority order so that VIP users
+   * appear before PREMIUM, who appear before STANDARD.
    *
    * @param sessionId - The ID of the session
-   * @returns Promise that resolves once updates are emitted
    */
   private async emitPositionUpdates(sessionId: string): Promise<void> {
     try {
-      const redisKey = this.getRedisKey(sessionId);
-      const userIds = await this.redis.lrange(redisKey, 0, -1);
+      const allUsers: { userId: string; position: number }[] = [];
+      let globalPosition = 0;
 
-      if (!userIds || userIds.length === 0) {
+      for (const tier of PRIORITY_TIERS) {
+        const redisKey = this.getRedisKey(sessionId, tier);
+        // ZRANGE returns members sorted by score (join time)
+        const userIds = await this.redis.zrange(redisKey, 0, -1);
+        for (const userId of userIds) {
+          globalPosition++;
+          allUsers.push({ userId, position: globalPosition });
+        }
+      }
+
+      if (allUsers.length === 0) {
         return;
       }
 
-      const totalInQueue = userIds.length;
-      const userPositions = userIds.map((userId, index) => ({
-        userId,
-        position: index + 1, // Position is 1-indexed
-      }));
-
       // Emit position updates via the gateway
       this.gateway.sendWaitlistPositionUpdate(
-        userPositions,
+        allUsers,
         sessionId,
-        totalInQueue,
+        allUsers.length,
       );
 
       this.logger.log(
-        `Emitted position updates for ${totalInQueue} users in session ${sessionId}`,
+        `Emitted position updates for ${allUsers.length} users in session ${sessionId}`,
       );
     } catch (err) {
       this.logger.error(
@@ -177,6 +198,7 @@ export class WaitlistService {
 
   /**
    * Gets the current position of a specific user in the waitlist.
+   * Position accounts for all higher-priority tiers.
    *
    * @param sessionId - The ID of the session
    * @param userId - The ID of the user to find
@@ -186,26 +208,37 @@ export class WaitlistService {
     sessionId: string,
     userId: string,
   ): Promise<number | null> {
-    const redisKey = this.getRedisKey(sessionId);
-    const userIds = await this.redis.lrange(redisKey, 0, -1);
-    const position = userIds.indexOf(userId);
+    let offset = 0;
 
-    if (position === -1) {
-      return null;
+    for (const tier of PRIORITY_TIERS) {
+      const redisKey = this.getRedisKey(sessionId, tier);
+      const rank = await this.redis.zrank(redisKey, userId);
+
+      if (rank !== null) {
+        return offset + rank + 1; // 1-indexed
+      }
+
+      // User not in this tier; add this tier's count to the offset
+      const tierSize = await this.redis.zcard(redisKey);
+      offset += tierSize;
     }
 
-    return position + 1; // Return 1-indexed position
+    return null;
   }
 
   /**
-   * Gets the total number of users in the waitlist.
+   * Gets the total number of users in the waitlist across all tiers.
    *
    * @param sessionId - The ID of the session
    * @returns The total number of users waiting
    */
   async getWaitlistLength(sessionId: string): Promise<number> {
-    const redisKey = this.getRedisKey(sessionId);
-    return await this.redis.llen(redisKey);
+    let total = 0;
+    for (const tier of PRIORITY_TIERS) {
+      const redisKey = this.getRedisKey(sessionId, tier);
+      total += await this.redis.zcard(redisKey);
+    }
+    return total;
   }
 
   /**
@@ -244,10 +277,12 @@ export class WaitlistService {
         JSON.stringify({ userId, sessionId, expiresAt }),
       );
 
-      // Schedule expiration notification
-      setTimeout(() => {
+      // Schedule expiration notification (tracked for cleanup on shutdown)
+      const timer = setTimeout(() => {
+        this.pendingTimers.delete(timer);
         this.handleOfferExpiration(userId, sessionId, offerToken);
       }, timeUntilExpiration);
+      this.pendingTimers.add(timer);
 
       this.logger.log(
         `Tracking offer expiration for user ${userId} in session ${sessionId}, expires at ${expiresAt}`,
@@ -309,7 +344,7 @@ export class WaitlistService {
 
   /**
    * Removes user from waitlist when they accept an offer.
-   * This should be called after successful offer acceptance.
+   * Searches all tiers since the caller may not know which tier the user is in.
    *
    * @param sessionId - The ID of the session
    * @param userId - The ID of the user who accepted
@@ -318,12 +353,17 @@ export class WaitlistService {
     sessionId: string,
     userId: string,
   ): Promise<void> {
-    const redisKey = this.getRedisKey(sessionId);
     try {
-      await this.redis.lrem(redisKey, 1, userId);
-      this.logger.log(
-        `User ${userId} removed from waitlist for session ${sessionId}`,
-      );
+      for (const tier of PRIORITY_TIERS) {
+        const redisKey = this.getRedisKey(sessionId, tier);
+        const removed = await this.redis.zrem(redisKey, userId);
+        if (removed > 0) {
+          this.logger.log(
+            `User ${userId} removed from waitlist for session ${sessionId} (tier: ${tier})`,
+          );
+          break;
+        }
+      }
 
       // Emit position updates to remaining users
       await this.emitPositionUpdates(sessionId);
@@ -333,5 +373,19 @@ export class WaitlistService {
         err,
       );
     }
+  }
+
+  /**
+   * Clears all pending offer expiration timers on application shutdown.
+   * Prevents memory leaks from orphaned setTimeout references.
+   */
+  onApplicationShutdown(): void {
+    this.logger.log(
+      `Clearing ${this.pendingTimers.size} pending offer expiration timers`,
+    );
+    for (const timer of this.pendingTimers) {
+      clearTimeout(timer);
+    }
+    this.pendingTimers.clear();
   }
 }

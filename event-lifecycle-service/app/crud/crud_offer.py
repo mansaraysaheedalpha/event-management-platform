@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import datetime, timezone
 from .base import CRUDBase
@@ -68,23 +68,27 @@ class CRUDOffer(CRUDBase[Offer, OfferCreate, OfferUpdate]):
         if placement:
             query = query.filter(self.model.placement == placement)
 
-        # Get offers and filter by availability
-        offers = query.all()
+        # Push inventory availability check into SQL instead of filtering in Python.
+        # inventory_total IS NULL means unlimited; otherwise available = total - sold - reserved > 0
+        query = query.filter(
+            or_(
+                self.model.inventory_total == None,
+                (self.model.inventory_total - self.model.inventory_sold - self.model.inventory_reserved) > 0
+            )
+        )
 
-        # Filter by session targeting if session_id provided
+        # Push session targeting into SQL using PostgreSQL array operators.
+        # Empty/null target_sessions means "all sessions" (no restriction).
         if session_id:
-            offers = [
-                offer for offer in offers
-                if not offer.target_sessions or session_id in offer.target_sessions
-            ]
+            query = query.filter(
+                or_(
+                    self.model.target_sessions == None,
+                    func.cardinality(self.model.target_sessions) == 0,
+                    func.array_position(self.model.target_sessions, session_id) != None
+                )
+            )
 
-        # Filter by inventory availability
-        offers = [
-            offer for offer in offers
-            if offer.inventory_available > 0
-        ]
-
-        return offers
+        return query.all()
 
     def check_availability(
         self,
@@ -121,6 +125,50 @@ class CRUDOffer(CRUDBase[Offer, OfferCreate, OfferUpdate]):
             return False, f"Only {offer.inventory_available} items available"
 
         return True, None
+
+    def check_and_reserve_inventory(
+        self,
+        db: Session,
+        *,
+        offer_id: str,
+        quantity: int
+    ) -> tuple[Optional[Offer], Optional[str]]:
+        """
+        Atomically check availability and reserve inventory in a single
+        locked transaction. Prevents race conditions where two requests
+        both pass availability checks then both try to reserve.
+
+        Returns: (offer, error_reason) — offer is None if failed
+        """
+        # Lock the row to prevent concurrent modifications
+        offer = db.query(self.model).filter(
+            self.model.id == offer_id
+        ).with_for_update().first()
+
+        if not offer:
+            return None, "Offer not found"
+
+        if offer.is_archived:
+            return None, "Offer is no longer available"
+
+        if not offer.is_active:
+            return None, "Offer is not active"
+
+        now = datetime.now(timezone.utc)
+
+        if offer.starts_at and now < offer.starts_at:
+            return None, "Offer has not started yet"
+
+        if offer.expires_at and now > offer.expires_at:
+            return None, "Offer has expired"
+
+        if offer.inventory_available < quantity:
+            return None, f"Only {offer.inventory_available} items available"
+
+        offer.inventory_reserved += quantity
+        db.commit()
+        db.refresh(offer)
+        return offer, None
 
     def reserve_inventory(
         self,
@@ -181,12 +229,16 @@ class CRUDOffer(CRUDBase[Offer, OfferCreate, OfferUpdate]):
         db: Session,
         *,
         offer_id: str,
-        quantity: int
+        quantity: int,
+        auto_commit: bool = True
     ) -> Optional[Offer]:
         """
         Confirm a purchase - moves inventory from reserved to sold.
         Decrements inventory_reserved and increments inventory_sold.
         Uses row-level locking to prevent race conditions.
+
+        Set auto_commit=False when calling within a larger transaction
+        (e.g., webhook handler) so the caller controls the commit.
         """
         # Use SELECT FOR UPDATE to lock the row
         offer = db.query(self.model).filter(
@@ -201,8 +253,11 @@ class CRUDOffer(CRUDBase[Offer, OfferCreate, OfferUpdate]):
         offer.inventory_reserved -= to_move
         offer.inventory_sold += to_move
 
-        db.commit()
-        db.refresh(offer)
+        if auto_commit:
+            db.commit()
+            db.refresh(offer)
+        else:
+            db.flush()
         return offer
 
     def get_by_stripe_price(

@@ -25,7 +25,8 @@ from app.services.offer_reservation_service import offer_reservation_service
 from app.services.offer_helpers import (
     verify_event_access,
     get_user_ticket_tier,
-    validate_offer_targeting
+    validate_offer_targeting,
+    check_user_registered_for_event
 )
 from app.core.config import settings
 
@@ -35,7 +36,11 @@ logger = logging.getLogger(__name__)
 
 # ==================== Helper Functions ====================
 
-def check_rate_limit(user_id: str, limit: int = 10, window: int = 60) -> None:
+def check_rate_limit(
+    user_id: str,
+    limit: int = settings.PURCHASE_RATE_LIMIT,
+    window: int = settings.PURCHASE_RATE_WINDOW_SECONDS,
+) -> None:
     """
     Check if user has exceeded rate limit for purchases.
 
@@ -320,6 +325,40 @@ def purchase_offer(
     # Check rate limit (10 purchases per minute)
     check_rate_limit(user_id=current_user.sub, limit=10, window=60)
 
+    # SECURITY: Verify offer exists and user has access to the event
+    offer_obj = crud_offer.offer.get(db, id=purchase_data.offer_id)
+    if not offer_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Offer not found"
+        )
+
+    # Verify the event is public or the user is registered
+    from app.models.event import Event
+    event = db.query(Event).filter(Event.id == offer_obj.event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    if not event.is_public:
+        is_registered = check_user_registered_for_event(
+            db, user_id=current_user.sub, event_id=offer_obj.event_id
+        )
+        if not is_registered:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be registered for this event to purchase offers"
+            )
+
+    # Validate quantity bounds
+    if purchase_data.quantity < 1 or purchase_data.quantity > 20:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quantity must be between 1 and 20"
+        )
+
     # Check for idempotent request
     if idempotency_key and offer_reservation_service:
         try:
@@ -332,21 +371,10 @@ def purchase_offer(
             logger.warning(f"Failed to check idempotency cache: {str(e)}")
             # Continue with normal flow if cache check fails
 
-    # Check availability
-    available, reason = crud_offer.offer.check_availability(
-        db,
-        offer_id=purchase_data.offer_id,
-        quantity=purchase_data.quantity
-    )
-
-    if not available:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=reason
-        )
-
-    # Reserve inventory
-    offer = crud_offer.offer.reserve_inventory(
+    # Atomically check availability and reserve inventory under row lock
+    # to prevent race conditions where two requests both pass availability
+    # checks then both try to reserve the same inventory
+    offer, error_reason = crud_offer.offer.check_and_reserve_inventory(
         db,
         offer_id=purchase_data.offer_id,
         quantity=purchase_data.quantity
@@ -355,7 +383,7 @@ def purchase_offer(
     if not offer:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to reserve inventory"
+            detail=error_reason or "Failed to reserve inventory"
         )
 
     # Create Stripe checkout session
@@ -421,13 +449,13 @@ def purchase_offer(
         "stripe_checkout_url": checkout_session["url"],
     }
 
-    # Cache result for idempotency (24 hour TTL)
+    # Cache result for idempotency (30 day TTL — must outlive refund window)
     if idempotency_key and offer_reservation_service:
         try:
             cache_key = f"purchase_idempotency:{current_user.sub}:{idempotency_key}"
             offer_reservation_service.redis.setex(
                 cache_key,
-                86400,  # 24 hours
+                2592000,  # 30 days
                 json.dumps(response)
             )
         except Exception as e:

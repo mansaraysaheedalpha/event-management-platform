@@ -71,6 +71,12 @@ class Settings(BaseSettings):
         """Take only the first URL if comma-separated, and strip trailing slashes."""
         return v.split(",")[0].strip().rstrip("/")
 
+    # Monetization Configuration (M-CQ1: extracted from hardcoded values)
+    PURCHASE_RATE_LIMIT: int = 10  # Max purchase requests per window
+    PURCHASE_RATE_WINDOW_SECONDS: int = 60  # Rate limit window in seconds
+    STRIPE_CHECKOUT_EXPIRY_MINUTES: int = 30  # Stripe checkout session TTL
+    AD_EVENT_RETENTION_DAYS: int = 90  # Days before old ad events are cleaned up
+
     # Internal service URLs for inter-service communication
     REAL_TIME_SERVICE_URL_INTERNAL: Optional[str] = "http://real-time-service:3002"
     USER_SERVICE_URL: Optional[str] = "http://user-and-org-service:3000"

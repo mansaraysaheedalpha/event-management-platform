@@ -1,5 +1,9 @@
 # app/main.py
-from fastapi import FastAPI
+import uuid
+import logging
+import time
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.core.limiter import limiter  # Import from separate module to avoid circular imports
 from contextlib import asynccontextmanager
@@ -8,6 +12,34 @@ from app.db.session import engine
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
+_logger = logging.getLogger(__name__)
+
+
+# M-OBS1: Correlation ID middleware for request tracing
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Adds X-Request-ID to every request/response for distributed tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        start = time.monotonic()
+
+        response = await call_next(request)
+
+        duration_ms = round((time.monotonic() - start) * 1000, 1)
+        response.headers["X-Request-ID"] = request_id
+
+        # Structured log for every request
+        _logger.info(
+            "request_id=%s method=%s path=%s status=%s duration_ms=%s",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
 
 
 # ✅ THE FINAL FIX: The Lifespan Event Handler
@@ -82,6 +114,9 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allow all headers
 )
+
+# M-OBS1: Correlation ID + request timing middleware
+app.add_middleware(CorrelationIdMiddleware)
 
 # Import routers after app is created to avoid circular imports
 from app.api.v1.api import api_router

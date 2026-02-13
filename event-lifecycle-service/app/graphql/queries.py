@@ -1255,7 +1255,7 @@ class Query:
             *ad_base_filters
         ).group_by(Ad.id).order_by(
             func.sum(case((AdEvent.event_type == 'CLICK', 1), else_=0)).desc()  # Order by clicks for CTR relevance
-        ).all()
+        ).limit(100).all()  # M-FE6: Cap unbounded result set
 
         all_ads_performance = []
         for ad in all_ads_query:

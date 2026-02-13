@@ -22,6 +22,8 @@ def calculate_waitlist_position(
     """
     Calculate user's position across all priority tiers using Redis pipeline.
 
+    Falls back to DB-based position if Redis is unavailable.
+
     Logic:
     - VIP tier users are always ahead of PREMIUM/STANDARD
     - PREMIUM ahead of STANDARD
@@ -36,38 +38,41 @@ def calculate_waitlist_position(
     Returns:
         Position in queue (1-indexed)
     """
-    # ✅ Use Redis pipeline for batch operations (optimization)
-    pipe = redis_client.pipeline()
+    try:
+        pipe = redis_client.pipeline()
 
-    # Get counts for all tiers
-    pipe.zcard(f"waitlist:session:{session_id}:vip")
-    pipe.zcard(f"waitlist:session:{session_id}:premium")
-    pipe.zcard(f"waitlist:session:{session_id}:standard")
+        pipe.zcard(f"waitlist:session:{session_id}:vip")
+        pipe.zcard(f"waitlist:session:{session_id}:premium")
+        pipe.zcard(f"waitlist:session:{session_id}:standard")
+        pipe.zrank(f"waitlist:session:{session_id}:{priority_tier.lower()}", user_id)
 
-    # Get user's rank in their tier
-    pipe.zrank(f"waitlist:session:{session_id}:{priority_tier.lower()}", user_id)
+        vip_count, premium_count, standard_count, user_rank = pipe.execute()
 
-    # Execute all commands at once
-    vip_count, premium_count, standard_count, user_rank = pipe.execute()
+        position = 0
 
-    position = 0
+        if priority_tier == 'PREMIUM':
+            position += vip_count
+        elif priority_tier == 'STANDARD':
+            position += vip_count + premium_count
 
-    # Count all users in higher priority tiers
-    if priority_tier == 'PREMIUM':
-        position += vip_count
-    elif priority_tier == 'STANDARD':
-        position += vip_count + premium_count
+        if user_rank is not None:
+            position += user_rank + 1
 
-    # Count users ahead in same tier
-    if user_rank is not None:
-        position += user_rank + 1  # zrank is 0-indexed
+        return position
 
-    return position
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Redis unavailable for position calculation, falling back to DB: {e}"
+        )
+        return _calculate_position_from_db(session_id, user_id, priority_tier)
 
 
 def get_total_waiting(session_id: str, redis_client: redis.Redis) -> int:
     """
     Get total number of users waiting across all tiers using Redis pipeline.
+
+    Falls back to DB count if Redis is unavailable.
 
     Args:
         session_id: Session ID
@@ -76,15 +81,22 @@ def get_total_waiting(session_id: str, redis_client: redis.Redis) -> int:
     Returns:
         Total number of users waiting
     """
-    # ✅ Use Redis pipeline for batch operations (optimization)
-    pipe = redis_client.pipeline()
-    pipe.zcard(f"waitlist:session:{session_id}:vip")
-    pipe.zcard(f"waitlist:session:{session_id}:premium")
-    pipe.zcard(f"waitlist:session:{session_id}:standard")
+    try:
+        pipe = redis_client.pipeline()
+        pipe.zcard(f"waitlist:session:{session_id}:vip")
+        pipe.zcard(f"waitlist:session:{session_id}:premium")
+        pipe.zcard(f"waitlist:session:{session_id}:standard")
 
-    vip_count, premium_count, standard_count = pipe.execute()
+        vip_count, premium_count, standard_count = pipe.execute()
 
-    return vip_count + premium_count + standard_count
+        return vip_count + premium_count + standard_count
+
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Redis unavailable for total waiting count, falling back to DB: {e}"
+        )
+        return _get_total_waiting_from_db(session_id)
 
 
 def add_to_waitlist_queue(
@@ -97,6 +109,8 @@ def add_to_waitlist_queue(
     """
     Add user to Redis waitlist queue with TTL to prevent memory leaks.
 
+    If Redis is unavailable, returns an approximate position from DB.
+
     Args:
         session_id: Session ID
         user_id: User ID
@@ -107,23 +121,27 @@ def add_to_waitlist_queue(
     Returns:
         Position in queue after adding
     """
-    # Use current timestamp (in milliseconds) as score for FIFO ordering within tier
-    timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)  # ✅ Timezone-aware
+    try:
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
 
-    queue_key = f"waitlist:session:{session_id}:{priority_tier.lower()}"
+        queue_key = f"waitlist:session:{session_id}:{priority_tier.lower()}"
 
-    # ✅ Use NX flag to prevent duplicate additions (idempotency check)
-    added = redis_client.zadd(
-        queue_key,
-        {user_id: timestamp},
-        nx=True  # Only add if not exists
-    )
+        redis_client.zadd(
+            queue_key,
+            {user_id: timestamp},
+            nx=True
+        )
 
-    # ✅ Set TTL to prevent memory leaks
-    # This ensures the queue auto-expires after the session ends
-    redis_client.expire(queue_key, ttl_seconds)
+        redis_client.expire(queue_key, ttl_seconds)
 
-    return calculate_waitlist_position(session_id, user_id, priority_tier, redis_client)
+        return calculate_waitlist_position(session_id, user_id, priority_tier, redis_client)
+
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Redis unavailable for waitlist add, returning DB-based position: {e}"
+        )
+        return _calculate_position_from_db(session_id, user_id, priority_tier)
 
 
 def remove_from_waitlist_queue(
@@ -135,6 +153,8 @@ def remove_from_waitlist_queue(
     """
     Remove user from Redis waitlist queue.
 
+    Silently succeeds if Redis is unavailable (data will TTL out).
+
     Args:
         session_id: Session ID
         user_id: User ID
@@ -144,12 +164,19 @@ def remove_from_waitlist_queue(
     Returns:
         True if user was removed, False if not in queue
     """
-    removed = redis_client.zrem(
-        f"waitlist:session:{session_id}:{priority_tier.lower()}",
-        user_id
-    )
+    try:
+        removed = redis_client.zrem(
+            f"waitlist:session:{session_id}:{priority_tier.lower()}",
+            user_id
+        )
+        return removed > 0
 
-    return removed > 0
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Redis unavailable for waitlist remove (will TTL out): {e}"
+        )
+        return False
 
 
 def get_next_in_queue(
@@ -159,6 +186,7 @@ def get_next_in_queue(
     """
     Get next user in queue (highest priority tier, oldest timestamp).
 
+    Falls back to DB query if Redis is unavailable.
     Priority order: VIP → PREMIUM → STANDARD
 
     Args:
@@ -168,22 +196,20 @@ def get_next_in_queue(
     Returns:
         Tuple of (user_id, priority_tier) or None if queue is empty
     """
-    # Check VIP queue first
-    vip_users = redis_client.zrange(f"waitlist:session:{session_id}:vip", 0, 0)
-    if vip_users:
-        return (vip_users[0].decode() if isinstance(vip_users[0], bytes) else vip_users[0], 'VIP')
+    try:
+        for tier in ['vip', 'premium', 'standard']:
+            users = redis_client.zrange(f"waitlist:session:{session_id}:{tier}", 0, 0)
+            if users:
+                user_id = users[0].decode() if isinstance(users[0], bytes) else users[0]
+                return (user_id, tier.upper())
+        return None
 
-    # Check PREMIUM queue
-    premium_users = redis_client.zrange(f"waitlist:session:{session_id}:premium", 0, 0)
-    if premium_users:
-        return (premium_users[0].decode() if isinstance(premium_users[0], bytes) else premium_users[0], 'PREMIUM')
-
-    # Check STANDARD queue
-    standard_users = redis_client.zrange(f"waitlist:session:{session_id}:standard", 0, 0)
-    if standard_users:
-        return (standard_users[0].decode() if isinstance(standard_users[0], bytes) else standard_users[0], 'STANDARD')
-
-    return None
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Redis unavailable for next-in-queue, falling back to DB: {e}"
+        )
+        return _get_next_in_queue_from_db(session_id)
 
 
 def estimate_wait_time(session_id: str, position: int, db: Session) -> Optional[int]:
@@ -263,6 +289,66 @@ def generate_offer_token(
     return token, expires_at
 
 
+# ==================== DB Fallback Helpers ====================
+
+def _calculate_position_from_db(session_id: str, user_id: str, priority_tier: str) -> int:
+    """Fallback: calculate position from DB when Redis is unavailable."""
+    from app.db.session import SessionLocal
+    from app.models.session_waitlist import SessionWaitlist
+
+    db = SessionLocal()
+    try:
+        entry = db.query(SessionWaitlist).filter(
+            SessionWaitlist.session_id == session_id,
+            SessionWaitlist.user_id == user_id,
+            SessionWaitlist.status == 'WAITING'
+        ).first()
+        return entry.position if entry and entry.position else 1
+    finally:
+        db.close()
+
+
+def _get_total_waiting_from_db(session_id: str) -> int:
+    """Fallback: count waiting users from DB when Redis is unavailable."""
+    from app.db.session import SessionLocal
+    from app.models.session_waitlist import SessionWaitlist
+
+    db = SessionLocal()
+    try:
+        return db.query(SessionWaitlist).filter(
+            SessionWaitlist.session_id == session_id,
+            SessionWaitlist.status == 'WAITING'
+        ).count()
+    finally:
+        db.close()
+
+
+def _get_next_in_queue_from_db(session_id: str) -> Optional[tuple[str, str]]:
+    """Fallback: get next user from DB when Redis is unavailable."""
+    from app.db.session import SessionLocal
+    from app.models.session_waitlist import SessionWaitlist
+    from sqlalchemy import case
+
+    db = SessionLocal()
+    try:
+        # Order by priority tier (VIP first), then by position
+        priority_order = case(
+            (SessionWaitlist.priority_tier == 'VIP', 1),
+            (SessionWaitlist.priority_tier == 'PREMIUM', 2),
+            else_=3
+        )
+        entry = db.query(SessionWaitlist).filter(
+            SessionWaitlist.session_id == session_id,
+            SessionWaitlist.status == 'WAITING'
+        ).order_by(priority_order, SessionWaitlist.position.asc()).first()
+
+        if entry:
+            return (entry.user_id, entry.priority_tier)
+        return None
+    finally:
+        db.close()
+
+
 def recalculate_all_positions(
     session_id: str,
     redis_client: redis.Redis,
@@ -271,6 +357,7 @@ def recalculate_all_positions(
     """
     Recalculate positions for all users in a session's waitlist.
 
+    Uses a Redis distributed lock to prevent concurrent recalculation races.
     This should be called after a user leaves to update everyone's position.
 
     Args:
@@ -282,33 +369,53 @@ def recalculate_all_positions(
         Number of entries updated
     """
     from app.crud.crud_session_waitlist import session_waitlist
+    import logging
+    _logger = logging.getLogger(__name__)
 
-    # Get all active waitlist entries for this session
-    active_entries = session_waitlist.get_session_waitlist(
-        db,
-        session_id=session_id,
-        status='WAITING'
-    )
+    # H2: Acquire a distributed lock to prevent concurrent recalculation
+    lock_key = f"waitlist:recalc_lock:{session_id}"
+    lock_acquired = False
+    try:
+        lock_acquired = redis_client.set(lock_key, "1", nx=True, ex=30)
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError):
+        # If Redis is down, proceed without lock (best-effort)
+        lock_acquired = True
 
-    updated_count = 0
-    for entry in active_entries:
-        # Recalculate position from Redis
-        new_position = calculate_waitlist_position(
+    if not lock_acquired:
+        _logger.debug(f"Skipping recalculation for session {session_id} - already in progress")
+        return 0
+
+    try:
+        active_entries = session_waitlist.get_session_waitlist(
+            db,
             session_id=session_id,
-            user_id=entry.user_id,
-            priority_tier=entry.priority_tier,
-            redis_client=redis_client
+            status='WAITING'
         )
 
-        # Update if position changed
-        if entry.position != new_position:
-            entry.position = new_position
-            updated_count += 1
+        updated_count = 0
+        for entry in active_entries:
+            new_position = calculate_waitlist_position(
+                session_id=session_id,
+                user_id=entry.user_id,
+                priority_tier=entry.priority_tier,
+                redis_client=redis_client
+            )
 
-    if updated_count > 0:
-        db.commit()
+            if entry.position != new_position:
+                entry.position = new_position
+                updated_count += 1
 
-    return updated_count
+        if updated_count > 0:
+            db.commit()
+
+        return updated_count
+
+    finally:
+        # Release lock
+        try:
+            redis_client.delete(lock_key)
+        except (redis.ConnectionError, redis.TimeoutError, redis.RedisError):
+            pass
 
 
 def verify_offer_token(token: str, user_id: str, session_id: str) -> bool:
@@ -336,6 +443,48 @@ def verify_offer_token(token: str, user_id: str, session_id: str) -> bool:
         return False
     except jwt.InvalidTokenError:
         return False
+
+
+
+def get_user_ticket_tier(db, user_id: str, event_id: str) -> Optional[str]:
+    """
+    Look up the user's ticket type name for a given event.
+
+    Queries the tickets table joined with ticket_types to find the user's
+    highest-tier ticket for this event. Returns the ticket type name
+    (e.g. 'VIP', 'Premium', 'General Admission') or None if no ticket found.
+
+    Args:
+        db: Database session
+        user_id: User ID
+        event_id: Event ID
+
+    Returns:
+        Ticket type name string, or None if no ticket found
+    """
+    try:
+        from app.models.ticket import Ticket
+        from app.models.ticket_type import TicketType
+
+        # Find the user's valid ticket for this event, joined with ticket type
+        ticket = db.query(Ticket).join(
+            TicketType, Ticket.ticket_type_id == TicketType.id
+        ).filter(
+            Ticket.user_id == user_id,
+            Ticket.event_id == event_id,
+            Ticket.status.in_(['valid', 'checked_in'])
+        ).first()
+
+        if ticket and ticket.ticket_type:
+            return ticket.ticket_type.name
+
+        return None
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Could not look up ticket tier for user {user_id}, event {event_id}: {e}"
+        )
+        return None
 
 
 def map_ticket_to_priority(ticket_tier: Optional[str]) -> str:

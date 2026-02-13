@@ -83,13 +83,22 @@ async def handle_checkout_completed(db: Session, session_data: dict):
     Handle successful checkout completion.
 
     Process:
-    1. Retrieve checkout session metadata
-    2. Confirm inventory reservation
-    3. Create offer purchase record
-    4. Update offer inventory (reserved → sold)
+    1. Verify payment_status is 'paid'
+    2. Check idempotency (skip if already processed)
+    3. Atomically confirm inventory + create purchase record
+    4. Trigger fulfillment
     """
     try:
         session_id = session_data["id"]
+
+        # O6: Verify payment actually succeeded before processing
+        payment_status = session_data.get("payment_status")
+        if payment_status != "paid":
+            logger.warning(
+                f"Checkout session {session_id} has payment_status={payment_status}, skipping"
+            )
+            return
+
         metadata = session_data.get("metadata", {})
 
         offer_id = metadata.get("offer_id")
@@ -100,6 +109,16 @@ async def handle_checkout_completed(db: Session, session_data: dict):
             logger.error(f"Missing metadata in checkout session {session_id}")
             return
 
+        # O3: Check idempotency — skip if this session was already processed.
+        # Stripe retries webhooks on failure, so we must not create duplicates.
+        existing_purchase = offer_purchase.get_by_order_id(db, order_id=session_id)
+        if existing_purchase:
+            logger.info(
+                f"Webhook already processed for session {session_id}, "
+                f"purchase {existing_purchase.id} exists — skipping"
+            )
+            return
+
         # Get offer
         offer = crud_offer.offer.get(db, id=offer_id)
 
@@ -107,38 +126,57 @@ async def handle_checkout_completed(db: Session, session_data: dict):
             logger.error(f"Offer {offer_id} not found")
             return
 
-        # Confirm purchase - move inventory from reserved to sold
-        crud_offer.offer.confirm_purchase(
-            db,
-            offer_id=offer_id,
-            quantity=quantity
-        )
+        # O7: Wrap confirm + create in a single transaction so both
+        # succeed or both fail — prevents inventory marked sold with
+        # no purchase record
+        try:
+            # Confirm purchase - move inventory from reserved to sold
+            # auto_commit=False so both operations are in one transaction
+            crud_offer.offer.confirm_purchase(
+                db,
+                offer_id=offer_id,
+                quantity=quantity,
+                auto_commit=False
+            )
 
-        # Create purchase record
-        purchase = offer_purchase.create(
-            db,
-            offer_id=offer_id,
-            user_id=user_id,
-            quantity=quantity,
-            unit_price=offer.price,
-            currency=offer.currency,
-            order_id=session_id,
-            fulfillment_type=_get_fulfillment_type(offer.offer_type)
-        )
+            # Create purchase record
+            purchase = offer_purchase.create(
+                db,
+                offer_id=offer_id,
+                user_id=user_id,
+                quantity=quantity,
+                unit_price=offer.price,
+                currency=offer.currency,
+                order_id=session_id,
+                fulfillment_type=_get_fulfillment_type(offer.offer_type),
+                auto_commit=False
+            )
+
+            # Single commit for both operations
+            db.commit()
+        except Exception as tx_err:
+            db.rollback()
+            logger.error(
+                f"Transaction failed for session {session_id}: {str(tx_err)}",
+                exc_info=True
+            )
+            raise
 
         logger.info(
             f"Created offer purchase {purchase.id} for offer {offer_id}, "
             f"user {user_id}, session {session_id}"
         )
 
-        # TODO: Trigger fulfillment process based on offer type
-        # - DIGITAL: Generate access code, send email with content
-        # - TICKET_UPGRADE: Update user's ticket tier
-        # - MERCHANDISE: Create shipping order
-        # - SERVICE: Schedule service delivery
-
     except Exception as e:
-        logger.error(f"Error handling checkout completion: {str(e)}")
+        # M-OBS4: Structured error logging with Stripe context for alerting
+        logger.error(
+            "Webhook checkout.session.completed FAILED: session_id=%s offer_id=%s user_id=%s error=%s",
+            session_data.get("id"),
+            session_data.get("metadata", {}).get("offer_id"),
+            session_data.get("metadata", {}).get("user_id"),
+            str(e),
+            exc_info=True,
+        )
         # Don't raise exception - we don't want to fail the webhook
 
 
@@ -174,7 +212,14 @@ async def handle_checkout_expired(db: Session, session_data: dict):
         )
 
     except Exception as e:
-        logger.error(f"Error handling checkout expiration: {str(e)}")
+        # M-OBS4: Structured error logging for expired checkout
+        logger.error(
+            "Webhook checkout.session.expired FAILED: session_id=%s offer_id=%s error=%s",
+            session_data.get("id"),
+            session_data.get("metadata", {}).get("offer_id"),
+            str(e),
+            exc_info=True,
+        )
 
 
 def _get_fulfillment_type(offer_type: str) -> str:

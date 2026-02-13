@@ -91,6 +91,12 @@ class OfferCreate(OfferBase):
             raise ValueError(f"placement must be one of {valid_placements}")
         return v
 
+    @model_validator(mode='after')
+    def validate_time_window(self):
+        if self.starts_at and self.expires_at and self.starts_at >= self.expires_at:
+            raise ValueError("starts_at must be before expires_at")
+        return self
+
 
 class OfferUpdate(BaseModel):
     """Schema for updating an existing offer."""
@@ -171,7 +177,7 @@ class Offer(OfferBase):
 class OfferPurchaseCreate(BaseModel):
     """Schema for purchasing an offer."""
     offer_id: str = Field(..., description="Offer ID to purchase")
-    quantity: int = Field(1, gt=0, le=100, description="Quantity to purchase")
+    quantity: int = Field(1, gt=0, le=20, description="Quantity to purchase (max 20)")
 
 
 class OfferPurchaseResponse(BaseModel):

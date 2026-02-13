@@ -26,8 +26,10 @@ from ..utils.security import (
     validate_url,
     validate_array_size,
     validate_string_length,
+    validate_enum,
     sanitize_error_message,
     MAX_ARRAY_SIZES,
+    VALID_PLACEMENTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,11 +219,15 @@ class AdMutations:
             if not valid:
                 raise HTTPException(status_code=400, detail=err)
 
-        # SECURITY: Validate array sizes
+        # SECURITY: Validate array sizes and placement values
         if ad_in.placements is not None:
             valid, err = validate_array_size(ad_in.placements, "placements")
             if not valid:
                 raise HTTPException(status_code=400, detail=err)
+            for p in ad_in.placements:
+                valid, err = validate_enum(p, "placement", VALID_PLACEMENTS)
+                if not valid:
+                    raise HTTPException(status_code=400, detail=err)
 
         if ad_in.target_sessions is not None:
             valid, err = validate_array_size(ad_in.target_sessions, "target_sessions")

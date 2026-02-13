@@ -38,13 +38,51 @@ type MonetizationEventPayload =
 @Injectable()
 export class MonetizationService {
   private readonly logger = new Logger(MonetizationService.name);
+  private readonly eventServiceUrl: string;
+  private static readonly MAX_RETRIES = 2;
+  private static readonly RETRY_DELAY_MS = 500;
 
   constructor(
     private readonly httpService: HttpService,
     @Inject(forwardRef(() => MonetizationGateway))
     private readonly monetizationGateway: MonetizationGateway,
     private readonly waitlistService: WaitlistService,
-  ) {}
+  ) {
+    // HR1: Fail fast if EVENT_SERVICE_URL is not configured
+    const url = process.env.EVENT_SERVICE_URL;
+    if (!url) {
+      this.logger.error(
+        'EVENT_SERVICE_URL environment variable is not set. Monetization HTTP calls will fail.',
+      );
+    }
+    this.eventServiceUrl = url || '';
+  }
+
+  /**
+   * HR3: Retry wrapper for HTTP calls with exponential backoff.
+   */
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    context: string,
+  ): Promise<T> {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt <= MonetizationService.MAX_RETRIES; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error as Error;
+        if (attempt < MonetizationService.MAX_RETRIES) {
+          const delay =
+            MonetizationService.RETRY_DELAY_MS * Math.pow(2, attempt);
+          this.logger.warn(
+            `${context} failed (attempt ${attempt + 1}/${MonetizationService.MAX_RETRIES + 1}), retrying in ${delay}ms`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastError;
+  }
 
   /**
    * Handles all monetization-related domain events.
@@ -120,22 +158,23 @@ export class MonetizationService {
   private async _fetchWaitlistOffer(
     sessionId: string,
   ): Promise<WaitlistOfferDto | null> {
+    if (!this.eventServiceUrl) return null;
     try {
-      const eventServiceUrl =
-        process.env.EVENT_SERVICE_URL || 'http://localhost:8000';
-      const response = await firstValueFrom(
-        this.httpService.get<WaitlistOfferDto>(
-          `${eventServiceUrl}/internal/sessions/${sessionId}/waitlist-offer`,
-          {
-            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
-          },
-        ),
-      );
-      return response.data;
+      return await this.withRetry(async () => {
+        const response = await firstValueFrom(
+          this.httpService.get<WaitlistOfferDto>(
+            `${this.eventServiceUrl}/internal/sessions/${sessionId}/waitlist-offer`,
+            {
+              headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
+            },
+          ),
+        );
+        return response.data;
+      }, `Fetch waitlist offer for session ${sessionId}`);
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       this.logger.error(
-        `Failed to fetch waitlist offer for session ${sessionId}: ${errorMessage}`,
+        `Failed to fetch waitlist offer for session ${sessionId} after retries: ${errorMessage}`,
       );
       return null;
     }
@@ -151,22 +190,23 @@ export class MonetizationService {
    * @returns {Promise<AdContent | null>}
    */
   private async _fetchAdContent(adId: string): Promise<AdContent | null> {
+    if (!this.eventServiceUrl) return null;
     try {
-      const eventServiceUrl =
-        process.env.EVENT_SERVICE_URL || 'http://localhost:8000';
-      const response = await firstValueFrom(
-        this.httpService.get<AdContent>(
-          `${eventServiceUrl}/internal/ads/${adId}`,
-          {
-            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
-          },
-        ),
-      );
-      return response.data;
+      return await this.withRetry(async () => {
+        const response = await firstValueFrom(
+          this.httpService.get<AdContent>(
+            `${this.eventServiceUrl}/internal/ads/${adId}`,
+            {
+              headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
+            },
+          ),
+        );
+        return response.data;
+      }, `Fetch ad content for ad ${adId}`);
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       this.logger.error(
-        `Failed to fetch ad content for ad ${adId}: ${errorMessage}`,
+        `Failed to fetch ad content for ad ${adId} after retries: ${errorMessage}`,
       );
       return null;
     }
@@ -184,22 +224,23 @@ export class MonetizationService {
   private async _fetchOfferContent(
     offerId: string,
   ): Promise<OfferContent | null> {
+    if (!this.eventServiceUrl) return null;
     try {
-      const eventServiceUrl =
-        process.env.EVENT_SERVICE_URL || 'http://localhost:8000';
-      const response = await firstValueFrom(
-        this.httpService.get<OfferContent>(
-          `${eventServiceUrl}/internal/offers/${offerId}`,
-          {
-            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
-          },
-        ),
-      );
-      return response.data;
+      return await this.withRetry(async () => {
+        const response = await firstValueFrom(
+          this.httpService.get<OfferContent>(
+            `${this.eventServiceUrl}/internal/offers/${offerId}`,
+            {
+              headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_KEY },
+            },
+          ),
+        );
+        return response.data;
+      }, `Fetch offer content for offer ${offerId}`);
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       this.logger.error(
-        `Failed to fetch offer content for offer ${offerId}: ${errorMessage}`,
+        `Failed to fetch offer content for offer ${offerId} after retries: ${errorMessage}`,
       );
       return null;
     }

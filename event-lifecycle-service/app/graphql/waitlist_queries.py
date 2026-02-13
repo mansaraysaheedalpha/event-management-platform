@@ -426,31 +426,45 @@ class WaitlistQuery:
             if first_metric:
                 cached_at = first_metric.calculated_at.isoformat()
 
-        # Get session-level waitlist stats
+        # M-DB5: Single aggregated query instead of N+1 (was 3 queries per session)
         from ..models.session import Session as SessionModel
         from ..models.session_waitlist import SessionWaitlist
-        from sqlalchemy import func
+        from sqlalchemy import func, case
 
-        sessions = db.query(SessionModel).filter(SessionModel.event_id == event_id_str).all()
+        waitlist_agg = db.query(
+            SessionWaitlist.session_id,
+            func.count(case(
+                (SessionWaitlist.status == 'WAITING', SessionWaitlist.id),
+            )).label('waiting_count'),
+            func.count(case(
+                (SessionWaitlist.status.in_(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED']), SessionWaitlist.id),
+            )).label('offers_issued'),
+            func.count(case(
+                (SessionWaitlist.status == 'ACCEPTED', SessionWaitlist.id),
+            )).label('accepted_count'),
+        ).join(
+            SessionModel,
+            SessionWaitlist.session_id == SessionModel.id,
+        ).filter(
+            SessionModel.event_id == event_id_str,
+        ).group_by(SessionWaitlist.session_id).all()
+
+        # Build a lookup dict keyed by session_id
+        stats_by_session = {
+            row.session_id: row for row in waitlist_agg
+        }
+
+        # Fetch session titles in one query
+        sessions = db.query(
+            SessionModel.id, SessionModel.title
+        ).filter(SessionModel.event_id == event_id_str).all()
 
         by_session_stats = []
         for session in sessions:
-            # Get waitlist counts for this session
-            waiting_count = db.query(func.count(SessionWaitlist.id)).filter(
-                SessionWaitlist.session_id == str(session.id),
-                SessionWaitlist.status == 'WAITING'
-            ).scalar() or 0
-
-            offers_issued = db.query(func.count(SessionWaitlist.id)).filter(
-                SessionWaitlist.session_id == str(session.id),
-                SessionWaitlist.status.in_(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED'])
-            ).scalar() or 0
-
-            accepted_count = db.query(func.count(SessionWaitlist.id)).filter(
-                SessionWaitlist.session_id == str(session.id),
-                SessionWaitlist.status == 'ACCEPTED'
-            ).scalar() or 0
-
+            row = stats_by_session.get(str(session.id))
+            waiting_count = row.waiting_count if row else 0
+            offers_issued = row.offers_issued if row else 0
+            accepted_count = row.accepted_count if row else 0
             acceptance_rate = (accepted_count / offers_issued * 100) if offers_issued > 0 else 0.0
 
             by_session_stats.append(SessionWaitlistStatsType(

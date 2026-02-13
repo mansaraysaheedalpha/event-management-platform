@@ -21,6 +21,7 @@ import { LiveModule } from './live/live.module';
 import { OpsModule } from './ops/ops.module';
 import { MonetizationModule } from './monetization/ads/monetization.module';
 import { GamificationModule } from './gamification/gamification.module';
+import { ChallengesModule } from './gamification/teams/challenges/challenges.module';
 import { NetworkingModule } from './networking/networking.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { SystemModule } from './system/system.module';
@@ -72,6 +73,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     AlertsModule,
     SystemModule,
     GamificationModule,
+    ChallengesModule,
     NetworkingModule,
     ConnectionModule,
     TicketsModule,

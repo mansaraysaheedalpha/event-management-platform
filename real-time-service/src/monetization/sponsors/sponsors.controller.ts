@@ -7,27 +7,49 @@ import {
   Logger,
   HttpCode,
   HttpStatus,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InternalApiKeyGuard } from '../../common/guards/internal-api-key.guard';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsNumber,
+  IsInt,
+  ValidateNested,
+  IsNotEmpty,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
-interface LeadEventPayload {
+// HR4: Validated DTO classes replacing unvalidated interface
+
+class LeadEventData {
+  @IsOptional() @IsString() id?: string;
+  @IsOptional() @IsString() leadId?: string;
+  @IsOptional() @IsString() userId?: string;
+  @IsOptional() @IsString() userName?: string;
+  @IsOptional() @IsString() userEmail?: string;
+  @IsOptional() @IsString() userCompany?: string;
+  @IsOptional() @IsString() userTitle?: string;
+  @IsOptional() @IsNumber() intentScore?: number;
+  @IsOptional() @IsString() intentLevel?: string;
+  @IsOptional() @IsString() interactionType?: string;
+  @IsOptional() @IsInt() interactionCount?: number;
+  @IsOptional() @IsString() capturedAt?: string;
+}
+
+class LeadEventPayload {
+  @IsEnum(['LEAD_CAPTURED', 'LEAD_INTENT_UPDATE'])
   eventType: 'LEAD_CAPTURED' | 'LEAD_INTENT_UPDATE';
+
+  @IsString() @IsNotEmpty()
   sponsorId: string;
-  data: {
-    id?: string;
-    leadId?: string;
-    userId?: string;
-    userName?: string;
-    userEmail?: string;
-    userCompany?: string;
-    userTitle?: string;
-    intentScore?: number;
-    intentLevel?: string;
-    interactionType?: string;
-    interactionCount?: number;
-    capturedAt?: string;
-  };
+
+  @ValidateNested()
+  @Type(() => LeadEventData)
+  data: LeadEventData;
 }
 
 @Controller('internal/sponsors')
@@ -43,6 +65,7 @@ export class SponsorsController {
    */
   @Post('lead-event')
   @HttpCode(HttpStatus.OK)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   async handleLeadEvent(@Body() payload: LeadEventPayload) {
     this.logger.log(
       `Received ${payload.eventType} event for sponsor ${payload.sponsorId}`,

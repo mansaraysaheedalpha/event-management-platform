@@ -1165,3 +1165,103 @@ def send_demo_request_confirmation(
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send demo confirmation: {type(e).__name__}")
         return {"success": False, "error": "Failed to send email"}
+
+
+def send_offer_fulfillment_email(
+    to_email: str,
+    user_name: str,
+    offer_title: str,
+    access_code: str,
+    digital_content_url: Optional[str] = None,
+):
+    """
+    Send a digital offer fulfillment email with the access code.
+
+    Args:
+        to_email: Recipient email address
+        user_name: Recipient's display name
+        offer_title: Title of the purchased offer
+        access_code: Generated access code for the digital content
+        digital_content_url: Optional direct URL to the digital content
+    """
+    if not _validate_email(to_email):
+        print(f"[EMAIL] Invalid recipient email, skipping fulfillment email")
+        return {"success": False, "error": "Invalid email"}
+
+    init_resend()
+
+    user_name = _escape_html(user_name)
+    offer_title = _escape_html(offer_title)
+    access_code_escaped = _escape_html(access_code)
+
+    content_link_html = ""
+    if digital_content_url:
+        safe_url = _validate_url(digital_content_url)
+        if safe_url:
+            content_link_html = f"""
+                <div style="text-align: center; margin: 20px 0;">
+                    <a href="{safe_url}" style="display: inline-block; background: #667eea; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+                        Access Your Content
+                    </a>
+                </div>
+            """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .access-code {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; border: 2px dashed #667eea; }}
+            .code {{ font-size: 24px; font-weight: bold; color: #667eea; letter-spacing: 2px; font-family: monospace; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div style="font-size: 48px; margin-bottom: 10px;">&#127873;</div>
+                <h1 style="margin: 0;">Your Purchase is Ready!</h1>
+            </div>
+            <div class="content">
+                <p>Hi {user_name},</p>
+                <p>Great news! Your purchase of <strong>{offer_title}</strong> has been fulfilled. Here is your access code:</p>
+
+                <div class="access-code">
+                    <p style="margin: 0 0 8px 0; color: #888; font-size: 14px;">Your Access Code</p>
+                    <div class="code">{access_code_escaped}</div>
+                </div>
+
+                {content_link_html}
+
+                <p style="color: #666; font-size: 14px;">Please save this code for your records. If you have any issues accessing your content, contact the event organizer.</p>
+
+                <p>Enjoy!<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Your Purchase is Ready - {offer_title}",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Offer fulfillment email sent for '{offer_title}'")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send fulfillment email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}

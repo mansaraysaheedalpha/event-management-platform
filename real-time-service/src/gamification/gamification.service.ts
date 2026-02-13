@@ -7,6 +7,8 @@ import { forwardRef } from '@nestjs/common';
 import { getErrorMessage } from 'src/common/utils/error.utils';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from 'src/shared/redis.constants';
+import { SynergyService } from './teams/synergy/synergy.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // ============================================================
 // Achievement Definitions (15 total, organized by category)
@@ -129,6 +131,43 @@ export const ACHIEVEMENTS: Record<string, AchievementDefinition> = {
     crossSession: true,
   },
 
+  // --- Challenges & Trivia ---
+  CHALLENGE_CHAMPION: {
+    badgeName: 'Challenge Champion',
+    description: 'Won first place in a team challenge!',
+    icon: '🏅',
+    category: 'Competitor',
+    trigger: 'CHALLENGE_WON_FIRST',
+    condition: { count: 1 },
+  },
+  CHALLENGE_VETERAN: {
+    badgeName: 'Challenge Veteran',
+    description: 'Completed 5 team challenges!',
+    icon: '⚔️',
+    category: 'Competitor',
+    trigger: 'CHALLENGE_COMPLETED',
+    condition: { count: 5 },
+    crossSession: true,
+  },
+  TRIVIA_MASTER: {
+    badgeName: 'Trivia Master',
+    description: 'Answered 10 trivia questions correctly!',
+    icon: '🧩',
+    category: 'Competitor',
+    trigger: 'TRIVIA_CORRECT',
+    condition: { count: 10 },
+    crossSession: true,
+  },
+  TEAM_SPIRIT: {
+    badgeName: 'Team Spirit',
+    description: 'Earned a synergy bonus 10 times!',
+    icon: '🤝',
+    category: 'Team Player',
+    trigger: 'TEAM_SYNERGY_BONUS',
+    condition: { count: 10 },
+    crossSession: true,
+  },
+
   // --- Points Milestones ---
   ENGAGED_ATTENDEE: {
     badgeName: 'Engaged Attendee',
@@ -168,6 +207,13 @@ const POINT_VALUES: Record<PointReason, number> = {
   TEAM_CREATED: 5,
   TEAM_JOINED: 3,
   SESSION_JOINED: 2,
+  CHALLENGE_COMPLETED: 10,
+  CHALLENGE_WON_FIRST: 50,
+  CHALLENGE_WON_SECOND: 30,
+  CHALLENGE_WON_THIRD: 15,
+  TRIVIA_CORRECT: 10,
+  TRIVIA_SPEED_BONUS: 5,
+  TEAM_SYNERGY_BONUS: 0, // Not awarded directly — synergy is a multiplier
 };
 
 // Streak configuration
@@ -191,6 +237,8 @@ export class GamificationService {
     private readonly gamificationGateway: GamificationGateway,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly synergyService: SynergyService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -226,7 +274,17 @@ export class GamificationService {
     try {
       // Check and update streak, apply multiplier
       const streak = await this._updateStreak(userId, sessionId);
-      const multipliedPoints = Math.round(pointsToAward * streak.multiplier);
+
+      // Compute team synergy bonus (if user is on a team)
+      const synergy = await this.synergyService.computeSynergy(
+        userId,
+        sessionId,
+      );
+      const synergyMultiplier = synergy?.multiplier ?? 1.0;
+
+      // Combined multiplier: streak * synergy, capped at 2.0 * 1.3 = 2.6
+      const combinedMultiplier = streak.multiplier * synergyMultiplier;
+      const multipliedPoints = Math.round(pointsToAward * combinedMultiplier);
 
       const totalScore = await this.prisma.$transaction(async (tx) => {
         await tx.gamificationPointEntry.upsert({
@@ -252,6 +310,11 @@ export class GamificationService {
         return aggregate._sum.points || 0;
       });
 
+      // If synergy is active, track TEAM_SYNERGY_BONUS for achievement progress
+      if (synergy && synergyMultiplier > 1.0) {
+        void this._trackSynergyBonus(userId, sessionId).catch(() => {});
+      }
+
       // Send private notification to the user
       this.gamificationGateway.sendPointsAwardedNotification(userId, {
         points: multipliedPoints,
@@ -260,6 +323,8 @@ export class GamificationService {
         newTotalScore: totalScore,
         streakMultiplier: streak.multiplier,
         streakCount: streak.count,
+        synergyMultiplier,
+        synergyActiveTeammates: synergy?.activeTeammates ?? 0,
       });
 
       // If streak status changed, notify the user
@@ -270,6 +335,14 @@ export class GamificationService {
           active: streak.active,
         });
       }
+
+      // Emit action event for challenge tracking (fire-and-forget)
+      this.eventEmitter.emit('gamification.action', {
+        userId,
+        sessionId,
+        reason,
+        teamId: synergy?.teamId ?? null,
+      });
 
       void this._checkAndGrantAchievements(
         userId,
@@ -660,6 +733,30 @@ export class GamificationService {
         }
       }
     }
+  }
+
+  /**
+   * Tracks synergy bonus for achievement progress (Team Spirit achievement).
+   * Increments the TEAM_SYNERGY_BONUS action count without awarding extra points.
+   */
+  private async _trackSynergyBonus(userId: string, sessionId: string) {
+    await this.prisma.gamificationPointEntry.upsert({
+      where: {
+        userId_sessionId_reason: {
+          userId,
+          sessionId,
+          reason: 'TEAM_SYNERGY_BONUS',
+        },
+      },
+      update: { actionCount: { increment: 1 } },
+      create: {
+        userId,
+        sessionId,
+        reason: 'TEAM_SYNERGY_BONUS',
+        points: 0,
+        actionCount: 1,
+      },
+    });
   }
 
   /**

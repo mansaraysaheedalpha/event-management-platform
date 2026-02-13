@@ -14,6 +14,7 @@ import redis
 
 from app.db.session import SessionLocal
 from app.crud.crud_session_waitlist import session_waitlist, waitlist_event
+from app.crud.crud_session_capacity import session_capacity_crud
 from app.utils.waitlist import (
     generate_offer_token,
     get_next_in_queue,
@@ -76,8 +77,11 @@ def check_expired_offers():
 
             logger.info(f"Marked waitlist offer as EXPIRED for user {entry.user_id}, session {entry.session_id}")
 
-            # TODO: Send notification to user
-            # TODO: Offer spot to next person in line
+            # Cascade: offer the spot to the next person in line
+            next_user = get_next_in_queue(entry.session_id, redis_client)
+            if next_user:
+                next_user_id, next_priority = next_user
+                offer_spot_to_user(entry.session_id, next_user_id, next_priority)
 
         if expired_offers:
             logger.info(f"Processed {len(expired_offers)} expired waitlist offers")
@@ -164,20 +168,12 @@ def offer_spots_to_next_users():
     Background task: Check sessions and offer spots to next users in queue.
 
     Should run every 5 minutes.
-
-    This is a simplified version. In production, this should be triggered by:
-    - User leaving session
-    - Session capacity increase
-    - Offer expiration/decline
-
-    For now, it checks all sessions with waiting users.
+    Uses Redis distributed locks per-session to prevent concurrent offer races (H3).
     """
     db = SessionLocal()
     redis_client = get_redis_client()
 
     try:
-        # Get all unique session_ids with waiting users
-        # This is a simplified approach - in production, use event-driven architecture
         waiting_sessions = db.query(
             session_waitlist.model.session_id
         ).filter(
@@ -185,24 +181,37 @@ def offer_spots_to_next_users():
         ).distinct().all()
 
         for (session_id,) in waiting_sessions:
-            # Get next user in queue
-            next_user = get_next_in_queue(session_id, redis_client)
+            # H3: Acquire per-session lock to prevent concurrent offer to same slot
+            lock_key = f"waitlist:offer_lock:{session_id}"
+            lock_acquired = redis_client.set(lock_key, "1", nx=True, ex=60)
+            if not lock_acquired:
+                logger.debug(f"Skipping session {session_id} - offer already in progress")
+                continue
 
-            if next_user:
-                user_id, priority_tier = next_user
+            try:
+                next_user = get_next_in_queue(session_id, redis_client)
 
-                # Check if this user already has an active offer
-                existing_offer = db.query(session_waitlist.model).filter(
-                    session_waitlist.model.session_id == session_id,
-                    session_waitlist.model.user_id == user_id,
-                    session_waitlist.model.status == 'OFFERED'
-                ).first()
+                if next_user:
+                    user_id, priority_tier = next_user
 
-                if not existing_offer:
-                    # TODO: Check if session has capacity
-                    # For now, we'll skip offering to avoid filling sessions unnecessarily
+                    existing_offer = db.query(session_waitlist.model).filter(
+                        session_waitlist.model.session_id == session_id,
+                        session_waitlist.model.user_id == user_id,
+                        session_waitlist.model.status == 'OFFERED'
+                    ).first()
+
+                    if not existing_offer:
+                        capacity = session_capacity_crud.get_or_create(db, session_id, default_capacity=100)
+                        available = capacity.maximum_capacity - capacity.current_attendance
+                        if available > 0:
+                            offer_spot_to_user(session_id, user_id, priority_tier)
+                        else:
+                            logger.debug(f"Session {session_id} at capacity, skipping offer")
+            finally:
+                try:
+                    redis_client.delete(lock_key)
+                except Exception:
                     pass
-                    # offer_spot_to_user(session_id, user_id, priority_tier)
 
         return True
 

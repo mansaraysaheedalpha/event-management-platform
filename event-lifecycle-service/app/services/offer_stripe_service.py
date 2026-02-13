@@ -48,7 +48,10 @@ class OfferStripeService:
             if image_url:
                 product_data["images"] = [image_url]
 
-            product = stripe.Product.create(**product_data)
+            product = stripe.Product.create(
+                **product_data,
+                idempotency_key=f"product_create_{offer_id}"
+            )
 
             logger.info(f"Created Stripe product {product.id} for offer {offer_id}")
             return product.id
@@ -95,7 +98,8 @@ class OfferStripeService:
                 currency=currency.lower(),
                 metadata={
                     "offer_id": offer_id
-                }
+                },
+                idempotency_key=f"price_create_{offer_id}_{unit_amount}_{currency.lower()}"
             )
 
             logger.info(f"Created Stripe price {price_obj.id} for offer {offer_id}")
@@ -131,13 +135,20 @@ class OfferStripeService:
                 "success_url": success_url,
                 "cancel_url": cancel_url,
                 "metadata": metadata or {},
-                "expires_at": int((datetime.utcnow() + timedelta(minutes=30)).timestamp()),
+                "expires_at": int((datetime.utcnow() + timedelta(minutes=settings.STRIPE_CHECKOUT_EXPIRY_MINUTES)).timestamp()),
             }
 
             if customer_email:
                 session_data["customer_email"] = customer_email
 
-            session = stripe.checkout.Session.create(**session_data)
+            # Build idempotency key from offer+user+quantity to prevent
+            # duplicate checkout sessions on network retry
+            idem_meta = metadata or {}
+            idem_key = f"checkout_{idem_meta.get('offer_id', '')}_{idem_meta.get('user_id', '')}_{quantity}_{int(datetime.utcnow().timestamp() // 60)}"
+            session = stripe.checkout.Session.create(
+                **session_data,
+                idempotency_key=idem_key
+            )
 
             logger.info(f"Created Stripe checkout session {session.id}")
 

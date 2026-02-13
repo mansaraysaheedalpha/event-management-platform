@@ -377,6 +377,16 @@ def validate_ad_input(ad_input) -> List[str]:
         if not valid:
             errors.append(err)
 
+    # Validate aspect_ratio format (must be "W:H" where W and H are positive integers)
+    if hasattr(ad_input, 'aspect_ratio') and ad_input.aspect_ratio is not None:
+        import re
+        if not re.match(r'^\d{1,4}:\d{1,4}$', ad_input.aspect_ratio):
+            errors.append("aspect_ratio must be in 'W:H' format (e.g. '16:9')")
+        else:
+            w, h = ad_input.aspect_ratio.split(':')
+            if int(w) == 0 or int(h) == 0:
+                errors.append("aspect_ratio width and height must be greater than 0")
+
     return errors
 
 
@@ -448,6 +458,12 @@ def validate_offer_input(offer_input) -> List[str]:
         valid, err = validate_positive_number(offer_input.inventory_total, "inventory_total", 1000000, allow_zero=False)
         if not valid:
             errors.append(err)
+
+    # M-CQ3: Cross-field validation (original_price must be >= price)
+    if (hasattr(offer_input, 'original_price') and offer_input.original_price is not None
+            and hasattr(offer_input, 'price') and offer_input.price is not None):
+        if offer_input.original_price < offer_input.price:
+            errors.append("Original price must be >= price")
 
     return errors
 

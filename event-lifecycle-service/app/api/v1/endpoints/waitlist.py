@@ -1,6 +1,6 @@
 # app/api/v1/endpoints/waitlist.py
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 import redis
 import logging
@@ -27,6 +27,7 @@ from app.utils.waitlist import (
     generate_offer_token,
     verify_offer_token,
     map_ticket_to_priority,
+    get_user_ticket_tier,
     recalculate_all_positions,
     get_next_in_queue
 )
@@ -35,6 +36,7 @@ from app.utils.session_utils import (
     check_session_capacity,
     require_event_registration
 )
+from app.utils.waitlist_notifications import send_waitlist_offer_notification, offer_spot_to_next_user
 
 router = APIRouter(tags=["Waitlist"])
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ limiter = Limiter(key_func=get_remote_address)
 def join_waitlist(
     session_id: str,
     request: Request,  # Required for rate limiting
+    priority_tier_override: Optional[str] = None,
     db: Session = Depends(deps.get_db),
     redis_client: redis.Redis = Depends(deps.get_redis),
     current_user: TokenPayload = Depends(deps.get_current_user)
@@ -129,10 +132,19 @@ def join_waitlist(
             detail=f"Already on waitlist with status: {existing.status}"
         )
 
-    # Determine priority tier (for now, default to STANDARD)
-    # TODO: Integrate with ticket system to get actual ticket tier
-    ticket_tier = None  # get_user_ticket_tier(user_id, session_id)
+    # Determine priority tier from ticket data, with optional override fallback
+    ticket_tier = get_user_ticket_tier(db, user_id, session.event_id)
     priority_tier = map_ticket_to_priority(ticket_tier)
+
+    # If ticket tier lookup returned STANDARD and an override was provided, use it
+    if priority_tier == 'STANDARD' and priority_tier_override:
+        override_upper = priority_tier_override.upper()
+        if override_upper in ('VIP', 'PREMIUM', 'STANDARD'):
+            priority_tier = override_upper
+            logger.info(
+                f"Using organizer-configured priority tier '{priority_tier}' "
+                f"for user {user_id} on session {session_id}"
+            )
 
     # ✅ Add to Redis queue with TTL (prevents memory leaks)
     position = add_to_waitlist_queue(
@@ -177,6 +189,7 @@ def join_waitlist(
 def leave_waitlist(
     session_id: str,
     request: Request,  # Required for rate limiting
+    background_tasks: BackgroundTasks,
     db: Session = Depends(deps.get_db),
     redis_client: redis.Redis = Depends(deps.get_redis),
     current_user: TokenPayload = Depends(deps.get_current_user)
@@ -239,84 +252,12 @@ def leave_waitlist(
     if updated_count > 0:
         logger.info(f"Recalculated positions for {updated_count} users after {user_id} left waitlist")
 
-    # ✅ Offer spot to next person in line
-    next_user_id, next_priority_tier = get_next_in_queue(session_id, redis_client)
-    if next_user_id:
-        # Get next user's waitlist entry
-        next_entry = session_waitlist.get_active_entry(
-            db,
-            session_id=session_id,
-            user_id=next_user_id
-        )
-
-        if next_entry and next_entry.status == 'WAITING':
-            # Generate offer token
-            offer_token, expires_at = generate_offer_token(
-                user_id=next_user_id,
-                session_id=session_id,
-                expires_minutes=5
-            )
-
-            # Update entry with offer
-            session_waitlist.set_offer(
-                db,
-                entry=next_entry,
-                offer_token=offer_token,
-                expires_at=expires_at
-            )
-
-            # Log offer event
-            waitlist_event.log_event(
-                db,
-                waitlist_entry_id=next_entry.id,
-                event_type='OFFERED',
-                metadata={'auto_offered': True}
-            )
-
-            logger.info(f"Automatically offered spot to user {next_user_id} after {user_id} left")
-
-            # ✅ Send email notification via Kafka
-            try:
-                from app.utils.kafka_helpers import publish_waitlist_offer_event
-                from app.utils.user_service import get_user_email, get_user_name
-                from app.models.session import Session as SessionModel
-                import asyncio
-
-                # Get session and event details for email
-                session_obj = db.query(SessionModel).filter(SessionModel.id == session_id).first()
-                if session_obj and session_obj.event:
-                    # Try to get user info (email and name)
-                    # This is async, so we need to run it in the event loop
-                    try:
-                        user_email = asyncio.run(get_user_email(next_user_id))
-                        user_name = asyncio.run(get_user_name(next_user_id))
-                    except Exception as e:
-                        logger.warning(f"Could not fetch user info: {e}. Using fallback values.")
-                        user_email = None
-                        user_name = "User"
-
-                    if user_email:
-                        # Publish Kafka event for email consumer
-                        publish_waitlist_offer_event(
-                            user_id=next_user_id,
-                            user_email=user_email,
-                            user_name=user_name,
-                            session_id=session_id,
-                            session_title=session_obj.title,
-                            event_id=session_obj.event_id,
-                            event_name=session_obj.event.name,
-                            offer_token=offer_token,
-                            offer_expires_at=expires_at.isoformat(),
-                            position=next_entry.position,
-                        )
-                        logger.info(f"Published waitlist offer event for user {next_user_id}")
-                    else:
-                        logger.warning(
-                            f"No email available for user {next_user_id}. "
-                            f"User service integration needed. Offer created but email not sent."
-                        )
-            except Exception as e:
-                logger.error(f"Failed to publish waitlist offer event: {e}", exc_info=True)
+    # M-CQ2: Offer spot to next person in line (shared helper)
+    next_offered = offer_spot_to_next_user(
+        session_id, redis_client, db, background_tasks
+    )
+    if next_offered:
+        logger.info(f"Automatically offered spot to user {next_offered} after {user_id} left")
 
     logger.info(f"User {user_id} left waitlist for session {session_id}")
 
@@ -474,6 +415,16 @@ def accept_waitlist_offer(
             detail="Offer already processed"
         )
 
+    # ✅ H5: Validate session has available capacity BEFORE accepting
+    from app.crud.crud_session_capacity import session_capacity_crud
+    capacity = session_capacity_crud.get_or_create(db, session_id, default_capacity=100)
+    available = capacity.maximum_capacity - capacity.current_attendance
+    if available <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session is at full capacity. Your offer has expired."
+        )
+
     # Update status to ACCEPTED (with status transition validation)
     session_waitlist.update_status(db, entry=entry, status='ACCEPTED')
 
@@ -508,7 +459,23 @@ def accept_waitlist_offer(
     if updated_count > 0:
         logger.info(f"Recalculated positions for {updated_count} users after {user_id} accepted offer")
 
-    # TODO: Register user for session (create actual session attendance record)
+    # Register user for session (create RSVP/attendance record)
+    from app.crud.crud_session_rsvp import session_rsvp
+    from app.models.session import Session as SessionModel
+    session_obj = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+    if session_obj:
+        try:
+            existing_rsvp = session_rsvp.get_user_rsvp(db, session_id=session_id, user_id=user_id)
+            if not existing_rsvp:
+                session_rsvp.create_rsvp(
+                    db,
+                    session_id=session_id,
+                    user_id=user_id,
+                    event_id=session_obj.event_id
+                )
+                logger.info(f"Created session RSVP for user {user_id} on session {session_id}")
+        except Exception as rsvp_err:
+            logger.warning(f"Failed to create session RSVP for user {user_id}: {rsvp_err}")
 
     logger.info(f"User {user_id} accepted waitlist offer for session {session_id}")
 

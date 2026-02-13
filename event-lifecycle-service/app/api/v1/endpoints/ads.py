@@ -19,7 +19,7 @@ from app.schemas.ad import (
     AdAnalyticsResponse, EventAdAnalyticsResponse
 )
 from app.schemas.token import TokenPayload
-from app.utils.security import anonymize_ip
+from app.utils.security import anonymize_ip, validate_ad_input
 
 router = APIRouter(tags=["Ads"])
 logger = logging.getLogger(__name__)
@@ -53,6 +53,14 @@ def create_ad(
     if current_user.org_id != orgId:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
+        )
+
+    # Validate all input fields (URLs, string lengths, enums, arrays, numerics)
+    validation_errors = validate_ad_input(ad_in)
+    if validation_errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Validation failed: {'; '.join(validation_errors)}"
         )
 
     ad = crud_ad.ad.create_ad(db, ad_data=ad_in, organization_id=orgId)
@@ -106,6 +114,17 @@ def update_ad(
 
     if ad.organization_id != current_user.org_id:
         raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Validate URLs if provided in the update
+    from app.utils.security import validate_url
+    if ad_update.media_url is not None:
+        valid, err = validate_url(ad_update.media_url, "media_url", allow_http=True)
+        if not valid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    if ad_update.click_url is not None:
+        valid, err = validate_url(ad_update.click_url, "click_url", allow_http=False, allow_redirects=True)
+        if not valid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
 
     updated_ad = crud_ad.ad.update_ad(db, ad_id=ad_id, ad_data=ad_update)
     return updated_ad
@@ -172,6 +191,7 @@ def serve_ads(
         return []
 
     # Apply frequency capping if session_token provided
+    redis_degraded = False
     if session_token:
         filtered_ads = []
         for ad in ads:
@@ -183,14 +203,24 @@ def serve_ads(
                 if impression_count < ad.frequency_cap:
                     filtered_ads.append(ad)
             except Exception as e:
-                # If Redis fails, include the ad (fail open)
-                logger.warning(f"Redis error in frequency capping for ad {ad.id}: {e}")
+                # SECURITY: On Redis failure, do NOT fail open (which would
+                # bypass frequency caps and allow unlimited ad impressions).
+                # Instead, mark degraded mode and apply conservative fallback below.
+                logger.warning(
+                    f"Redis error in frequency capping for ad {ad.id}: {e}. "
+                    f"Entering degraded mode with conservative ad serving."
+                )
+                redis_degraded = True
                 filtered_ads.append(ad)
 
         ads = filtered_ads
 
+    # In degraded mode (Redis down), apply conservative fallback:
+    # return at most 1 ad to prevent unbounded impressions.
+    effective_limit = 1 if redis_degraded else limit
+
     # Weighted random selection
-    selected_ads = crud_ad.ad.select_ads_weighted_random(ads, limit=limit)
+    selected_ads = crud_ad.ad.select_ads_weighted_random(ads, limit=effective_limit)
 
     return selected_ads
 

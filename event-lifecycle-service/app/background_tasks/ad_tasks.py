@@ -77,8 +77,8 @@ def cleanup_old_ad_events():
         from datetime import datetime, timedelta, timezone
         from app.models.ad_event import AdEvent
 
-        # Delete events older than 90 days
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=90)
+        from app.core.config import settings
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=settings.AD_EVENT_RETENTION_DAYS)
 
         result = db.query(AdEvent).filter(
             AdEvent.created_at < cutoff_date

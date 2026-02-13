@@ -33,6 +33,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { CapacityUpdateDto } from './live/dashboard/dto/capacity-update.dto';
 import { PublisherService } from './shared/services/publisher.service';
 import { GamificationService } from './gamification/gamification.service';
+import { PrismaService } from './prisma.service';
 
 interface MultitenantMetricsDto {
   orgId: string;
@@ -78,6 +79,7 @@ export class AppGateway
     private readonly dashboardService: DashboardService,
     private readonly publisherService: PublisherService,
     private readonly gamificationService: GamificationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   afterInit(server: Server) {
@@ -214,6 +216,13 @@ export class AppGateway
     await client.join(sessionRoom);
     this.logger.log(`✅ User ${user.sub} joined session room: ${sessionRoom}`);
 
+    // Also join event room so client receives event-level updates
+    if (data.eventId) {
+      const eventRoom = `event:${data.eventId}`;
+      await client.join(eventRoom);
+      this.logger.log(`✅ User ${user.sub} auto-joined event room: ${eventRoom}`);
+    }
+
     // Track session membership for this client (needed for leave events on disconnect)
     const eventId = data.eventId || 'unknown';
     let clientInfo = this.clientSessions.get(client.id);
@@ -230,6 +239,14 @@ export class AppGateway
       eventId: eventId,
       userId: user.sub,
     });
+
+    // Auto-join team room if the user is already on a team in this session
+    void this._autoJoinTeamRoom(client, user.sub, data.sessionId).catch(
+      (err) =>
+        this.logger.warn(
+          `Failed to auto-join team room: ${err?.message || err}`,
+        ),
+    );
 
     // Award gamification points for joining a session (deduplicated via upsert in service)
     void this.gamificationService
@@ -446,6 +463,32 @@ export class AppGateway
     this.logger.log(
       `Broadcasted system metrics to ${eventIds.length} dashboards for org ${payload.orgId}`,
     );
+  }
+
+  /**
+   * Checks if the user is already a member of a team in the given session.
+   * If so, joins the client socket to the team room for real-time notifications.
+   */
+  private async _autoJoinTeamRoom(
+    client: AuthenticatedSocket,
+    userId: string,
+    sessionId: string,
+  ) {
+    const membership = await this.prisma.teamMembership.findFirst({
+      where: {
+        userId,
+        team: { sessionId },
+      },
+      select: { teamId: true },
+    });
+
+    if (membership) {
+      const teamRoom = `team:${membership.teamId}`;
+      await client.join(teamRoom);
+      this.logger.log(
+        `Auto-joined user ${userId} to team room: ${teamRoom}`,
+      );
+    }
   }
 
   onApplicationShutdown() {

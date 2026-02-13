@@ -12,11 +12,8 @@ import { Server } from 'socket.io';
  * Listens to Redis Pub/Sub events and broadcasts them via WebSocket.
  */
 @WebSocketGateway({
-  cors: {
-    origin: process.env.CORS_ORIGIN || '*',
-    credentials: true,
-  },
-  namespace: '/',
+  cors: { origin: true, credentials: true },
+  namespace: '/events',
 })
 export class UpdateNotificationsGateway {
   @WebSocketServer()
