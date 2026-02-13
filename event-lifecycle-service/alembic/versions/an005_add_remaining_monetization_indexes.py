@@ -1,6 +1,6 @@
 """Add remaining monetization indexes for production query patterns
 
-Revision ID: an005_remaining_monetization_indexes
+Revision ID: an005_monetization_indexes
 Revises: an004_monetization_query_indexes
 Create Date: 2026-02-12
 
@@ -14,7 +14,7 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = 'an005_remaining_monetization_indexes'
+revision = 'an005_monetization_indexes'
 down_revision = 'an004_monetization_query_indexes'
 branch_labels = None
 depends_on = None
