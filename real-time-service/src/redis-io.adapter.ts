@@ -30,7 +30,18 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   createIOServer(port: number, options?: ServerOptions): any {
-    const server = super.createIOServer(port, options);
+    const server = super.createIOServer(port, {
+      ...options,
+      // Increase max listeners to prevent memory leak warnings
+      // Multiple gateways (AppGateway, ExpoGateway, etc.) add disconnect listeners
+      maxHttpBufferSize: 1e8, // 100MB for large payloads
+    });
+
+    // Increase EventEmitter max listeners to 50 (default is 10)
+    // This prevents "MaxListenersExceededWarning" when multiple gateways
+    // attach listeners to the same socket
+    server.sockets.setMaxListeners(50);
+
     server.adapter(this.adapterConstructor);
     console.log('Socket.IO Redis adapter enabled for horizontal scaling');
     return server;

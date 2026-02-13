@@ -130,19 +130,24 @@ export class ExpoGateway
         await this.broadcastBoothStatus(closeResult.boothId);
       }
 
-      // Cleanup queue entry
-      const removedQueueEntry =
-        await this.expoService.removeFromQueueBySocket(socketId);
-      if (removedQueueEntry) {
-        const queueCount = await this.expoService.getBoothQueueCount(
-          removedQueueEntry.boothId,
-        );
-        this.server
-          .to(`booth-queue:${removedQueueEntry.boothId}`)
-          .emit('expo.booth.queue.update', {
-            boothId: removedQueueEntry.boothId,
-            queueSize: queueCount,
-          });
+      // Cleanup queue entry (gracefully handle if table doesn't exist yet)
+      try {
+        const removedQueueEntry =
+          await this.expoService.removeFromQueueBySocket(socketId);
+        if (removedQueueEntry) {
+          const queueCount = await this.expoService.getBoothQueueCount(
+            removedQueueEntry.boothId,
+          );
+          this.server
+            .to(`booth-queue:${removedQueueEntry.boothId}`)
+            .emit('expo.booth.queue.update', {
+              boothId: removedQueueEntry.boothId,
+              queueSize: queueCount,
+            });
+        }
+      } catch (queueError) {
+        // Queue feature not yet enabled (table doesn't exist) - skip cleanup
+        // This will be fixed when booth_queue_entries migration is run
       }
 
       // Cleanup staff presence
