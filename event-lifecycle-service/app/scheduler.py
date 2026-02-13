@@ -37,6 +37,7 @@ from app.background_tasks.ad_tasks import (
     refresh_ad_analytics,
     cleanup_old_ad_events,
 )
+from app.utils.graphql_rate_limit import cleanup_expired_entries
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +259,19 @@ def init_scheduler():
         replace_existing=True
     )
     logger.info("Scheduled job: cleanup_old_ad_events (daily at 2 AM UTC)")
+
+    # ===== RATE LIMIT CLEANUP JOB =====
+
+    # Job 16: Cleanup expired rate limit entries
+    # Runs every 1 hour to prevent memory leaks
+    scheduler.add_job(
+        func=cleanup_expired_entries,
+        trigger=IntervalTrigger(hours=1),
+        id='cleanup_rate_limits',
+        name='Cleanup Expired Rate Limit Entries',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: cleanup_rate_limits (every 1 hour)")
 
     # M-OBS3: Listen for job errors and misfires so they don't fail silently
     scheduler.add_listener(_on_job_error, EVENT_JOB_ERROR)

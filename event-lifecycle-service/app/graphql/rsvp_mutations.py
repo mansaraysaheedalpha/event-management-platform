@@ -11,10 +11,18 @@ import strawberry
 from strawberry.types import Info
 from fastapi import HTTPException
 import logging
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from ..crud.crud_session_rsvp import session_rsvp as session_rsvp_crud
 from ..crud.crud_session_capacity import session_capacity_crud
 from ..utils.session_utils import require_event_registration
+from ..utils.graphql_rate_limit import rate_limit
+from ..constants.rsvp import RsvpStatus as RsvpStatusConstant
 from .rsvp_types import (
     RsvpToSessionResponse,
     CancelSessionRsvpResponse,
@@ -32,6 +40,7 @@ class RsvpMutations:
     """Session RSVP mutation resolvers."""
 
     @strawberry.mutation
+    @rate_limit(max_calls=5, period_seconds=60)  # 5 RSVPs per minute per user
     def rsvp_to_session(
         self,
         input: RsvpToSessionInput,
@@ -43,6 +52,8 @@ class RsvpMutations:
         Requires authentication and event registration.
         Checks capacity before allowing RSVP.
         If session is full, returns error directing user to join waitlist.
+
+        Rate limit: 5 requests per minute per user to prevent spam/abuse.
         """
         user = info.context.user
         if not user or not user.get("sub"):
@@ -63,17 +74,13 @@ class RsvpMutations:
 
         # Check if already has an RSVP
         existing = session_rsvp_crud.get_user_rsvp(db, session_id=session_id, user_id=user_id)
-        if existing:
-            if existing.status == "CONFIRMED":
-                # Idempotent — return existing RSVP
-                return RsvpToSessionResponse(
-                    success=True,
-                    rsvp=_to_rsvp_type(existing),
-                    message="Already RSVPed",
-                )
-            else:
-                # Previously cancelled — reactivate if capacity allows
-                pass  # Fall through to capacity check below, will reactivate
+        if existing and existing.status == RsvpStatusConstant.CONFIRMED:
+            # Idempotent — return existing RSVP
+            return RsvpToSessionResponse(
+                success=True,
+                rsvp=_to_rsvp_type(existing),
+                message="Already RSVPed",
+            )
 
         # Determine effective capacity (session model takes priority, fallback to capacity table)
         max_capacity = session_obj.max_participants
@@ -82,30 +89,33 @@ class RsvpMutations:
             if capacity_obj:
                 max_capacity = capacity_obj.maximum_capacity
 
-        # Check capacity if a limit exists
-        if max_capacity is not None:
-            rsvp_count = session_rsvp_crud.get_rsvp_count(db, session_id=session_id)
-            if rsvp_count >= max_capacity:
-                return RsvpToSessionResponse(
-                    success=False,
-                    rsvp=None,
-                    message="Session is full. Join the waitlist for a chance to get a spot.",
-                )
-
-        # Create or reactivate RSVP
-        if existing and existing.status == "CANCELLED":
-            rsvp = session_rsvp_crud.reactivate_rsvp(db, rsvp=existing)
+        # Create or reactivate RSVP with atomic capacity check + capacity tracking
+        # Both RSVP and capacity increment happen in same transaction (prevents data corruption)
+        if existing and existing.status == RsvpStatusConstant.CANCELLED:
+            rsvp, success = session_rsvp_crud.reactivate_rsvp_with_capacity_check(
+                db,
+                rsvp=existing,
+                max_capacity=max_capacity,
+                increment_capacity_tracking=True,  # Atomic increment
+            )
         else:
-            rsvp = session_rsvp_crud.create_rsvp(
+            rsvp, success = session_rsvp_crud.create_rsvp_with_capacity_check(
                 db,
                 session_id=session_id,
                 user_id=user_id,
                 event_id=session_obj.event_id,
+                max_capacity=max_capacity,
+                increment_capacity_tracking=True,  # Atomic increment
             )
 
-        # Increment session_capacity tracking
-        session_capacity_crud.increment_attendance(db, session_id)
+        if not success:
+            return RsvpToSessionResponse(
+                success=False,
+                rsvp=None,
+                message="Session is full. Join the waitlist for a chance to get a spot.",
+            )
 
+        # Capacity tracking already incremented atomically in CRUD method
         logger.info(f"User {user_id} RSVPed for session {session_id}")
 
         return RsvpToSessionResponse(
@@ -115,6 +125,7 @@ class RsvpMutations:
         )
 
     @strawberry.mutation
+    @rate_limit(max_calls=5, period_seconds=60)  # 5 cancellations per minute per user
     def cancel_session_rsvp(
         self,
         input: CancelSessionRsvpInput,
@@ -125,6 +136,8 @@ class RsvpMutations:
 
         Requires authentication.
         Decrements capacity and auto-offers to next waitlist entry if applicable.
+
+        Rate limit: 5 requests per minute per user to prevent RSVP/cancel spam.
         """
         user = info.context.user
         if not user or not user.get("sub"):
@@ -134,16 +147,29 @@ class RsvpMutations:
         db = info.context.db
         session_id = input.session_id
 
-        # Cancel the RSVP
-        rsvp = session_rsvp_crud.cancel_rsvp(db, session_id=session_id, user_id=user_id)
+        # Cancel RSVP with atomic capacity decrement
+        # Both cancellation and capacity decrement happen in same transaction
+        rsvp = session_rsvp_crud.cancel_rsvp(
+            db,
+            session_id=session_id,
+            user_id=user_id,
+            decrement_capacity_tracking=True,  # Atomic decrement
+        )
         if not rsvp:
             raise HTTPException(status_code=404, detail="No active RSVP found for this session")
 
-        # Decrement session_capacity tracking
-        session_capacity_crud.decrement_attendance(db, session_id)
+        # Capacity tracking already decremented atomically in CRUD method
 
-        # Auto-offer to next person on waitlist
-        _auto_offer_next_waitlist(db, session_id, info)
+        # Auto-offer to next person on waitlist (with retry for resilience)
+        try:
+            _auto_offer_next_waitlist_with_retry(db, session_id, info)
+        except Exception as e:
+            # Log critical failure after all retries exhausted
+            logger.error(
+                f"Failed to auto-offer waitlist spot for session {session_id} after retries: {e}",
+                exc_info=True
+            )
+            # Don't fail the cancellation - spot will remain available for manual assignment
 
         logger.info(f"User {user_id} cancelled RSVP for session {session_id}")
 
@@ -164,6 +190,22 @@ def _to_rsvp_type(rsvp) -> SessionRsvpType:
         rsvp_at=rsvp.rsvp_at,
         cancelled_at=rsvp.cancelled_at,
     )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    reraise=True,
+)
+def _auto_offer_next_waitlist_with_retry(db, session_id: str, info: Info) -> None:
+    """
+    Auto-offer to next waitlist entry with retry logic.
+
+    Retries up to 3 times with exponential backoff for transient failures.
+    Re-raises exception after all retries exhausted.
+    """
+    _auto_offer_next_waitlist(db, session_id, info)
 
 
 def _auto_offer_next_waitlist(db, session_id: str, info: Info) -> None:
