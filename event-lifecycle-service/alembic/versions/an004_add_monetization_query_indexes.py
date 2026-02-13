@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'an004_monetization_query_indexes'
-down_revision = 'an003_add_events_partitioning'
+down_revision = 'an003_events_partitioning'
 branch_labels = None
 depends_on = None
 
