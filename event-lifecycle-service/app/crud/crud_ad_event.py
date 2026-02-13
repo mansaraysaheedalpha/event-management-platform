@@ -275,8 +275,14 @@ class CRUDAdEvent:
     def refresh_materialized_view(self, db: Session) -> None:
         """
         Refresh the ad_analytics_daily materialized view.
-        Runs automatically every 5 minutes via scheduler.
+        Runs automatically every hour via scheduler.
+        Skips gracefully if the view hasn't been created yet.
         """
+        result = db.execute(text(
+            "SELECT 1 FROM pg_matviews WHERE matviewname = 'ad_analytics_daily'"
+        ))
+        if not result.fetchone():
+            return
         db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY ad_analytics_daily"))
         db.commit()
 

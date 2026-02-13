@@ -56,7 +56,7 @@ def check_events_starting_tomorrow():
     total_emails_queued = 0
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Find events starting tomorrow (24-48 hours from now)
         tomorrow_start = (now + timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -109,7 +109,7 @@ def _queue_emails_for_event(db, event: Event) -> int:
     """
     emails_queued = 0
     email_date = date.today()
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     # Get all confirmed attendees for this event
     attendees = (
@@ -428,7 +428,7 @@ def retry_failed_pre_event_emails():
 
         logger.info(f"Retrying {len(failed)} failed pre-event emails")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
 
         for email_record in failed:
             # Check if event hasn't started yet
