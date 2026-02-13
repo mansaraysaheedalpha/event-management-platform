@@ -36,6 +36,7 @@ icalendar  # For ICS calendar file generation
 celery
 pdf2image
 apscheduler  # Scheduler for waitlist background tasks
+tenacity  # Retry logic with exponential backoff for resilient operations
 
 # Payment processing
 stripe

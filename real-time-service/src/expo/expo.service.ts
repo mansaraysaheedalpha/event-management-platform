@@ -732,7 +732,8 @@ export class ExpoService {
         },
       });
 
-      if (currentCount >= booth.maxVisitors) return null;
+      // Only check capacity if maxVisitors is set
+      if (booth.maxVisitors != null && currentCount >= booth.maxVisitors) return null;
 
       // Find next waiting person
       const nextEntry = await tx.boothQueueEntry.findFirst({
