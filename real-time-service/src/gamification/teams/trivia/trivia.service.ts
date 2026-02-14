@@ -457,6 +457,37 @@ export class TriviaService {
     };
   }
 
+  // ─── Delete Game ──────────────────────────────────────────
+
+  /**
+   * Deletes a DRAFT trivia game and all its questions.
+   * Only DRAFT games can be deleted (not ACTIVE or COMPLETED).
+   */
+  async deleteGame(gameId: string, sessionId: string) {
+    const game = await this.prisma.triviaGame.findUnique({
+      where: { id: gameId },
+    });
+
+    if (!game) throw new NotFoundException(`Trivia game ${gameId} not found.`);
+    if (game.sessionId !== sessionId) {
+      throw new ForbiddenException('Game does not belong to this session.');
+    }
+    if (game.status !== 'DRAFT') {
+      throw new ConflictException(
+        `Only DRAFT games can be deleted. This game is ${game.status}.`,
+      );
+    }
+
+    // Delete questions first (cascade), then the game
+    await this.prisma.$transaction([
+      this.prisma.triviaQuestion.deleteMany({ where: { gameId } }),
+      this.prisma.triviaGame.delete({ where: { id: gameId } }),
+    ]);
+
+    this.logger.log(`Trivia game ${gameId} (${game.name}) deleted.`);
+    return { gameId, name: game.name };
+  }
+
   // ─── Queries ────────────────────────────────────────────────
 
   /**

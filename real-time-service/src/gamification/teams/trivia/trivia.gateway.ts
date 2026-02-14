@@ -19,6 +19,7 @@ import { CreateTriviaGameDto } from './dto/create-trivia-game.dto';
 import { StartTriviaDto } from './dto/start-trivia.dto';
 import { AdvanceTriviaDto } from './dto/advance-trivia.dto';
 import { EndTriviaDto } from './dto/end-trivia.dto';
+import { DeleteTriviaDto } from './dto/delete-trivia.dto';
 import { SubmitTriviaAnswerDto } from './dto/submit-trivia-answer.dto';
 
 // Permissions that allow trivia management (organizers/admins)
@@ -109,6 +110,34 @@ export class TriviaGateway {
       );
       return {
         event: 'trivia.create.response',
+        data: { success: false, error: getErrorMessage(error) },
+      };
+    }
+  }
+
+  // ─── Organizer: Delete Draft Game ──────────────────────────
+
+  @SubscribeMessage('trivia.delete')
+  async handleDeleteGame(
+    @MessageBody() dto: DeleteTriviaDto,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    const { sessionId } = client.handshake.query as { sessionId: string };
+
+    try {
+      this.assertOrganizerPermissions(client);
+      const result = await this.triviaService.deleteGame(dto.gameId, sessionId);
+
+      return {
+        event: 'trivia.delete.response',
+        data: { success: true, ...result },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete trivia game: ${getErrorMessage(error)}`,
+      );
+      return {
+        event: 'trivia.delete.response',
         data: { success: false, error: getErrorMessage(error) },
       };
     }
