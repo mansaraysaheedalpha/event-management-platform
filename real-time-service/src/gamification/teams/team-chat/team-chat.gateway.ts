@@ -87,13 +87,15 @@ export class TeamChatGateway {
           this.logger.warn(`Failed to award MESSAGE_SENT points: ${err}`),
         );
 
-      // Broadcast to team room (all sockets in the room, including sender)
-      this.server.to(`team:${dto.teamId}`).emit('team.chat.message.new', {
-        message,
-      });
+      if (message) {
+        // Broadcast to team room (all sockets in the room, including sender)
+        this.server.to(`team:${dto.teamId}`).emit('team.chat.message.new', {
+          message,
+        });
+      }
 
       // Also send direct confirmation to the sender
-      client.emit('team.chat.send.response', { success: true, messageId: message.id });
+      client.emit('team.chat.send.response', { success: true, messageId: message?.id });
     } catch (error: any) {
       this.logger.error(
         `Failed to send team message: ${error?.message || error}`,
