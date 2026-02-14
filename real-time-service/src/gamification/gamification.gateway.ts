@@ -45,15 +45,15 @@ export class GamificationGateway implements OnModuleDestroy {
     const { sessionId } = client.handshake.query as { sessionId: string };
 
     try {
-      const leaderboardData = await this.gamificationService.getLeaderboard(
-        sessionId,
-        user.sub,
-      );
+      const [leaderboardData, teamLeaderboard] = await Promise.all([
+        this.gamificationService.getLeaderboard(sessionId, user.sub),
+        this.gamificationService.getTeamLeaderboard(sessionId),
+      ]);
 
       return {
         success: true,
         event: 'leaderboard.data',
-        data: leaderboardData,
+        data: { ...leaderboardData, teamScores: teamLeaderboard },
       };
     } catch (error) {
       this.logger.error(
