@@ -65,8 +65,7 @@ export class TeamChatGateway {
       // Verify team membership
       await this.teamChatService.assertTeamMembership(user.sub, dto.teamId);
 
-      // Ensure the client socket is in the team room (belt-and-suspenders:
-      // session.join auto-joins but is fire-and-forget; this guarantees it)
+      // Ensure the client socket is in the team room
       await client.join(`team:${dto.teamId}`);
 
       // Get the session ID for points (team belongs to session)
@@ -93,18 +92,16 @@ export class TeamChatGateway {
         message,
       });
 
-      return {
-        event: 'team.chat.send.response',
-        data: { success: true, message },
-      };
+      // Also send direct confirmation to the sender
+      client.emit('team.chat.send.response', { success: true, messageId: message.id });
     } catch (error: any) {
       this.logger.error(
         `Failed to send team message: ${error?.message || error}`,
       );
-      return {
-        event: 'team.chat.send.response',
-        data: { success: false, error: error?.message || 'Unknown error' },
-      };
+      client.emit('team.chat.send.response', {
+        success: false,
+        error: error?.message || 'Unknown error',
+      });
     }
   }
 
@@ -134,19 +131,10 @@ export class TeamChatGateway {
       this.server.to(`team:${dto.teamId}`).emit('team.chat.message.updated', {
         message: updatedMessage,
       });
-
-      return {
-        event: 'team.chat.react.response',
-        data: { success: true, message: updatedMessage },
-      };
     } catch (error: any) {
       this.logger.error(
         `Failed to react to team message: ${error?.message || error}`,
       );
-      return {
-        event: 'team.chat.react.response',
-        data: { success: false, error: error?.message || 'Unknown error' },
-      };
     }
   }
 
@@ -173,22 +161,20 @@ export class TeamChatGateway {
         dto.before,
       );
 
-      return {
-        event: 'team.chat.history.response',
-        data: {
-          success: true,
-          messages,
-          hasMore: messages.length === (dto.limit ?? 50),
-        },
-      };
+      // Emit directly to the requesting client (bypasses NestJS return mechanism)
+      client.emit('team.chat.history.response', {
+        success: true,
+        messages,
+        hasMore: messages.length === (dto.limit ?? 50),
+      });
     } catch (error: any) {
       this.logger.error(
         `Failed to fetch team chat history: ${error?.message || error}`,
       );
-      return {
-        event: 'team.chat.history.response',
-        data: { success: false, error: error?.message || 'Unknown error' },
-      };
+      client.emit('team.chat.history.response', {
+        success: false,
+        error: error?.message || 'Unknown error',
+      });
     }
   }
 
