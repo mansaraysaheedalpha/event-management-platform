@@ -319,6 +319,11 @@ class OrderCreate(OrderBase):
     tax_amount: int = 0
     platform_fee: int = 0
     total_amount: int
+    # Stripe Connect fee fields
+    subtotal_amount: Optional[int] = None
+    fee_absorption: Optional[str] = "absorb"
+    fee_breakdown_json: Optional[Dict[str, Any]] = None
+    connected_account_id: Optional[str] = None
     promo_code_id: Optional[str] = None
     expires_at: Optional[datetime] = None
     ip_address: Optional[str] = None
@@ -348,6 +353,11 @@ class Order(OrderBase):
     tax_amount: int
     platform_fee: int
     total_amount: int
+    # Stripe Connect fee fields
+    subtotal_amount: Optional[int] = None
+    fee_absorption: Optional[str] = "absorb"
+    fee_breakdown_json: Optional[Dict[str, Any]] = None
+    connected_account_id: Optional[str] = None
     promo_code_id: Optional[str] = None
     payment_provider: Optional[str] = None
     payment_intent_id: Optional[str] = None
@@ -564,4 +574,4 @@ class PaymentIntentResponse(BaseModel):
 
 class CheckoutSession(BaseModel):
     order: Order
-    payment_intent: PaymentIntentResponse
+    payment_intent: Optional[PaymentIntentResponse] = None

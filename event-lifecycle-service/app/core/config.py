@@ -58,6 +58,16 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
 
+    # Stripe Connect Configuration
+    STRIPE_CONNECT_CLIENT_ID: Optional[str] = None
+    STRIPE_CONNECT_WEBHOOK_SECRET: Optional[str] = None
+
+    # Platform Fee Defaults
+    PLATFORM_FEE_PERCENT: float = 4.0          # 4% per paid ticket
+    PLATFORM_FEE_FIXED_CENTS: int = 75         # $0.75 per paid ticket
+    PLATFORM_NAME: str = "GlobalConnect"
+    PLATFORM_SUPPORT_EMAIL: str = "support@globalconnect.com"
+
     # Security & Privacy
     IP_HASH_SALT: str  # For IP anonymization (GDPR compliance) - MUST be set in environment
     ALLOWED_ORIGINS: str = "http://localhost:3000"  # Comma-separated list of allowed CORS origins

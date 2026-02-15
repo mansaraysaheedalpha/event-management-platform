@@ -27,6 +27,17 @@ from app.schemas.payment import (
 )
 from app.services.payment.provider_factory import get_payment_provider
 from app.services.payment.provider_interface import WebhookEventType
+from app.core.email import (
+    send_ticket_confirmation_email,
+    send_new_ticket_sale_email,
+    send_refund_confirmation_email,
+)
+from app.utils.kafka_helpers import (
+    publish_ticket_confirmation_email,
+    publish_new_ticket_sale_email,
+    publish_refund_confirmation_email,
+)
+from app.utils.user_service import get_user_info_async
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +187,13 @@ async def _handle_payment_succeeded(db: Session, event) -> dict:
         logger.info(f"Order {order.id} already completed")
         return result
 
+    # Atomically mark order as completed (C2: prevents race condition
+    # when both confirm_payment and webhook fire simultaneously)
+    was_transitioned = crud.order.mark_completed_atomic(db, order_id=order.id)
+    if not was_transitioned:
+        logger.info(f"Order {order.id} already transitioned by another handler")
+        return result
+
     # Create or update payment record
     existing_payment = crud.payment.get_by_provider_intent_id(
         db, provider_intent_id=intent_id
@@ -206,9 +224,6 @@ async def _handle_payment_succeeded(db: Session, event) -> dict:
         payment = crud.payment.create_payment(db, obj_in=payment_create)
         result["payment_id"] = payment.id
 
-    # Update order status
-    crud.order.mark_completed(db, order_id=order.id)
-
     # Update ticket quantities
     order_with_items = crud.order.get_with_items(db, order_id=order.id)
     for item in order_with_items.items:
@@ -233,6 +248,9 @@ async def _handle_payment_succeeded(db: Session, event) -> dict:
         event_id=order.event_id,
         new_state={"status": "completed", "payment_intent": intent_id},
     )
+
+    # Send email notifications for successful payment
+    await _send_ticket_purchase_emails(db, order_with_items)
 
     logger.info(f"Processed payment succeeded for order {order.id}")
     return result
@@ -389,6 +407,9 @@ async def _handle_refund_succeeded(db: Session, event) -> dict:
         status=RefundStatus.succeeded,
     )
 
+    # Send refund confirmation email to the buyer
+    await _send_refund_confirmation_email(db, refund)
+
     logger.info(f"Processed refund succeeded for refund {refund.id}")
     return result
 
@@ -418,3 +439,227 @@ async def _handle_refund_failed(db: Session, event) -> dict:
 
     logger.info(f"Processed refund failed for refund {refund.id}")
     return result
+
+
+async def _send_ticket_purchase_emails(db: Session, order) -> None:
+    """
+    Send ticket purchase notification emails after successful payment.
+
+    Sends two emails:
+    1. ticket_confirmation: To the buyer with order details
+    2. new_ticket_sale: To the organizer with sale notification
+    """
+    try:
+        from app.models.event import Event
+        from app.core.config import settings
+
+        # Get event details
+        event = crud.event.get(db, id=order.event_id)
+        if not event:
+            logger.warning(f"Event not found for order {order.id}, skipping emails")
+            return
+
+        # Format event date
+        event_date = ""
+        if event.start_date:
+            try:
+                event_date = event.start_date.strftime("%B %d, %Y")
+            except Exception:
+                event_date = str(event.start_date)
+
+        # Event uses a venue relationship (not a direct location column)
+        event_location = ""
+        if event.venue_id and event.venue:
+            venue_parts = [event.venue.name or "", event.venue.address or ""]
+            event_location = ", ".join(part for part in venue_parts if part)
+
+        # Build order items for email
+        order_items_data = []
+        total_tickets = 0
+        for item in order.items:
+            order_items_data.append({
+                "ticket_name": item.ticket_type_name,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "total_price": item.total_price,
+            })
+            total_tickets += item.quantity
+
+        # Determine buyer email and name
+        buyer_email = order.guest_email or ""
+        buyer_name = order.customer_name or "Valued Customer"
+
+        # If user_id is set (not a guest), try to get user info
+        if order.user_id and not buyer_email:
+            user_info = await get_user_info_async(order.user_id)
+            if user_info:
+                buyer_email = user_info.get("email", "")
+                buyer_name = user_info.get("name", buyer_name)
+
+        # Fee absorption model
+        fee_absorption = getattr(order, "fee_absorption", "absorb") or "absorb"
+        platform_fee = order.platform_fee or 0
+
+        # 1. Send ticket_confirmation email to buyer
+        if buyer_email:
+            logger.info(f"Sending ticket_confirmation email for order {order.order_number}")
+            kafka_sent = publish_ticket_confirmation_email(
+                to_email=buyer_email,
+                buyer_name=buyer_name,
+                event_name=event.name,
+                event_date=event_date,
+                event_location=event_location,
+                order_number=order.order_number,
+                order_items=order_items_data,
+                subtotal_cents=order.subtotal,
+                platform_fee_cents=platform_fee,
+                total_cents=order.total_amount,
+                fee_absorption=fee_absorption,
+                currency=order.currency,
+            )
+            if not kafka_sent:
+                send_ticket_confirmation_email(
+                    to_email=buyer_email,
+                    buyer_name=buyer_name,
+                    event_name=event.name,
+                    event_date=event_date,
+                    event_location=event_location,
+                    order_number=order.order_number,
+                    order_items=order_items_data,
+                    subtotal_cents=order.subtotal,
+                    platform_fee_cents=platform_fee,
+                    total_cents=order.total_amount,
+                    fee_absorption=fee_absorption,
+                    currency=order.currency,
+                )
+
+        # 2. Send new_ticket_sale email to organizer
+        organizer_email = ""
+        organizer_name = "Organizer"
+
+        # Try to find the event owner
+        if event.owner_id:
+            owner_info = await get_user_info_async(event.owner_id)
+            if owner_info:
+                organizer_email = owner_info.get("email", "")
+                organizer_name = owner_info.get("name", "Organizer")
+
+        if organizer_email:
+            # Calculate revenue after platform fees
+            revenue_cents = order.total_amount - platform_fee
+            if revenue_cents < 0:
+                revenue_cents = 0
+
+            # Calculate running total for this event
+            # Sum of all completed orders for this event
+            running_total_cents = 0
+            try:
+                from sqlalchemy import func
+                from app.models.order import Order as OrderModel
+                total_result = db.query(
+                    func.coalesce(func.sum(OrderModel.total_amount - OrderModel.platform_fee), 0)
+                ).filter(
+                    OrderModel.event_id == order.event_id,
+                    OrderModel.status == "completed",
+                ).scalar()
+                running_total_cents = int(total_result) if total_result else 0
+            except Exception as e:
+                logger.warning(f"Could not calculate running total: {e}")
+                running_total_cents = revenue_cents
+
+            # Build ticket details for organizer email
+            ticket_details = [
+                {"ticket_name": item.ticket_type_name, "quantity": item.quantity}
+                for item in order.items
+            ]
+
+            dashboard_url = f"{settings.FRONTEND_URL}/dashboard/events/{order.event_id}"
+
+            logger.info(f"Sending new_ticket_sale email for order {order.order_number}")
+            kafka_sent = publish_new_ticket_sale_email(
+                to_email=organizer_email,
+                organizer_name=organizer_name,
+                event_name=event.name,
+                tickets_sold=total_tickets,
+                ticket_details=ticket_details,
+                revenue_cents=revenue_cents,
+                running_total_cents=running_total_cents,
+                dashboard_url=dashboard_url,
+            )
+            if not kafka_sent:
+                send_new_ticket_sale_email(
+                    to_email=organizer_email,
+                    organizer_name=organizer_name,
+                    event_name=event.name,
+                    tickets_sold=total_tickets,
+                    ticket_details=ticket_details,
+                    revenue_cents=revenue_cents,
+                    running_total_cents=running_total_cents,
+                    dashboard_url=dashboard_url,
+                )
+
+    except Exception as e:
+        # Email sending should never prevent webhook processing
+        logger.error(f"Error sending ticket purchase emails for order {order.id}: {e}", exc_info=True)
+
+
+async def _send_refund_confirmation_email(db: Session, refund) -> None:
+    """
+    Send refund confirmation email to the buyer after a refund succeeds.
+
+    Args:
+        db: Database session
+        refund: The refund record with order_id, amount, currency
+    """
+    try:
+        from app.core.config import settings
+
+        # Get the order for buyer info and event details
+        order = crud.order.get_with_items(db, order_id=refund.order_id)
+        if not order:
+            logger.warning(f"Order not found for refund {refund.id}, skipping email")
+            return
+
+        # Get event info
+        event = crud.event.get(db, id=order.event_id)
+        event_name = event.name if event else "Event"
+
+        # Get buyer email
+        buyer_email = order.guest_email or ""
+        buyer_name = order.customer_name or "Valued Customer"
+
+        if order.user_id and not buyer_email:
+            user_info = await get_user_info_async(order.user_id)
+            if user_info:
+                buyer_email = user_info.get("email", "")
+                buyer_name = user_info.get("name", buyer_name)
+
+        if not buyer_email:
+            logger.info(f"No buyer email found for refund {refund.id}, skipping email")
+            return
+
+        refund_amount = refund.amount if hasattr(refund, "amount") else 0
+        currency = refund.currency if hasattr(refund, "currency") else order.currency
+
+        logger.info(f"Sending refund_confirmation email for order {order.order_number}")
+        kafka_sent = publish_refund_confirmation_email(
+            to_email=buyer_email,
+            buyer_name=buyer_name,
+            event_name=event_name,
+            order_number=order.order_number,
+            refund_amount_cents=refund_amount,
+            currency=currency,
+        )
+        if not kafka_sent:
+            send_refund_confirmation_email(
+                to_email=buyer_email,
+                buyer_name=buyer_name,
+                event_name=event_name,
+                order_number=order.order_number,
+                refund_amount_cents=refund_amount,
+                currency=currency,
+            )
+
+    except Exception as e:
+        # Email sending should never prevent webhook processing
+        logger.error(f"Error sending refund confirmation email: {e}", exc_info=True)

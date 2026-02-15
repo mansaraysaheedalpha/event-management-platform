@@ -2,6 +2,7 @@
 import strawberry
 import typing
 from typing import List, Optional
+from datetime import datetime
 from strawberry.types import Info
 from fastapi import HTTPException
 import httpx
@@ -74,6 +75,25 @@ from .ticket_types import (
 )
 from . import payment_queries
 from . import ticket_queries
+from . import admin_queries
+from . import connect_queries
+from .admin_types import (
+    AdminDashboardStats,
+    AdminOrganizationSummary,
+    PaginatedAdminOrganizations,
+    AdminOrganizationDetail,
+    AdminTransaction,
+    PaginatedTransactions,
+    RevenueDataPoint,
+    RevenueReport,
+    ReportPeriod,
+    StripeConnectionStatus,
+)
+from .connect_types import (
+    OrganizationPaymentStatus,
+    AccountBalance,
+    FeeConfiguration,
+)
 from .waitlist_types import (
     WaitlistEntryType,
     WaitlistPositionType,
@@ -1735,3 +1755,102 @@ class Query:
         # Sort by session start time
         result.sort(key=lambda x: x.start_time)
         return result
+
+    # --- PLATFORM ADMIN QUERIES ---
+
+    @strawberry.field
+    def adminDashboardStats(self, info: Info) -> AdminDashboardStats:
+        """
+        [PLATFORM ADMIN] Get platform-wide dashboard statistics.
+        Includes total revenue, GMV, organization counts, ticket sales.
+        """
+        return admin_queries.get_admin_dashboard_stats(info)
+
+    @strawberry.field
+    def adminOrganizations(
+        self,
+        info: Info,
+        page: int = 1,
+        limit: int = 20,
+        search: typing.Optional[str] = None,
+        stripeStatus: typing.Optional[StripeConnectionStatus] = None,
+    ) -> PaginatedAdminOrganizations:
+        """
+        [PLATFORM ADMIN] Get paginated list of all organizations with Stripe status.
+        """
+        return admin_queries.get_admin_organizations(
+            info, page, limit, search, stripeStatus
+        )
+
+    @strawberry.field
+    def adminOrganizationDetail(
+        self, organizationId: strawberry.ID, info: Info
+    ) -> AdminOrganizationDetail:
+        """
+        [PLATFORM ADMIN] Get detailed information about a specific organization.
+        """
+        return admin_queries.get_admin_organization_detail(str(organizationId), info)
+
+    @strawberry.field
+    def adminTransactions(
+        self,
+        info: Info,
+        page: int = 1,
+        limit: int = 20,
+        organizationId: typing.Optional[str] = None,
+        dateFrom: typing.Optional[datetime] = None,
+        dateTo: typing.Optional[datetime] = None,
+        status: typing.Optional[str] = None,
+    ) -> PaginatedTransactions:
+        """
+        [PLATFORM ADMIN] Get paginated list of all transactions across the platform.
+        """
+        from datetime import datetime as dt
+        return admin_queries.get_admin_transactions(
+            info, page, limit, organizationId, dateFrom, dateTo, status
+        )
+
+    @strawberry.field
+    def adminRevenueReport(
+        self,
+        period: ReportPeriod,
+        dateFrom: datetime,
+        dateTo: datetime,
+        info: Info,
+    ) -> RevenueReport:
+        """
+        [PLATFORM ADMIN] Get revenue report aggregated by period.
+        """
+        return admin_queries.get_admin_revenue_report(info, period, dateFrom, dateTo)
+
+    # --- STRIPE CONNECT QUERIES ---
+
+    @strawberry.field
+    async def organizationPaymentStatus(
+        self, organizationId: str, info: Info
+    ) -> OrganizationPaymentStatus:
+        """
+        Get organization's Stripe Connect onboarding and account status.
+        Auth: OWNER or ADMIN of the organization.
+        """
+        return await connect_queries.get_organization_payment_status(organizationId, info)
+
+    @strawberry.field
+    async def organizationBalance(
+        self, organizationId: str, info: Info
+    ) -> AccountBalance:
+        """
+        Get connected account balance (available and pending).
+        Auth: OWNER or ADMIN of the organization.
+        """
+        return await connect_queries.get_organization_balance(organizationId, info)
+
+    @strawberry.field
+    def organizationFees(
+        self, organizationId: str, info: Info
+    ) -> FeeConfiguration:
+        """
+        Get platform fee configuration for an organization.
+        Auth: OWNER or ADMIN of the organization.
+        """
+        return connect_queries.get_organization_fees(organizationId, info)

@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     offers,
     webhooks,
     offer_webhooks,
+    connect_webhooks,
     organizations,
     waitlist,
     admin_waitlist,
@@ -52,6 +53,7 @@ api_router.include_router(analytics.router, tags=["Analytics"])
 api_router.include_router(reports.router, tags=["Reports"])
 api_router.include_router(ab_testing.router, tags=["A/B Testing"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+api_router.include_router(connect_webhooks.router, prefix="/webhooks", tags=["connect-webhooks"])
 api_router.include_router(offer_webhooks.router, prefix="/offer-webhooks", tags=["offer-webhooks"])
 api_router.include_router(organizations.router)
 api_router.include_router(sponsors.router, prefix="/sponsors", tags=["Sponsors"])

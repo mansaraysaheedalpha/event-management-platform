@@ -39,6 +39,7 @@ from .ticket_types import (
 )
 from . import payment_mutations
 from . import ticket_mutations
+from . import connect_mutations
 from .waitlist_types import (
     WaitlistJoinResponseType,
     WaitlistLeaveResponseType,
@@ -97,6 +98,20 @@ from .rsvp_types import (
     CancelSessionRsvpInput,
 )
 from .rsvp_mutations import RsvpMutations
+from . import admin_mutations
+from .admin_types import (
+    DefaultFeeConfig,
+    AdminSetOrganizationFeesInput,
+    AdminSetDefaultFeesInput,
+)
+from .connect_types import (
+    ConnectOnboardingResult,
+    ConnectOnboardingLink,
+    StripeDashboardLink,
+    PayoutSchedule,
+    PayoutInterval,
+    FeeAbsorption,
+)
 
 
 # ==== VIRTUAL EVENT ENUMS FOR INPUT (Phase 1) ====
@@ -2056,3 +2071,121 @@ class Mutation:
         """Cancel session RSVP."""
         rm = RsvpMutations()
         return rm.cancel_session_rsvp(input, info)
+
+    # --- PLATFORM ADMIN MUTATIONS ---
+
+    @strawberry.mutation
+    def adminSetOrganizationFees(
+        self,
+        organizationId: str,
+        platformFeePercent: float,
+        platformFeeFixed: int,
+        info: Info,
+    ) -> bool:
+        """
+        [PLATFORM ADMIN] Set custom fee overrides for a specific organization.
+        Returns True on success.
+        """
+        admin_mutations.admin_set_organization_fees(
+            organizationId, platformFeePercent, platformFeeFixed, info
+        )
+        return True
+
+    @strawberry.mutation
+    def adminSetDefaultFees(
+        self,
+        platformFeePercent: float,
+        platformFeeFixed: int,
+        info: Info,
+    ) -> DefaultFeeConfig:
+        """
+        [PLATFORM ADMIN] Update default platform fee configuration.
+        """
+        return admin_mutations.admin_set_default_fees(
+            platformFeePercent, platformFeeFixed, info
+        )
+
+    # --- STRIPE CONNECT MUTATIONS ---
+
+    @strawberry.mutation
+    async def createStripeConnectAccount(
+        self,
+        organizationId: str,
+        info: Info,
+        country: Optional[str] = "US",
+    ) -> ConnectOnboardingResult:
+        """
+        Create a Stripe Express connected account and return onboarding URL.
+        Auth: OWNER or ADMIN of the organization.
+        """
+        return await connect_mutations.create_stripe_connect_account(
+            organizationId, info, country
+        )
+
+    @strawberry.mutation
+    async def createStripeOnboardingLink(
+        self, organizationId: str, info: Info
+    ) -> ConnectOnboardingLink:
+        """
+        Generate a new onboarding link (if previous expired or needs re-verification).
+        Auth: OWNER or ADMIN.
+        """
+        return await connect_mutations.create_stripe_onboarding_link(
+            organizationId, info
+        )
+
+    @strawberry.mutation
+    async def createStripeDashboardLink(
+        self, organizationId: str, info: Info
+    ) -> StripeDashboardLink:
+        """
+        Generate a Stripe Express Dashboard login link.
+        Auth: OWNER or ADMIN.
+        """
+        return await connect_mutations.create_stripe_dashboard_link(
+            organizationId, info
+        )
+
+    @strawberry.mutation
+    async def updatePayoutSchedule(
+        self,
+        organizationId: str,
+        interval: PayoutInterval,
+        info: Info,
+        weeklyAnchor: Optional[str] = None,
+        monthlyAnchor: Optional[int] = None,
+    ) -> PayoutSchedule:
+        """
+        Update payout schedule preferences for a connected account.
+        Auth: OWNER or ADMIN.
+        """
+        return await connect_mutations.update_payout_schedule(
+            organizationId, interval, info, weeklyAnchor, monthlyAnchor
+        )
+
+    @strawberry.mutation
+    async def updateFeeAbsorption(
+        self,
+        organizationId: str,
+        feeAbsorption: FeeAbsorption,
+        info: Info,
+    ) -> bool:
+        """
+        Update fee absorption setting for an organization.
+        Auth: OWNER or ADMIN.
+        """
+        return await connect_mutations.update_fee_absorption(
+            organizationId, feeAbsorption, info
+        )
+
+    @strawberry.mutation
+    async def disconnectStripeAccount(
+        self, organizationId: str, info: Info
+    ) -> bool:
+        """
+        Disconnect Stripe account (organizer keeps their Stripe account).
+        Auth: OWNER only.
+        """
+        return await connect_mutations.disconnect_stripe_account(
+            organizationId, info
+        )

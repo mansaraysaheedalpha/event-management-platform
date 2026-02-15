@@ -143,9 +143,14 @@ class CRUDOrder(CRUDBase[Order, OrderCreate, OrderUpdate]):
         obj_in: OrderCreate,
         organization_id: str,
         order_number: str,
+        order_id: str = None,
     ) -> Order:
-        """Create a new order."""
+        """Create a new order. Pass order_id to use a pre-generated ID."""
+        extra_kwargs = {}
+        if order_id:
+            extra_kwargs["id"] = order_id
         db_obj = Order(
+            **extra_kwargs,
             order_number=order_number,
             event_id=obj_in.event_id,
             organization_id=organization_id,
@@ -161,6 +166,11 @@ class CRUDOrder(CRUDBase[Order, OrderCreate, OrderUpdate]):
             tax_amount=obj_in.tax_amount,
             platform_fee=obj_in.platform_fee,
             total_amount=obj_in.total_amount,
+            # Stripe Connect fee fields
+            subtotal_amount=getattr(obj_in, 'subtotal_amount', None),
+            fee_absorption=getattr(obj_in, 'fee_absorption', 'absorb'),
+            fee_breakdown_json=getattr(obj_in, 'fee_breakdown_json', None),
+            connected_account_id=getattr(obj_in, 'connected_account_id', None),
             promo_code_id=obj_in.promo_code_id,
             expires_at=obj_in.expires_at,
             ip_address=obj_in.ip_address,
@@ -234,6 +244,36 @@ class CRUDOrder(CRUDBase[Order, OrderCreate, OrderUpdate]):
     ) -> Optional[Order]:
         """Mark an order as completed."""
         return self.update_status(db, order_id=order_id, status=OrderStatus.completed)
+
+    def mark_completed_atomic(
+        self, db: Session, *, order_id: str
+    ) -> bool:
+        """
+        Atomically mark an order as completed ONLY if it is currently pending.
+
+        Uses UPDATE ... WHERE status='pending' to prevent race conditions
+        when both confirm_payment() and the webhook handler try to complete
+        the same order simultaneously. Returns True if the transition
+        happened, False if the order was already completed/cancelled.
+        """
+        now = datetime.now(timezone.utc)
+        rows = (
+            db.query(self.model)
+            .filter(
+                self.model.id == order_id,
+                self.model.status == "pending",
+            )
+            .update(
+                {
+                    self.model.status: "completed",
+                    self.model.completed_at: now,
+                    self.model.updated_at: now,
+                },
+                synchronize_session="fetch",
+            )
+        )
+        db.commit()
+        return rows > 0
 
     def mark_cancelled(
         self, db: Session, *, order_id: str

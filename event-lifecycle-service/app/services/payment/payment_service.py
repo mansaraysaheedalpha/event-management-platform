@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.models.order import Order
 from app.models.payment import Payment
+from app.models.organization_payment_settings import OrganizationPaymentSettings
 from app.schemas.payment import (
     CreateOrderInput,
     OrderCreate,
@@ -28,11 +29,19 @@ from .provider_interface import (
 )
 from .provider_factory import get_payment_provider, get_provider_for_currency
 from .providers.stripe_provider import PaymentError
+from .fee_calculator import FeeCalculator, OrderItemData
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Order expiry time in minutes
 ORDER_EXPIRY_MINUTES = 30
+
+# Module-level fee calculator instance using platform defaults
+fee_calculator = FeeCalculator(
+    default_percent=settings.PLATFORM_FEE_PERCENT,
+    default_fixed_cents=settings.PLATFORM_FEE_FIXED_CENTS,
+)
 
 
 class PaymentService:
@@ -150,6 +159,53 @@ class PaymentService:
         if total_amount < 50 and total_amount > 0:
             raise ValueError("Order total is below minimum amount")
 
+        # --- Stripe Connect gating and fee calculation ---
+        org_settings = None
+        fee_breakdown = None
+        buyer_total = total_amount
+        platform_fee_amount = 0
+        connected_acct_id = None
+        order_fee_absorption = "absorb"
+
+        if total_amount > 0:
+            # For paid tickets: check organizer's Stripe Connect status
+            org_settings = self.db.query(OrganizationPaymentSettings).filter(
+                OrganizationPaymentSettings.organization_id == organization_id,
+                OrganizationPaymentSettings.is_active == True,
+            ).first()
+
+            if not org_settings or not org_settings.connected_account_id:
+                raise ValueError(
+                    "This organizer has not connected their payment account. "
+                    "Ticket purchases are temporarily unavailable."
+                )
+
+            if not org_settings.charges_enabled:
+                raise ValueError(
+                    "The organizer's payment account is under review. "
+                    "Please try again later."
+                )
+
+            # Build order item data for fee calculation
+            order_item_data = [
+                OrderItemData(
+                    ticket_type_name=item_data["ticket_type"].name,
+                    quantity=item_data["quantity"],
+                    unit_price=item_data["unit_price"],
+                )
+                for item_data in items_data
+            ]
+
+            fee_breakdown = fee_calculator.calculate_order_fees(order_item_data, org_settings)
+            buyer_total = fee_calculator.calculate_buyer_total(
+                subtotal=total_amount,
+                platform_fee_total=fee_breakdown.platform_fee_total,
+                absorption_model=fee_breakdown.absorption_model,
+            )
+            platform_fee_amount = fee_breakdown.platform_fee_total
+            connected_acct_id = org_settings.connected_account_id
+            order_fee_absorption = fee_breakdown.absorption_model
+
         # Generate order number
         order_id = f"ord_{uuid.uuid4().hex[:12]}"
         order_number = Order.generate_order_number(order_id)
@@ -160,6 +216,26 @@ class PaymentService:
         # Determine customer info
         customer_email = input_data.guest_email or ""
         customer_name = f"{input_data.guest_first_name or ''} {input_data.guest_last_name or ''}".strip()
+
+        # Build fee breakdown JSON for storage
+        fee_breakdown_json = None
+        if fee_breakdown:
+            fee_breakdown_json = {
+                "platform_fee_total": fee_breakdown.platform_fee_total,
+                "fee_percent_used": fee_breakdown.fee_percent_used,
+                "fee_fixed_used": fee_breakdown.fee_fixed_used,
+                "absorption_model": fee_breakdown.absorption_model,
+                "per_item_fees": [
+                    {
+                        "ticket_type_name": item_fee.ticket_type_name,
+                        "quantity": item_fee.quantity,
+                        "unit_price": item_fee.unit_price,
+                        "fee_per_ticket": item_fee.fee_per_ticket,
+                        "fee_subtotal": item_fee.fee_subtotal,
+                    }
+                    for item_fee in fee_breakdown.per_item_fees
+                ],
+            }
 
         # Create order
         order_create = OrderCreate(
@@ -173,8 +249,12 @@ class PaymentService:
             subtotal=subtotal,
             discount_amount=discount_amount,
             tax_amount=0,  # TODO: Calculate tax if needed
-            platform_fee=0,  # TODO: Calculate platform fee
-            total_amount=total_amount,
+            platform_fee=platform_fee_amount,
+            total_amount=buyer_total,
+            subtotal_amount=total_amount,
+            fee_absorption=order_fee_absorption,
+            fee_breakdown_json=fee_breakdown_json,
+            connected_account_id=connected_acct_id,
             promo_code_id=promo_code_id,
             expires_at=expires_at,
             ip_address=ip_address,
@@ -186,12 +266,8 @@ class PaymentService:
             obj_in=order_create,
             organization_id=organization_id,
             order_number=order_number,
+            order_id=order_id,
         )
-
-        # Update order ID (since we pre-generated it)
-        order.id = order_id
-        self.db.add(order)
-        self.db.commit()
 
         # Add order items and reserve inventory
         for item_data in items_data:
@@ -222,21 +298,21 @@ class PaymentService:
             organization_id=organization_id,
             event_id=input_data.event_id,
             request_id=request_id,
-            new_state={"status": "pending", "total_amount": total_amount},
+            new_state={"status": "pending", "total_amount": buyer_total},
             actor_ip=ip_address,
             actor_user_agent=user_agent,
         )
 
         # Create payment intent if order has amount
         payment_intent = None
-        if total_amount > 0:
+        if buyer_total > 0:
             provider = get_provider_for_currency(currency)
             idempotency_key = f"order_{order.id}_create"
 
             try:
                 intent_params = CreatePaymentIntentParams(
                     order_id=order.id,
-                    amount=total_amount,
+                    amount=buyer_total,
                     currency=currency,
                     customer_email=customer_email,
                     customer_name=customer_name or "Guest",
@@ -248,6 +324,8 @@ class PaymentService:
                         "organization_id": organization_id,
                     },
                     idempotency_key=idempotency_key,
+                    connected_account_id=connected_acct_id,
+                    platform_fee_amount=platform_fee_amount if connected_acct_id else None,
                 )
 
                 result = await provider.create_payment_intent(intent_params)
@@ -274,7 +352,12 @@ class PaymentService:
                     organization_id=organization_id,
                     event_id=input_data.event_id,
                     request_id=request_id,
-                    new_state={"intent_id": result.intent_id, "provider": provider.code},
+                    new_state={
+                        "intent_id": result.intent_id,
+                        "provider": provider.code,
+                        "connected_account_id": connected_acct_id,
+                        "platform_fee": platform_fee_amount,
+                    },
                 )
 
             except PaymentError as e:
@@ -330,6 +413,14 @@ class PaymentService:
         if intent_status.status.value != "succeeded":
             raise ValueError(f"Payment not successful: {intent_status.status.value}")
 
+        # Atomically mark order as completed (C2: prevents race condition
+        # when both confirm_payment and webhook fire simultaneously)
+        was_transitioned = crud.order.mark_completed_atomic(self.db, order_id=order.id)
+        if not was_transitioned:
+            # Another path (webhook) already completed this order — return idempotently
+            self.db.refresh(order)
+            return order
+
         # Create payment record
         payment_create = PaymentCreate(
             order_id=order.id,
@@ -347,9 +438,6 @@ class PaymentService:
         )
 
         payment = crud.payment.create_payment(self.db, obj_in=payment_create)
-
-        # Mark order as completed
-        crud.order.mark_completed(self.db, order_id=order.id)
 
         # Update ticket quantities
         for item in order.items:
@@ -511,11 +599,19 @@ class PaymentService:
         # Process refund with provider
         try:
             provider = get_payment_provider(payment.provider_code)
+
+            # For Connect orders: refund platform's application fee on full refunds (C6)
+            is_full_refund = refund_amount >= payment.refundable_amount
+            should_refund_app_fee = (
+                is_full_refund and bool(getattr(order, "connected_account_id", None))
+            )
+
             refund_params = CreateRefundParams(
                 payment_id=payment.provider_intent_id or payment.provider_payment_id,
                 amount=refund_amount,
                 reason=provider_reason,
                 idempotency_key=idempotency_key,
+                refund_application_fee=True if should_refund_app_fee else None,
             )
 
             result = await provider.create_refund(refund_params)
@@ -553,6 +649,10 @@ class PaymentService:
                 new_state={"status": "succeeded", "provider_refund_id": result.refund_id},
             )
 
+            # Send refund confirmation email if refund succeeded immediately
+            if result.status.value == "succeeded":
+                await self._send_refund_email(order, refund_amount, payment.currency)
+
         except PaymentError as e:
             logger.error(f"Failed to process refund: {e}")
             crud.refund.update_status(
@@ -567,7 +667,7 @@ class PaymentService:
         self.db.refresh(refund)
         return refund
 
-    def expire_pending_orders(self, limit: int = 100) -> int:
+    async def expire_pending_orders(self, limit: int = 100) -> int:
         """Expire pending orders that have passed their expiry time."""
         expired_orders = crud.order.get_expired_pending_orders(self.db, limit=limit)
         count = 0
@@ -578,11 +678,7 @@ class PaymentService:
                 if order.payment_intent_id and order.payment_provider:
                     try:
                         provider = get_payment_provider(order.payment_provider)
-                        # Note: This is sync call - in production, use async
-                        import asyncio
-                        asyncio.get_event_loop().run_until_complete(
-                            provider.cancel_payment_intent(order.payment_intent_id)
-                        )
+                        await provider.cancel_payment_intent(order.payment_intent_id)
                     except Exception as e:
                         logger.warning(f"Failed to cancel payment intent for order {order.id}: {e}")
 
@@ -614,6 +710,51 @@ class PaymentService:
                 logger.error(f"Failed to expire order {order.id}: {e}")
 
         return count
+
+    async def _send_refund_email(self, order, refund_amount: int, currency: str):
+        """Send refund confirmation email to buyer."""
+        try:
+            from app.core.email import send_refund_confirmation_email
+            from app.utils.kafka_helpers import publish_refund_confirmation_email
+            from app.utils.user_service import get_user_info_async
+
+            # Get event name
+            event = crud.event.get(self.db, id=order.event_id)
+            event_name = event.name if event else "Event"
+
+            # Get buyer info
+            buyer_email = order.guest_email or ""
+            buyer_name = order.customer_name or "Valued Customer"
+
+            if order.user_id and not buyer_email:
+                user_info = await get_user_info_async(order.user_id)
+                if user_info:
+                    buyer_email = user_info.get("email", "")
+                    buyer_name = user_info.get("name", buyer_name)
+
+            if not buyer_email:
+                return
+
+            logger.info(f"Sending refund_confirmation email for order {order.order_number}")
+            kafka_sent = publish_refund_confirmation_email(
+                to_email=buyer_email,
+                buyer_name=buyer_name,
+                event_name=event_name,
+                order_number=order.order_number,
+                refund_amount_cents=refund_amount,
+                currency=currency,
+            )
+            if not kafka_sent:
+                send_refund_confirmation_email(
+                    to_email=buyer_email,
+                    buyer_name=buyer_name,
+                    event_name=event_name,
+                    order_number=order.order_number,
+                    refund_amount_cents=refund_amount,
+                    currency=currency,
+                )
+        except Exception as e:
+            logger.error(f"Error sending refund email: {e}", exc_info=True)
 
     def _log_audit(
         self,

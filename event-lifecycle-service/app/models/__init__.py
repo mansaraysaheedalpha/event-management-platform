@@ -21,6 +21,7 @@ from app.models.blueprint import EventBlueprint
 # Payment models
 from app.models.payment_provider import PaymentProvider
 from app.models.organization_payment_settings import OrganizationPaymentSettings
+from app.models.organizer_payout import OrganizerPayout
 from app.models.payment import Payment
 from app.models.refund import Refund
 from app.models.payment_webhook_event import PaymentWebhookEvent
@@ -87,6 +88,7 @@ __all__ = [
     "EventBlueprint",
     "PaymentProvider",
     "OrganizationPaymentSettings",
+    "OrganizerPayout",
     "Payment",
     "Refund",
     "PaymentWebhookEvent",

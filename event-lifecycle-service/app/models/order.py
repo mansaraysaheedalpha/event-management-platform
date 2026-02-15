@@ -1,5 +1,5 @@
 # app/models/order.py
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, ForeignKey, text
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, ForeignKey, text, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -37,6 +37,12 @@ class Order(Base):
     platform_fee = Column(Integer, server_default="0", nullable=False)
     total_amount = Column(Integer, nullable=False)
 
+    # Stripe Connect fee fields
+    subtotal_amount = Column(Integer, nullable=True)  # Original ticket prices before fee adjustments
+    fee_absorption = Column(String(20), server_default="absorb", nullable=True)
+    fee_breakdown_json = Column(JSONB, nullable=True)
+    connected_account_id = Column(String(255), nullable=True)
+
     # Promo code
     promo_code_id = Column(String, ForeignKey("promo_codes.id"), nullable=True)
 
@@ -67,7 +73,7 @@ class Order(Base):
     def generate_order_number(order_id: str) -> str:
         """Generate a human-readable order number."""
         year = datetime.now().year
-        hash_part = hashlib.md5(order_id.encode()).hexdigest()[:6].upper()
+        hash_part = hashlib.sha256(order_id.encode()).hexdigest()[:6].upper()
         return f"ORD-{year}-{hash_part}"
 
     @property

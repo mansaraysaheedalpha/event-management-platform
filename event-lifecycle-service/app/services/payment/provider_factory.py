@@ -5,6 +5,8 @@ from typing import Dict, Optional, List
 from dataclasses import dataclass
 from functools import lru_cache
 
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from .provider_interface import PaymentProviderInterface, PaymentFeature
 from .providers.stripe_provider import StripeProvider, StripeConfig
@@ -111,26 +113,44 @@ class PaymentProviderFactory:
         return provider
 
     def get_provider_for_context(
-        self, context: ProviderSelectionContext
+        self,
+        context: ProviderSelectionContext,
+        db: Optional[Session] = None,
     ) -> PaymentProviderInterface:
         """
         Get the appropriate provider for a given context.
 
         Selection logic:
-        1. Organization's configured provider (if set) - TODO: implement
+        1. Organization's configured provider (if set)
         2. Currency/region mapping
         3. Fallback to default provider
 
         Args:
             context: Provider selection context
+            db: Optional database session for org-level lookup
 
         Returns:
             PaymentProviderInterface instance
         """
-        # TODO: Check organization's configured provider first
-        # org_settings = get_org_payment_settings(context.organization_id)
-        # if org_settings and org_settings.provider_code:
-        #     return self.get_provider(org_settings.provider_code)
+        # Check organization's configured provider first
+        if context.organization_id and db:
+            try:
+                from app.models.organization_payment_settings import OrganizationPaymentSettings
+                from app.models.payment_provider import PaymentProvider as PaymentProviderModel
+
+                org_settings = db.query(OrganizationPaymentSettings).filter(
+                    OrganizationPaymentSettings.organization_id == context.organization_id,
+                    OrganizationPaymentSettings.is_active == True,
+                ).first()
+
+                if org_settings and org_settings.provider_id:
+                    provider_record = db.query(PaymentProviderModel).filter(
+                        PaymentProviderModel.id == org_settings.provider_id,
+                    ).first()
+                    if provider_record and provider_record.code in self._providers:
+                        return self.get_provider(provider_record.code)
+            except Exception as e:
+                logger.warning(f"Failed org-level provider lookup for {context.organization_id}: {e}")
 
         # Route by currency
         provider_code = PROVIDER_ROUTING.get(
@@ -217,16 +237,25 @@ def get_payment_provider(code: str = "stripe") -> PaymentProviderInterface:
     return factory.get_provider(code)
 
 
-def get_provider_for_currency(currency: str) -> PaymentProviderInterface:
+def get_provider_for_currency(
+    currency: str,
+    organization_id: Optional[str] = None,
+    db: Optional[Session] = None,
+) -> PaymentProviderInterface:
     """
     Get the appropriate payment provider for a currency.
 
     Args:
         currency: ISO 4217 currency code
+        organization_id: Optional org ID for org-level provider lookup
+        db: Optional database session for org-level lookup
 
     Returns:
         PaymentProviderInterface instance
     """
     factory = get_payment_provider_factory()
-    context = ProviderSelectionContext(currency=currency)
-    return factory.get_provider_for_context(context)
+    context = ProviderSelectionContext(
+        currency=currency,
+        organization_id=organization_id,
+    )
+    return factory.get_provider_for_context(context, db=db)

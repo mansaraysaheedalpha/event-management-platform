@@ -8,6 +8,7 @@ from app.models.ticket_type import TicketType as TicketTypeModel
 from app.models.promo_code import PromoCode as PromoCodeModel
 from app.models.order import Order as OrderModel
 from app.models.order_item import OrderItem as OrderItemModel
+from app.graphql.connect_types import FeeAbsorption
 from app.models.payment import Payment as PaymentModel
 from app.models.refund import Refund as RefundModel
 
@@ -54,6 +55,9 @@ class RefundReasonEnum(Enum):
     FRAUDULENT = "fraudulent"
     EVENT_CANCELLED = "event_cancelled"
     OTHER = "other"
+
+
+# FeeAbsorption enum is imported from connect_types (single source of truth)
 
 
 # ============================================
@@ -291,6 +295,29 @@ class OrderItemType:
 
 
 # ============================================
+# Fee Breakdown Types
+# ============================================
+
+@strawberry.type
+class ItemFeeType:
+    """Per-item fee breakdown for a ticket type in an order."""
+    ticketTypeName: str
+    quantity: int
+    unitPrice: int        # cents
+    feePerTicket: int     # cents
+    feeSubtotal: int      # cents (feePerTicket * quantity)
+
+
+@strawberry.type
+class FeeBreakdownType:
+    """Fee breakdown for an order, showing how platform fees were calculated."""
+    platformFeePercent: float
+    platformFeeFixed: int       # cents
+    platformFeeTotal: int       # cents
+    perItemFees: List[ItemFeeType]
+
+
+# ============================================
 # Order
 # ============================================
 
@@ -344,6 +371,51 @@ class OrderType:
     @strawberry.field
     def totalAmount(self, root: OrderModel) -> MoneyType:
         return MoneyType(amount=root.total_amount, currency=root.currency)
+
+    @strawberry.field
+    def subtotalAmount(self, root: OrderModel) -> Optional[MoneyType]:
+        """Original ticket prices before fee adjustments (pass_to_buyer model)."""
+        if root.subtotal_amount is not None:
+            return MoneyType(amount=root.subtotal_amount, currency=root.currency)
+        return None
+
+    @strawberry.field
+    def platformFee(self, root: OrderModel) -> MoneyType:
+        """Platform fee charged on this order."""
+        return MoneyType(amount=root.platform_fee, currency=root.currency)
+
+    @strawberry.field
+    def feeAbsorption(self, root: OrderModel) -> Optional[FeeAbsorption]:
+        """Who pays the platform fee: organizer (absorb) or buyer (pass_to_buyer)."""
+        if root.fee_absorption:
+            try:
+                return FeeAbsorption(root.fee_absorption)
+            except ValueError:
+                return None
+        return None
+
+    @strawberry.field
+    def feeBreakdown(self, root: OrderModel) -> Optional[FeeBreakdownType]:
+        """Detailed fee breakdown showing how platform fees were calculated."""
+        if not root.fee_breakdown_json:
+            return None
+        data = root.fee_breakdown_json
+        per_item_fees = [
+            ItemFeeType(
+                ticketTypeName=item.get("ticket_type_name", ""),
+                quantity=item.get("quantity", 0),
+                unitPrice=item.get("unit_price", 0),
+                feePerTicket=item.get("fee_per_ticket", 0),
+                feeSubtotal=item.get("fee_subtotal", 0),
+            )
+            for item in data.get("per_item_fees", [])
+        ]
+        return FeeBreakdownType(
+            platformFeePercent=data.get("fee_percent_used", 0.0),
+            platformFeeFixed=data.get("fee_fixed_used", 0),
+            platformFeeTotal=data.get("platform_fee_total", 0),
+            perItemFees=per_item_fees,
+        )
 
     @strawberry.field
     def promoCode(self, root: OrderModel) -> Optional["PromoCodeType"]:

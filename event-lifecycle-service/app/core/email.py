@@ -1265,3 +1265,847 @@ def send_offer_fulfillment_email(
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send fulfillment email: {type(e).__name__}")
         return {"success": False, "error": "Failed to send email"}
+
+
+def _format_currency(amount_cents: int) -> str:
+    """Format an amount in cents as a dollar string (e.g., 1050 -> '$10.50')."""
+    if amount_cents < 0:
+        return f"-${abs(amount_cents) / 100:,.2f}"
+    return f"${amount_cents / 100:,.2f}"
+
+
+def send_stripe_connected_email(
+    to_email: str,
+    organizer_name: str,
+    organization_name: str,
+    dashboard_url: str = "",
+) -> dict:
+    """
+    Send email when an organizer's Stripe Connect account is verified.
+
+    Args:
+        to_email: Organizer's email address
+        organizer_name: Name of the organizer
+        organization_name: Name of the organization
+        dashboard_url: URL to payment settings dashboard
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    organizer_name = _escape_html(organizer_name)
+    organization_name = _escape_html(organization_name)
+    safe_dashboard_url = _validate_url(dashboard_url) or "#"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
+            .header .icon {{ font-size: 48px; margin-bottom: 15px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .info-box {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white !important; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 16px; margin: 20px 0; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="icon">&#10003;</div>
+                <h1>Payment Account Verified</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">You're all set to sell tickets</p>
+            </div>
+            <div class="content">
+                <p>Hi {organizer_name},</p>
+                <p>Congratulations! Your payment account for <strong>{organization_name}</strong> has been verified and is now active.</p>
+
+                <div class="info-box">
+                    <h3 style="margin: 0 0 10px 0; color: #22c55e;">What This Means</h3>
+                    <ul style="margin: 0; padding-left: 20px; color: #555;">
+                        <li style="margin-bottom: 8px;">You can now sell paid tickets for your events</li>
+                        <li style="margin-bottom: 8px;">Payments will be securely processed through Stripe</li>
+                        <li style="margin-bottom: 8px;">Payouts will be deposited to your connected bank account</li>
+                    </ul>
+                </div>
+
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{safe_dashboard_url}" class="cta-button">View Payment Settings</a>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">If you have any questions about payments or payouts, visit your payment settings dashboard or contact our support team.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": "Your payment account is now verified",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Stripe connected notification sent to {to_email}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send stripe connected email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_stripe_restricted_email(
+    to_email: str,
+    organizer_name: str,
+    organization_name: str,
+    requirements_past_due: list[str] = None,
+    resolve_url: str = "",
+) -> dict:
+    """
+    Send email when an organizer's Stripe account has restrictions.
+
+    Args:
+        to_email: Organizer's email address
+        organizer_name: Name of the organizer
+        organization_name: Name of the organization
+        requirements_past_due: List of past-due requirement identifiers
+        resolve_url: URL to resolve the issues (onboarding link)
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    organizer_name = _escape_html(organizer_name)
+    organization_name = _escape_html(organization_name)
+    safe_resolve_url = _validate_url(resolve_url) or "#"
+
+    requirements_past_due = requirements_past_due or []
+    requirements_html = ""
+    if requirements_past_due:
+        items = "".join(
+            f'<li style="margin-bottom: 6px;">{_escape_html(req)}</li>'
+            for req in requirements_past_due
+        )
+        requirements_html = f"""
+        <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #ef4444;">
+            <h4 style="margin: 0 0 10px 0; color: #ef4444;">Items Requiring Attention</h4>
+            <ul style="margin: 0; padding-left: 20px; color: #555;">{items}</ul>
+        </div>
+        """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
+            .header .icon {{ font-size: 48px; margin-bottom: 15px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .warning-box {{ background: #fffbeb; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white !important; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 16px; margin: 20px 0; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="icon">&#9888;</div>
+                <h1>Action Required</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Your payment account needs attention</p>
+            </div>
+            <div class="content">
+                <p>Hi {organizer_name},</p>
+                <p>Your payment account for <strong>{organization_name}</strong> has restrictions that may affect your ability to accept payments and receive payouts.</p>
+
+                <div class="warning-box">
+                    <h3 style="margin: 0 0 10px 0; color: #d97706;">What's Happening</h3>
+                    <p style="color: #555; margin: 0;">Stripe requires additional information or verification to keep your account active. Until these items are resolved, ticket sales and payouts may be paused.</p>
+                </div>
+
+                {requirements_html}
+
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{safe_resolve_url}" class="cta-button">Resolve Now</a>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">Please address these items as soon as possible to avoid interruptions to your ticket sales and payouts.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": "Action required: Your payment account needs attention",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Stripe restricted notification sent to {to_email}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send stripe restricted email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_ticket_confirmation_email(
+    to_email: str,
+    buyer_name: str,
+    event_name: str,
+    event_date: str,
+    event_location: str = None,
+    order_number: str = "",
+    order_items: list[dict] = None,
+    subtotal_cents: int = 0,
+    platform_fee_cents: int = 0,
+    total_cents: int = 0,
+    fee_absorption: str = "absorb",
+    currency: str = "USD",
+) -> dict:
+    """
+    Send ticket purchase confirmation email to the attendee.
+
+    Args:
+        to_email: Buyer's email address
+        buyer_name: Name of the buyer
+        event_name: Name of the event
+        event_date: Formatted event date string
+        event_location: Optional event location
+        order_number: Order reference number
+        order_items: List of dicts with ticket_name, quantity, unit_price, total_price (all prices in cents)
+        subtotal_cents: Subtotal in cents
+        platform_fee_cents: Platform fee in cents (shown only if pass_to_buyer)
+        total_cents: Total charged in cents
+        fee_absorption: "absorb" or "pass_to_buyer"
+        currency: Currency code
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    buyer_name = _escape_html(buyer_name)
+    event_name = _escape_html(event_name)
+    event_date = _escape_html(event_date)
+    event_location = _escape_html(event_location)
+    order_number = _escape_html(order_number)
+
+    order_items = order_items or []
+
+    # Build order items table rows
+    items_html = ""
+    for item in order_items:
+        name = _escape_html(item.get("ticket_name", "Ticket"))
+        qty = int(item.get("quantity", 1))
+        unit_price = int(item.get("unit_price", 0))
+        total_price = int(item.get("total_price", 0))
+        items_html += f"""
+        <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #eee;">{name}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #eee; text-align: center;">{qty}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #eee; text-align: right;">{_format_currency(unit_price)}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #eee; text-align: right;">{_format_currency(total_price)}</td>
+        </tr>
+        """
+
+    # Fee line (only shown in pass_to_buyer model)
+    fee_html = ""
+    if fee_absorption == "pass_to_buyer" and platform_fee_cents > 0:
+        fee_html = f"""
+        <tr>
+            <td colspan="3" style="padding: 8px 12px; text-align: right; color: #666;">Service fee</td>
+            <td style="padding: 8px 12px; text-align: right; color: #666;">{_format_currency(platform_fee_cents)}</td>
+        </tr>
+        """
+
+    location_html = f'<p style="margin: 5px 0;"><strong>Location:</strong> {event_location}</p>' if event_location and event_location != "" else ""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
+            .header .icon {{ font-size: 48px; margin-bottom: 15px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .order-box {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb; }}
+            .event-box {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }}
+            .order-table {{ width: 100%; border-collapse: collapse; }}
+            .order-table th {{ padding: 10px 12px; text-align: left; background: #f3f4f6; font-weight: 600; font-size: 13px; color: #555; text-transform: uppercase; }}
+            .order-table th:last-child, .order-table th:nth-child(3) {{ text-align: right; }}
+            .order-table th:nth-child(2) {{ text-align: center; }}
+            .total-row td {{ padding: 12px; font-weight: bold; font-size: 16px; border-top: 2px solid #667eea; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="icon">&#127915;</div>
+                <h1>Your Tickets Are Confirmed!</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Order #{order_number}</p>
+            </div>
+            <div class="content">
+                <p>Hi {buyer_name},</p>
+                <p>Thank you for your purchase! Your tickets for <strong>{event_name}</strong> have been confirmed.</p>
+
+                <div class="event-box">
+                    <h3 style="margin: 0 0 10px 0; color: #667eea;">Event Details</h3>
+                    <p style="margin: 5px 0;"><strong>Event:</strong> {event_name}</p>
+                    <p style="margin: 5px 0;"><strong>Date:</strong> {event_date}</p>
+                    {location_html}
+                </div>
+
+                <div class="order-box">
+                    <h3 style="margin: 0 0 15px 0;">Order Summary</h3>
+                    <table class="order-table">
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {items_html}
+                            <tr>
+                                <td colspan="3" style="padding: 8px 12px; text-align: right; color: #666;">Subtotal</td>
+                                <td style="padding: 8px 12px; text-align: right; color: #666;">{_format_currency(subtotal_cents)}</td>
+                            </tr>
+                            {fee_html}
+                            <tr class="total-row">
+                                <td colspan="3" style="text-align: right;">Total Paid</td>
+                                <td style="text-align: right;">{_format_currency(total_cents)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border: 2px dashed #667eea; text-align: center;">
+                    <p style="margin: 0 0 5px 0; color: #666; font-size: 14px;">Your Order Number</p>
+                    <div style="font-size: 22px; font-weight: bold; color: #667eea; letter-spacing: 2px;">{order_number}</div>
+                    <p style="margin: 10px 0 0 0; font-size: 12px; color: #888;">Present this at check-in or use your QR ticket</p>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">Your tickets and QR codes are available in your account. You will also receive them at the event check-in.</p>
+
+                <p>We look forward to seeing you there!<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Your tickets for {event_name} - Order #{order_number}",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Ticket confirmation sent for order {order_number}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send ticket confirmation email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_new_ticket_sale_email(
+    to_email: str,
+    organizer_name: str,
+    event_name: str,
+    tickets_sold: int = 0,
+    ticket_details: list[dict] = None,
+    revenue_cents: int = 0,
+    running_total_cents: int = 0,
+    dashboard_url: str = "",
+) -> dict:
+    """
+    Send notification to organizer when a ticket sale occurs.
+
+    Args:
+        to_email: Organizer's email address
+        organizer_name: Name of the organizer
+        event_name: Name of the event
+        tickets_sold: Number of tickets in this order
+        ticket_details: List of dicts with ticket_name, quantity
+        revenue_cents: Revenue from this sale (after platform fees) in cents
+        running_total_cents: Running total revenue for the event in cents
+        dashboard_url: URL to the organizer dashboard
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    organizer_name = _escape_html(organizer_name)
+    event_name = _escape_html(event_name)
+    safe_dashboard_url = _validate_url(dashboard_url) or "#"
+
+    ticket_details = ticket_details or []
+    tickets_html = ""
+    for td in ticket_details:
+        name = _escape_html(td.get("ticket_name", "Ticket"))
+        qty = int(td.get("quantity", 1))
+        tickets_html += f'<li style="margin-bottom: 4px;">{qty}x {name}</li>'
+
+    if tickets_html:
+        tickets_html = f'<ul style="margin: 10px 0; padding-left: 20px; color: #555;">{tickets_html}</ul>'
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 24px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .stats-grid {{ display: flex; gap: 15px; margin: 20px 0; }}
+            .stat-card {{ flex: 1; background: white; padding: 20px; border-radius: 8px; text-align: center; }}
+            .stat-value {{ font-size: 24px; font-weight: bold; color: #667eea; }}
+            .stat-label {{ font-size: 12px; color: #888; text-transform: uppercase; margin-top: 5px; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; margin: 15px 0; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>New Ticket Sale</h1>
+                <p style="margin: 0; opacity: 0.9;">{event_name}</p>
+            </div>
+            <div class="content">
+                <p>Hi {organizer_name},</p>
+                <p>Great news! You just sold <strong>{tickets_sold} ticket{"s" if tickets_sold != 1 else ""}</strong> for <strong>{event_name}</strong>.</p>
+
+                {tickets_html}
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">{_format_currency(revenue_cents)}</div>
+                        <div class="stat-label">This Sale</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{_format_currency(running_total_cents)}</div>
+                        <div class="stat-label">Total Revenue</div>
+                    </div>
+                </div>
+
+                <p style="color: #666; font-size: 13px;">Revenue shown is after platform fees.</p>
+
+                <div style="text-align: center; margin: 20px 0;">
+                    <a href="{safe_dashboard_url}" class="cta-button">View Dashboard</a>
+                </div>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"New ticket sale for {event_name}",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] New ticket sale notification sent for {event_name}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send new ticket sale email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_refund_confirmation_email(
+    to_email: str,
+    buyer_name: str,
+    event_name: str,
+    order_number: str = "",
+    refund_amount_cents: int = 0,
+    currency: str = "USD",
+) -> dict:
+    """
+    Send refund confirmation email to the attendee.
+
+    Args:
+        to_email: Buyer's email address
+        buyer_name: Name of the buyer
+        event_name: Name of the event
+        order_number: Original order reference number
+        refund_amount_cents: Refund amount in cents
+        currency: Currency code
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    buyer_name = _escape_html(buyer_name)
+    event_name = _escape_html(event_name)
+    order_number = _escape_html(order_number)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .refund-box {{ background: white; padding: 25px; border-radius: 8px; margin: 20px 0; text-align: center; border: 1px solid #e5e7eb; }}
+            .refund-amount {{ font-size: 32px; font-weight: bold; color: #22c55e; }}
+            .info-box {{ background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #6b7280; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>Refund Processed</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Order #{order_number}</p>
+            </div>
+            <div class="content">
+                <p>Hi {buyer_name},</p>
+                <p>Your refund for <strong>{event_name}</strong> has been processed.</p>
+
+                <div class="refund-box">
+                    <p style="margin: 0 0 8px 0; color: #666; font-size: 14px;">Refund Amount</p>
+                    <div class="refund-amount">{_format_currency(refund_amount_cents)}</div>
+                    <p style="margin: 10px 0 0 0; font-size: 13px; color: #888;">Original Order: #{order_number}</p>
+                </div>
+
+                <div class="info-box">
+                    <h4 style="margin: 0 0 10px 0;">When Will I Receive My Refund?</h4>
+                    <p style="margin: 0; color: #555;">Refunds typically take <strong>5-10 business days</strong> to appear on your statement, depending on your bank or card issuer. The refund will be returned to your original payment method.</p>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">If you have any questions about this refund, please contact our support team with your order number.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Refund processed - Order #{order_number}",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Refund confirmation sent for order {order_number}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send refund confirmation email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_payout_sent_email(
+    to_email: str,
+    organizer_name: str,
+    payout_amount_cents: int = 0,
+    currency: str = "USD",
+    arrival_date: str = "",
+    bank_last_four: str = "",
+    stripe_dashboard_url: str = "",
+) -> dict:
+    """
+    Send email when an organizer payout is initiated.
+
+    Args:
+        to_email: Organizer's email address
+        organizer_name: Name of the organizer
+        payout_amount_cents: Payout amount in cents
+        currency: Currency code
+        arrival_date: Expected arrival date string
+        bank_last_four: Last 4 digits of bank account
+        stripe_dashboard_url: URL to Stripe Express Dashboard
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    organizer_name = _escape_html(organizer_name)
+    arrival_date = _escape_html(arrival_date)
+    bank_last_four = _escape_html(bank_last_four)
+    safe_dashboard_url = _validate_url(stripe_dashboard_url) or "#"
+
+    bank_html = ""
+    if bank_last_four:
+        bank_html = f'<p style="margin: 10px 0 0 0; font-size: 14px; color: #888;">To bank account ending in <strong>****{bank_last_four}</strong></p>'
+
+    arrival_html = ""
+    if arrival_date:
+        arrival_html = f'<p style="margin: 10px 0 0 0; font-size: 14px; color: #888;">Expected arrival: <strong>{arrival_date}</strong></p>'
+
+    payout_formatted = _format_currency(payout_amount_cents)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
+            .header .icon {{ font-size: 48px; margin-bottom: 15px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .payout-box {{ background: white; padding: 25px; border-radius: 8px; margin: 20px 0; text-align: center; border: 1px solid #e5e7eb; }}
+            .payout-amount {{ font-size: 36px; font-weight: bold; color: #22c55e; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white !important; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; margin: 15px 0; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="icon">&#128176;</div>
+                <h1>Payout On Its Way</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Your funds are being transferred</p>
+            </div>
+            <div class="content">
+                <p>Hi {organizer_name},</p>
+                <p>Great news! A payout has been initiated to your bank account.</p>
+
+                <div class="payout-box">
+                    <p style="margin: 0 0 8px 0; color: #666; font-size: 14px;">Payout Amount</p>
+                    <div class="payout-amount">{payout_formatted}</div>
+                    {bank_html}
+                    {arrival_html}
+                </div>
+
+                <div style="text-align: center; margin: 20px 0;">
+                    <a href="{safe_dashboard_url}" class="cta-button">View in Stripe Dashboard</a>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">Payout timelines depend on your bank. Most payouts arrive within 2 business days.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Payout of {payout_formatted} is on its way",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Payout sent notification sent to {to_email}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send payout sent email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_payout_failed_email(
+    to_email: str,
+    organizer_name: str,
+    payout_amount_cents: int = 0,
+    currency: str = "USD",
+    failure_reason: str = "",
+    stripe_dashboard_url: str = "",
+) -> dict:
+    """
+    Send email when an organizer payout fails.
+
+    Args:
+        to_email: Organizer's email address
+        organizer_name: Name of the organizer
+        payout_amount_cents: Payout amount in cents
+        currency: Currency code
+        failure_reason: Reason the payout failed
+        stripe_dashboard_url: URL to Stripe Express Dashboard
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    organizer_name = _escape_html(organizer_name)
+    failure_reason = _escape_html(failure_reason) if failure_reason else "Unknown reason"
+    safe_dashboard_url = _validate_url(stripe_dashboard_url) or "#"
+
+    payout_formatted = _format_currency(payout_amount_cents)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
+            .header .icon {{ font-size: 48px; margin-bottom: 15px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .error-box {{ background: #fef2f2; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ef4444; }}
+            .payout-box {{ background: white; padding: 25px; border-radius: 8px; margin: 20px 0; text-align: center; border: 1px solid #e5e7eb; }}
+            .payout-amount {{ font-size: 32px; font-weight: bold; color: #ef4444; }}
+            .cta-button {{ display: inline-block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white !important; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 16px; margin: 20px 0; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="icon">&#9888;</div>
+                <h1>Payout Failed</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Action required</p>
+            </div>
+            <div class="content">
+                <p>Hi {organizer_name},</p>
+                <p>Unfortunately, your recent payout was not successful.</p>
+
+                <div class="payout-box">
+                    <p style="margin: 0 0 8px 0; color: #666; font-size: 14px;">Failed Payout Amount</p>
+                    <div class="payout-amount">{payout_formatted}</div>
+                </div>
+
+                <div class="error-box">
+                    <h4 style="margin: 0 0 10px 0; color: #ef4444;">Failure Reason</h4>
+                    <p style="margin: 0; color: #555;">{failure_reason}</p>
+                </div>
+
+                <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #6b7280;">
+                    <h4 style="margin: 0 0 10px 0;">What To Do</h4>
+                    <ul style="margin: 0; padding-left: 20px; color: #555;">
+                        <li style="margin-bottom: 8px;">Verify your bank account details are correct in Stripe</li>
+                        <li style="margin-bottom: 8px;">Ensure your bank account is active and can receive deposits</li>
+                        <li style="margin-bottom: 8px;">Update your bank information if needed</li>
+                    </ul>
+                </div>
+
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{safe_dashboard_url}" class="cta-button">Update Bank Details</a>
+                </div>
+
+                <p style="color: #666; font-size: 14px;">Once you've resolved the issue, Stripe will automatically retry the payout. If you need help, contact our support team.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Payout of {payout_formatted} failed - Action required",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Payout failed notification sent to {to_email}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send payout failed email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}

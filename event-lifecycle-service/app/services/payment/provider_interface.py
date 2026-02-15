@@ -113,6 +113,7 @@ class CreateRefundParams:
     amount: Optional[int] = None  # Optional for partial refund (in cents)
     reason: RefundReason = RefundReason.REQUESTED_BY_CUSTOMER
     metadata: Optional[Dict[str, str]] = None
+    refund_application_fee: Optional[bool] = None  # For Connect: refund the platform's application fee
 
 
 @dataclass

@@ -277,7 +277,12 @@ class StripeProvider(PaymentProviderInterface):
             )
 
     async def create_refund(self, params: CreateRefundParams) -> RefundResult:
-        """Process a refund for a completed payment."""
+        """Process a refund for a completed payment.
+
+        For Connect destination charges, Stripe automatically reverses the
+        transfer proportionally. The refund_application_fee param controls
+        whether the platform's application fee is also refunded.
+        """
         try:
             refund_params: Dict[str, Any] = {
                 "payment_intent": params.payment_id,
@@ -291,6 +296,10 @@ class StripeProvider(PaymentProviderInterface):
             # Add metadata
             if params.metadata:
                 refund_params["metadata"] = params.metadata
+
+            # For Connect payments: control whether the platform fee is refunded
+            if params.refund_application_fee is not None:
+                refund_params["refund_application_fee"] = params.refund_application_fee
 
             refund = stripe.Refund.create(
                 **refund_params,
