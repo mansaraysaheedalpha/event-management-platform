@@ -86,20 +86,22 @@ class RedisClient:
         """
         try:
             async with self._circuit_breaker:
-                await self._client.xgroup_create(
-                    stream,
-                    group,
-                    id=start_id,
-                    mkstream=True  # Create stream if it doesn't exist
-                )
+                try:
+                    await self._client.xgroup_create(
+                        stream,
+                        group,
+                        id=start_id,
+                        mkstream=True  # Create stream if it doesn't exist
+                    )
+                except redis.ResponseError as e:
+                    if "BUSYGROUP" in str(e):
+                        # Group already exists — handle INSIDE the circuit breaker context
+                        # so __aexit__ sees no exception and records a success, not a failure
+                        logger.debug(f"Consumer group '{group}' already exists for stream '{stream}'")
+                        return False
+                    raise
             logger.info(f"Created consumer group '{group}' for stream '{stream}'")
             return True
-        except redis.ResponseError as e:
-            if "BUSYGROUP" in str(e):
-                # Group already exists - not a circuit breaker failure
-                logger.debug(f"Consumer group '{group}' already exists for stream '{stream}'")
-                return False
-            raise
         except CircuitBreakerError as e:
             logger.warning(f"Circuit breaker open for create_consumer_group: {e}")
             raise
