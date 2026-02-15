@@ -114,6 +114,37 @@ export class EngagementStreamListener {
   }
 
   /**
+   * Handle agent.intervention.banner events from Redis
+   *
+   * Forwards intervention banners to ALL attendees in the session room
+   * (not just organizers in the :agent room). This ensures attendees see
+   * prominent banner notifications for polls, broadcasts, and gamification
+   * interventions triggered by the Engagement Conductor AI.
+   */
+  @OnEvent('agent.intervention.banner')
+  handleInterventionBanner(payload: unknown) {
+    if (!this.isValidBannerPayload(payload)) {
+      this.logger.warn('Invalid agent.intervention.banner payload received', payload);
+      return;
+    }
+
+    const { sessionId, type } = payload;
+
+    if (!this.server) {
+      this.logger.warn('WebSocket server not available, cannot forward agent:intervention:banner');
+      return;
+    }
+
+    // Emit to ALL attendees in the session room (not the :agent room)
+    const room = `session:${sessionId}`;
+    this.server.to(room).emit('agent:intervention:banner', payload);
+
+    this.logger.log(
+      `Forwarded agent:intervention:banner to room ${room} (type: ${type})`,
+    );
+  }
+
+  /**
    * Type guard for valid engagement payload
    */
   private isValidEngagementPayload(
@@ -149,6 +180,24 @@ export class EngagementStreamListener {
       typeof p.severity === 'string'
     );
   }
+
+  /**
+   * Type guard for valid intervention banner payload
+   */
+  private isValidBannerPayload(
+    payload: unknown,
+  ): payload is InterventionBannerPayload {
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+
+    const p = payload as Record<string, unknown>;
+    return (
+      typeof p.sessionId === 'string' &&
+      typeof p.type === 'string' &&
+      typeof p.message === 'string'
+    );
+  }
 }
 
 // Type definitions for payloads
@@ -180,4 +229,17 @@ interface AnomalyDetectedPayload {
   expectedEngagement: number;
   deviation: number;
   signals: Record<string, unknown>;
+}
+
+interface InterventionBannerPayload {
+  type: 'poll' | 'broadcast' | 'gamification';
+  interventionId: string;
+  sessionId: string;
+  eventId: string;
+  title: string;
+  message: string;
+  icon: string;
+  action?: string;
+  template?: string;
+  timestamp: string;
 }

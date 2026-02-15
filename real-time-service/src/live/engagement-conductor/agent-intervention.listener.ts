@@ -2,10 +2,11 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PollsService } from '../../comm/polls/polls.service';
-import { ChatService } from '../../comm/chat/chat.service';
+import { ChallengesService } from '../../gamification/teams/challenges/challenges.service';
+import { CHALLENGE_TEMPLATES } from '../../gamification/teams/challenges/challenge-templates';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../shared/redis.constants';
-import { v4 as uuidv4 } from 'uuid';
+import { ChallengeType } from '@prisma/client';
 
 /**
  * Agent Intervention Listener
@@ -15,13 +16,31 @@ import { v4 as uuidv4 } from 'uuid';
  *
  * Supported intervention types:
  * - agent.intervention.poll: Creates a new poll in the session
- * - agent.intervention.chat: Sends a chat prompt/message to the session
+ * - agent.intervention.broadcast: Sends a banner announcement to all session attendees
  * - agent.intervention.notification: Sends notifications to organizers
- * - agent.intervention.gamification: Triggers gamification events
+ * - agent.intervention.gamification: Creates and starts a real challenge
+ *
+ * All attendee-facing interventions (poll, broadcast, gamification) also emit
+ * a banner event via Redis pub/sub for the engagement-stream.listener to
+ * forward to all attendees in the session room.
  *
  * After execution, publishes outcomes to agent.intervention-outcomes for
  * the agent-service to complete its feedback loop (Thompson Sampling update).
  */
+
+interface InterventionBanner {
+  type: 'poll' | 'broadcast' | 'gamification';
+  interventionId: string;
+  sessionId: string;
+  eventId: string;
+  title: string;
+  message: string;
+  icon: string;
+  action?: string;
+  template?: string;
+  timestamp: string;
+}
+
 @Injectable()
 export class AgentInterventionListener {
   private readonly logger = new Logger(AgentInterventionListener.name);
@@ -29,12 +48,10 @@ export class AgentInterventionListener {
   // System user ID for agent-generated content
   private readonly AGENT_SYSTEM_USER_ID =
     process.env.AGENT_SYSTEM_USER_ID || 'system-engagement-agent';
-  private readonly AGENT_SYSTEM_EMAIL =
-    process.env.AGENT_SYSTEM_EMAIL || 'engagement-agent@system.local';
 
   constructor(
     private readonly pollsService: PollsService,
-    private readonly chatService: ChatService,
+    private readonly challengesService: ChallengesService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -65,9 +82,9 @@ export class AgentInterventionListener {
           );
           break;
 
-        case 'agent.intervention.chat':
-          outcome = await this.handleChatIntervention(
-            payload as ChatInterventionPayload,
+        case 'agent.intervention.broadcast':
+          outcome = await this.handleBroadcastIntervention(
+            payload as BroadcastInterventionPayload,
           );
           break;
 
@@ -114,11 +131,12 @@ export class AgentInterventionListener {
 
   /**
    * Handle poll intervention - creates a new poll in the session
+   * Also emits a banner so attendees see a prominent notification.
    */
   private async handlePollIntervention(
     payload: PollInterventionPayload,
   ): Promise<InterventionOutcome> {
-    const { intervention_id, session_id, event_id, poll, metadata } = payload;
+    const { intervention_id, session_id, event_id, poll } = payload;
 
     this.logger.log(
       `Creating AI-generated poll in session ${session_id?.slice(0, 8)}...`,
@@ -141,6 +159,18 @@ export class AgentInterventionListener {
         `AI poll created: ${createdPoll?.id} - "${poll.question?.slice(0, 50)}..."`,
       );
 
+      // Emit banner to all attendees
+      await this.emitInterventionBanner({
+        type: 'poll',
+        interventionId: intervention_id,
+        sessionId: session_id,
+        eventId: event_id,
+        title: 'New Poll!',
+        message: poll.question,
+        icon: 'chart',
+        timestamp: new Date().toISOString(),
+      });
+
       return {
         success: true,
         intervention_id,
@@ -161,33 +191,33 @@ export class AgentInterventionListener {
   }
 
   /**
-   * Handle chat intervention - sends a prompt/message to the session
+   * Handle broadcast intervention - sends a prominent banner announcement
+   * to all attendees in the session.
    */
-  private async handleChatIntervention(
-    payload: ChatInterventionPayload,
+  private async handleBroadcastIntervention(
+    payload: BroadcastInterventionPayload,
   ): Promise<InterventionOutcome> {
-    const { intervention_id, session_id, event_id, prompt } = payload;
+    const { intervention_id, session_id, event_id, message } = payload;
 
     this.logger.log(
-      `Sending AI chat prompt in session ${session_id?.slice(0, 8)}...`,
+      `Broadcasting announcement in session ${session_id?.slice(0, 8)}...`,
     );
 
     try {
-      // Send the message using ChatService
-      const message = await this.chatService.sendMessage(
-        this.AGENT_SYSTEM_USER_ID,
-        this.AGENT_SYSTEM_EMAIL,
-        session_id,
-        {
-          sessionId: session_id,
-          text: prompt,
-          idempotencyKey: `agent-chat-${intervention_id}`,
-        },
-        event_id,
-      );
+      // Emit banner to all attendees
+      await this.emitInterventionBanner({
+        type: 'broadcast',
+        interventionId: intervention_id,
+        sessionId: session_id,
+        eventId: event_id,
+        title: 'Announcement',
+        message,
+        icon: 'megaphone',
+        timestamp: new Date().toISOString(),
+      });
 
       this.logger.log(
-        `AI chat message sent: ${message?.id} - "${prompt?.slice(0, 50)}..."`,
+        `Broadcast sent: "${message?.slice(0, 50)}..."`,
       );
 
       return {
@@ -196,13 +226,13 @@ export class AgentInterventionListener {
         session_id,
         event_id,
         result: {
-          message_id: message?.id,
-          prompt_preview: prompt?.slice(0, 100),
+          message_preview: message?.slice(0, 100),
+          delivered: true,
         },
       };
     } catch (error) {
       this.logger.error(
-        `Failed to send AI chat message: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to send broadcast: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw error;
     }
@@ -259,45 +289,138 @@ export class AgentInterventionListener {
   }
 
   /**
-   * Handle gamification intervention - triggers gamification events
+   * Handle gamification intervention - creates and starts a real challenge,
+   * then emits a banner so attendees see the challenge announcement.
    */
   private async handleGamificationIntervention(
     payload: GamificationInterventionPayload,
   ): Promise<InterventionOutcome> {
-    const { intervention_id, session_id, event_id, gamification } = payload;
+    const { intervention_id, session_id, event_id, content } = payload;
 
     this.logger.log(
-      `Processing gamification intervention: ${gamification?.event_type} for session ${session_id?.slice(0, 8)}...`,
+      `Processing gamification intervention: ${content.action} for session ${session_id?.slice(0, 8)}...`,
     );
 
-    // Publish gamification event to sync-events for processing
-    const gamificationPayload = {
-      type: 'gamification_event',
-      resource: 'GAMIFICATION',
-      action: 'TRIGGERED',
-      sessionId: session_id,
-      eventId: event_id,
-      payload: {
-        event_type: gamification?.event_type,
-        content: gamification?.content,
+    try {
+      if (content.action === 'START_CHALLENGE') {
+        // Resolve the challenge type from the template key
+        const templateKey = content.template || 'CHAT_BLITZ';
+        const template = CHALLENGE_TEMPLATES[templateKey];
+
+        if (!template) {
+          throw new Error(`Unknown challenge template: ${templateKey}`);
+        }
+
+        // Create the challenge
+        const challenge = await this.challengesService.createChallenge(
+          this.AGENT_SYSTEM_USER_ID,
+          session_id,
+          {
+            name: content.name || template.name,
+            description: content.description || template.description,
+            type: template.type as ChallengeType,
+            durationMinutes: content.duration_minutes || template.durationMinutes,
+            rewardFirst: content.rewards?.first ?? template.rewardFirst,
+            rewardSecond: content.rewards?.second ?? template.rewardSecond,
+            rewardThird: content.rewards?.third ?? template.rewardThird,
+            idempotencyKey: `agent-challenge-${intervention_id}`,
+          },
+        );
+
+        this.logger.log(
+          `AI challenge created: ${challenge.id} (${challenge.name})`,
+        );
+
+        // Start the challenge immediately
+        const startedChallenge = await this.challengesService.startChallenge(
+          challenge.id,
+        );
+
+        this.logger.log(
+          `AI challenge started: ${challenge.id} - ends at ${startedChallenge.endedAt}`,
+        );
+
+        // Emit banner to all attendees
+        await this.emitInterventionBanner({
+          type: 'gamification',
+          interventionId: intervention_id,
+          sessionId: session_id,
+          eventId: event_id,
+          title: content.name || 'Challenge Starting!',
+          message: content.description || 'A new challenge has been launched!',
+          action: content.action,
+          template: content.template,
+          icon: 'trophy',
+          timestamp: new Date().toISOString(),
+        });
+
+        return {
+          success: true,
+          intervention_id,
+          session_id,
+          event_id,
+          result: {
+            challenge_id: challenge.id,
+            challenge_name: challenge.name,
+            challenge_type: challenge.type,
+            duration_minutes: challenge.durationMinutes,
+            started: true,
+          },
+        };
+      }
+
+      // For other gamification actions (e.g., POINTS_BOOST), emit banner only
+      this.logger.log(
+        `Gamification action ${content.action} - emitting banner`,
+      );
+
+      await this.emitInterventionBanner({
+        type: 'gamification',
+        interventionId: intervention_id,
+        sessionId: session_id,
+        eventId: event_id,
+        title: content.name || 'Gamification Event!',
+        message: content.description || 'Something exciting is happening!',
+        action: content.action,
+        template: content.template,
+        icon: 'trophy',
+        timestamp: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
         intervention_id,
-      },
-    };
+        session_id,
+        event_id,
+        result: {
+          action: content.action,
+          triggered: true,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to execute gamification intervention: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
+  }
 
-    await this.redis.publish('sync-events', JSON.stringify(gamificationPayload));
+  /**
+   * Emit an intervention banner to all attendees in the session.
+   * Publishes to Redis pub/sub channel for the engagement-stream.listener
+   * to pick up and forward to WebSocket clients.
+   */
+  private async emitInterventionBanner(
+    banner: InterventionBanner,
+  ): Promise<void> {
+    await this.redis.publish(
+      'agent.intervention.banner',
+      JSON.stringify(banner),
+    );
 
-    this.logger.log(`Gamification event published`);
-
-    return {
-      success: true,
-      intervention_id,
-      session_id,
-      event_id,
-      result: {
-        gamification_type: gamification?.event_type,
-        triggered: true,
-      },
-    };
+    this.logger.log(
+      `Intervention banner emitted: ${banner.type} for session ${banner.sessionId?.slice(0, 8)}...`,
+    );
   }
 
   /**
@@ -378,9 +501,9 @@ interface PollInterventionPayload extends BaseInterventionPayload {
   };
 }
 
-interface ChatInterventionPayload extends BaseInterventionPayload {
-  type: 'agent.intervention.chat';
-  prompt: string;
+interface BroadcastInterventionPayload extends BaseInterventionPayload {
+  type: 'agent.intervention.broadcast';
+  message: string;
 }
 
 interface NotificationInterventionPayload extends BaseInterventionPayload {
@@ -392,9 +515,14 @@ interface NotificationInterventionPayload extends BaseInterventionPayload {
 
 interface GamificationInterventionPayload extends BaseInterventionPayload {
   type: 'agent.intervention.gamification';
-  gamification: {
-    event_type: string;
-    content?: Record<string, unknown>;
+  content: {
+    action: 'START_CHALLENGE' | 'POINTS_BOOST';
+    template?: 'CHAT_BLITZ' | 'POLL_RUSH' | 'QA_SPRINT' | 'POINTS_RACE';
+    name: string;
+    description: string;
+    rewards?: { first: number; second: number; third: number };
+    duration_minutes: number;
+    multiplier?: number;
   };
 }
 

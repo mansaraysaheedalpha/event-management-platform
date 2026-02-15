@@ -97,8 +97,8 @@ class InterventionExecutor:
         # Route to appropriate executor
         if recommendation.intervention_type == 'POLL':
             result = await self._execute_poll(recommendation, db_session, session_context)
-        elif recommendation.intervention_type == 'CHAT_PROMPT':
-            result = await self._execute_chat_prompt(recommendation, db_session)
+        elif recommendation.intervention_type == 'BROADCAST':
+            result = await self._execute_broadcast(recommendation, db_session)
         elif recommendation.intervention_type == 'NOTIFICATION':
             result = await self._execute_notification(recommendation, db_session)
         elif recommendation.intervention_type == 'GAMIFICATION':
@@ -271,13 +271,13 @@ class InterventionExecutor:
                 'error': str(e)
             }
 
-    async def _execute_chat_prompt(
+    async def _execute_broadcast(
         self,
         recommendation: InterventionRecommendation,
         db_session: AsyncSession
     ) -> Dict[str, Any]:
         """
-        Execute a chat prompt intervention using AI-generated content.
+        Execute a broadcast intervention using AI-generated content.
 
         Args:
             recommendation: Intervention recommendation
@@ -304,16 +304,15 @@ class InterventionExecutor:
             # Get recent messages for context (if available)
             recent_messages = recommendation.context.get("recent_messages", [])
 
-            # Generate chat prompt using ContentGenerator (AI with fallback)
-            result = await content_generator.generate_chat_prompt(
+            # Generate broadcast message using ContentGenerator (AI with fallback)
+            result = await content_generator.generate_broadcast(
                 session_context=session_context,
                 anomaly_type=anomaly_type,
                 engagement_score=engagement_score,
-                recent_messages=recent_messages,
             )
 
-            chat_prompt = result["chat_prompt"]
-            prompt_text = chat_prompt.get("message") if isinstance(chat_prompt, dict) else chat_prompt
+            broadcast = result["broadcast"]
+            message_text = broadcast.get("message") if isinstance(broadcast, dict) else broadcast
             generation_method = result["generation_method"]
 
             # Create intervention record
@@ -322,12 +321,12 @@ class InterventionExecutor:
                 id=uuid.UUID(intervention_id),
                 session_id=uuid.UUID(session_id),
                 timestamp=datetime.now(timezone.utc),
-                type='CHAT_PROMPT',
+                type='BROADCAST',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
                 extra_data={
-                    'prompt': prompt_text,
-                    'chat_prompt_data': chat_prompt if isinstance(chat_prompt, dict) else None,
+                    'message': message_text,
+                    'broadcast_data': chat_prompt if isinstance(chat_prompt, dict) else None,
                     'generation_method': generation_method,
                     'anomaly_type': anomaly_type,
                     'estimated_impact': recommendation.estimated_impact,
@@ -338,27 +337,27 @@ class InterventionExecutor:
             db_session.add(intervention)
             await db_session.commit()
 
-            # Publish chat prompt to Redis
-            await self._publish_chat_intervention(
+            # Publish broadcast intervention to Redis
+            await self._publish_broadcast_intervention(
                 intervention_id=intervention_id,
                 session_id=session_id,
                 event_id=event_id,
-                prompt=prompt_text
+                message=message_text
             )
 
             self.logger.info(
-                f"✅ Chat prompt intervention executed via {generation_method}: '{prompt_text[:50]}...'"
+                f"Broadcast intervention executed via {generation_method}: '{message_text[:50]}...'"
             )
 
             return {
                 'success': True,
                 'intervention_id': intervention_id,
-                'prompt': prompt_text,
+                'message': message_text,
                 'generation_method': generation_method
             }
 
         except Exception as e:
-            self.logger.error(f"Failed to execute chat prompt: {e}", exc_info=True)
+            self.logger.error(f"Failed to execute broadcast: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e)
@@ -537,7 +536,6 @@ class InterventionExecutor:
                 intervention_id=intervention_id,
                 session_id=session_id,
                 event_id=event_id,
-                gamification_type=gamification_content.get('type', 'achievement'),
                 content=gamification_content,
                 recommendation=recommendation
             )
@@ -611,35 +609,35 @@ class InterventionExecutor:
         except Exception as e:
             self.logger.error(f"Failed to publish poll intervention to Redis: {e}")
 
-    async def _publish_chat_intervention(
+    async def _publish_broadcast_intervention(
         self,
         intervention_id: str,
         session_id: str,
         event_id: str,
-        prompt: str
+        message: str
     ):
-        """Publish chat prompt intervention to Redis.
+        """Publish broadcast intervention to Redis.
 
         RELIABILITY: Uses circuit breaker to prevent blocking on Redis failures.
         """
-        message = {
-            'type': 'agent.intervention.chat',
+        payload = {
+            'type': 'agent.intervention.broadcast',
             'intervention_id': intervention_id,
             'session_id': session_id,
             'event_id': event_id,
             'timestamp': datetime.now(timezone.utc).isoformat(),
-            'prompt': prompt
+            'message': message
         }
 
         try:
             async with redis_circuit_breaker:
-                await self.redis.publish('agent.interventions', json.dumps(message))
-            self.logger.info(f"Published chat intervention to Redis: {intervention_id[:8]}...")
+                await self.redis.publish('agent.interventions', json.dumps(payload))
+            self.logger.info(f"Published broadcast intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
             # CRIT-2 FIX: Log but don't raise - intervention already committed to DB
-            self.logger.error(f"Redis circuit breaker open, cannot publish chat intervention: {e.message}")
+            self.logger.error(f"Redis circuit breaker open, cannot publish broadcast intervention: {e.message}")
         except Exception as e:
-            self.logger.error(f"Failed to publish chat intervention to Redis: {e}")
+            self.logger.error(f"Failed to publish broadcast intervention to Redis: {e}")
 
     async def _publish_notification_intervention(
         self,
@@ -691,7 +689,6 @@ class InterventionExecutor:
         intervention_id: str,
         session_id: str,
         event_id: str,
-        gamification_type: str,
         content: Dict[str, Any],
         recommendation: InterventionRecommendation
     ):
@@ -703,17 +700,15 @@ class InterventionExecutor:
             intervention_id: Unique intervention ID
             session_id: Session ID
             event_id: Event ID
-            gamification_type: Type of gamification (achievement_unlock, points_boost, etc.)
-            content: Gamification content dictionary
+            content: Gamification content dict with action, template, name, etc.
             recommendation: Original recommendation
         """
-        message = {
+        payload = {
             'type': 'agent.intervention.gamification',
             'intervention_id': intervention_id,
             'session_id': session_id,
             'event_id': event_id,
             'timestamp': datetime.now(timezone.utc).isoformat(),
-            'gamification_type': gamification_type,
             'content': content,
             'metadata': {
                 'reason': recommendation.reason,
@@ -725,7 +720,7 @@ class InterventionExecutor:
 
         try:
             async with redis_circuit_breaker:
-                await self.redis.publish('agent.interventions', json.dumps(message))
+                await self.redis.publish('agent.interventions', json.dumps(payload))
             self.logger.info(f"Published gamification intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
             # CRIT-2 FIX: Log but don't raise - intervention already committed to DB

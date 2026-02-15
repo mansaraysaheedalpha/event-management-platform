@@ -82,47 +82,78 @@ NOTIFICATION_TEMPLATES = {
 
 # Template fallbacks for gamification
 # Keys match thompson_sampling.AnomalyType enum: SUDDEN_DROP, GRADUAL_DECLINE, LOW_ENGAGEMENT, MASS_EXIT
+# Templates map to real challenge types in the real-time-service (challenge-templates.ts)
 GAMIFICATION_TEMPLATES = {
     "SUDDEN_DROP": {
-        "type": "challenge",
-        "name": "Conversation Starter",
-        "description": "Be one of the first 5 to ask a question!",
-        "icon": "lightning",
-        "points": 50,
-        "trigger_condition": "First 5 users to send a message",
+        "action": "START_CHALLENGE",
+        "template": "CHAT_BLITZ",
+        "name": "Chat Blitz Challenge",
+        "description": "First team to send the most messages wins! Quick 5-minute challenge to get everyone talking.",
+        "rewards": {"first": 50, "second": 30, "third": 15},
+        "duration_minutes": 5,
     },
     "GRADUAL_DECLINE": {
-        "type": "achievement",
-        "name": "Active Participant",
-        "description": "Share your thoughts in the chat",
-        "icon": "star",
-        "points": 25,
-        "trigger_condition": "User sends a chat message",
+        "action": "START_CHALLENGE",
+        "template": "QA_SPRINT",
+        "name": "Q&A Sprint",
+        "description": "Teams compete to ask the most thoughtful questions! 10-minute sprint.",
+        "rewards": {"first": 60, "second": 35, "third": 20},
+        "duration_minutes": 10,
     },
     "LOW_ENGAGEMENT": {
-        "type": "badge",
-        "name": "Constructive Voice",
-        "description": "Share constructive feedback with the community",
-        "icon": "heart",
-        "points": 30,
-        "trigger_condition": "User provides feedback",
+        "action": "START_CHALLENGE",
+        "template": "POINTS_RACE",
+        "name": "Points Race",
+        "description": "Earn the most points in 15 minutes — chat, vote, ask questions, everything counts!",
+        "rewards": {"first": 75, "second": 50, "third": 25},
+        "duration_minutes": 15,
     },
     "MASS_EXIT": {
-        "type": "challenge",
-        "name": "Stay & Win",
-        "description": "Complete this session for bonus rewards!",
-        "icon": "crown",
-        "points": 75,
-        "trigger_condition": "User remains until session end",
+        "action": "START_CHALLENGE",
+        "template": "POLL_RUSH",
+        "name": "Poll Rush Challenge",
+        "description": "Quick-fire poll challenge! Vote on every poll to rack up points.",
+        "rewards": {"first": 50, "second": 30, "third": 15},
+        "duration_minutes": 10,
     },
     "default": {
-        "type": "achievement",
-        "name": "Engaged Attendee",
-        "description": "Thanks for being an active participant!",
-        "icon": "trophy",
-        "points": 20,
-        "trigger_condition": "User participates in session",
+        "action": "START_CHALLENGE",
+        "template": "CHAT_BLITZ",
+        "name": "Quick Chat Challenge",
+        "description": "Get chatting! Teams compete for the most messages in 5 minutes.",
+        "rewards": {"first": 50, "second": 30, "third": 15},
+        "duration_minutes": 5,
     },
+}
+
+# Template fallbacks for broadcast messages (banner overlays)
+# Short, attention-grabbing messages suitable for overlay display (1-2 sentences max)
+BROADCAST_TEMPLATES = {
+    "SUDDEN_DROP": [
+        "A team challenge is about to drop -- get ready to compete!",
+        "Something exciting is coming in the next 60 seconds. Stay tuned!",
+        "Quick heads up: we are launching a live challenge right now!",
+    ],
+    "GRADUAL_DECLINE": [
+        "Time to shake things up -- a team challenge is starting soon!",
+        "Your team needs you! A competition is about to begin.",
+        "Bonus points are on the line -- a new challenge is launching!",
+    ],
+    "LOW_ENGAGEMENT": [
+        "Calling all teams! A big challenge is about to start -- don't miss out!",
+        "Points race incoming! Every action counts toward your team's score.",
+        "It's go time -- a live competition is starting NOW!",
+    ],
+    "MASS_EXIT": [
+        "Hold up! A quick challenge is starting with bonus rewards on the line!",
+        "Don't leave yet -- a fast challenge is about to kick off!",
+        "Big rewards are about to drop. Stick around for the next 5 minutes!",
+    ],
+    "default": [
+        "A live team challenge is starting -- jump in and compete!",
+        "Something fun is about to happen. Get ready!",
+        "Your team needs you! A challenge is launching right now.",
+    ],
 }
 
 
@@ -225,38 +256,66 @@ ANOMALY-SPECIFIC APPROACHES:
 Important: Return ONLY the JSON object, no additional text or explanation."""
 
     # System prompt for gamification
-    GAMIFICATION_SYSTEM_PROMPT = """You are an expert at designing engaging gamification elements for live events.
+    GAMIFICATION_SYSTEM_PROMPT = """You are an AI engagement agent for a live event platform. Your task is to select and configure the best gamification action to re-engage attendees.
 
-Your task is to generate contextual achievements, challenges, or rewards that boost engagement.
+AVAILABLE GAMIFICATION ACTIONS (these are the ONLY actions the system can execute):
+
+1. START_CHALLENGE - Launch a team competition
+   Templates:
+   - CHAT_BLITZ (5 min): Teams compete to send the most messages. Best for: sudden drops, getting conversation started.
+   - POLL_RUSH (10 min): Teams race to vote on polls. Best for: low participation, passive audiences.
+   - QA_SPRINT (10 min): Teams compete to ask the most questions. Best for: gradual decline, stimulating curiosity.
+   - POINTS_RACE (15 min): Multi-action competition (chat, vote, ask, react — everything counts). Best for: sustained low engagement.
+
+   You can customize: name, description, rewards (first/second/third place points).
+
+2. POINTS_BOOST - Temporarily increase the point multiplier for all participants
+   - multiplier: 1.5x to 3.0x
+   - duration_minutes: 2 to 10
+   - Best for: quick energy boost, maintaining momentum after a challenge
+
+RULES:
+- Pick ONE action only
+- Match the action to the anomaly type and current engagement state
+- For MASS_EXIT: prefer short, high-reward challenges (CHAT_BLITZ or POLL_RUSH)
+- For LOW_ENGAGEMENT: prefer longer challenges (POINTS_RACE) that sustain activity
+- For SUDDEN_DROP: prefer CHAT_BLITZ or QA_SPRINT for quick re-engagement
+- For GRADUAL_DECLINE: prefer QA_SPRINT or POINTS_RACE to shift the trend
+- Customize the name and description to be exciting and contextual to the session topic
+- Keep descriptions under 100 characters
+
+OUTPUT FORMAT (JSON only, no markdown):
+{
+  "action": "START_CHALLENGE" or "POINTS_BOOST",
+  "template": "CHAT_BLITZ" | "POLL_RUSH" | "QA_SPRINT" | "POINTS_RACE" (only for START_CHALLENGE),
+  "name": "Custom challenge name",
+  "description": "Short exciting description",
+  "rewards": {"first": 50, "second": 30, "third": 15} (only for START_CHALLENGE),
+  "duration_minutes": 5,
+  "multiplier": 2.0 (only for POINTS_BOOST)
+}"""
+
+    # System prompt for broadcast messages (banner overlays)
+    BROADCAST_SYSTEM_PROMPT = """You are an engagement hype-writer for a live event platform. Your task is to write a short, attention-grabbing broadcast message that will appear as a banner overlay to all attendees.
 
 CONTEXT:
-- Gamification should feel earned, not forced
-- Elements should tie into the session content when possible
-- Consider the current engagement state when designing
+- The message appears as a full-width banner overlay on every attendee's screen
+- It must be extremely concise: 1-2 sentences, under 120 characters total
+- It should create excitement and urgency without being clickbait
+- Reference the session topic if possible to feel contextual
+- The tone should be energetic and direct
 
-OUTPUT FORMAT (JSON):
+OUTPUT FORMAT (JSON only, no markdown):
 {
-  "type": "achievement|challenge|badge|reward",
-  "name": "Short catchy name (max 30 chars)",
-  "description": "What the user needs to do or has done (max 100 chars)",
-  "icon": "trophy|star|fire|lightning|heart|crown|rocket|gem",
-  "points": 10-100,
-  "trigger_condition": "When this should be awarded/activated"
+  "message": "The broadcast message (max 120 chars)",
+  "tone": "energetic|urgent|exciting|playful"
 }
 
-GUIDELINES:
-1. Make achievements feel meaningful, not trivial
-2. Challenges should be achievable within the session
-3. Names should be fun and memorable
-4. Tie into session themes when possible
-5. Vary the difficulty and point values
-6. Create FOMO without being manipulative
-
 ANOMALY-SPECIFIC APPROACHES:
-- SUDDEN_DROP: Challenge to spark immediate participation ("First to ask a question!")
-- GRADUAL_DECLINE: Reward small actions to rebuild momentum gradually
-- LOW_ENGAGEMENT: Achievement for any participation to encourage involvement
-- MASS_EXIT: High-value reward for staying ("Complete the session for bonus!")
+- SUDDEN_DROP: Tease an upcoming challenge to recapture attention
+- GRADUAL_DECLINE: Announce something exciting to shift the energy
+- LOW_ENGAGEMENT: Bold call-to-action that creates FOMO
+- MASS_EXIT: Urgent hook about rewards or an imminent challenge
 
 Important: Return ONLY the JSON object, no additional text or explanation."""
 
@@ -751,6 +810,87 @@ Generate a natural, engaging chat prompt that addresses the {anomaly_type} situa
         return random.choice(templates)
 
     # =====================
+    # Broadcast Generation
+    # =====================
+
+    async def generate_broadcast(
+        self,
+        session_context: Dict[str, Any],
+        anomaly_type: str,
+        engagement_score: float,
+    ) -> Dict[str, Any]:
+        """
+        Generate a broadcast message for a banner overlay.
+
+        Broadcast messages are short, attention-grabbing messages (1-2 sentences)
+        displayed as a full-width banner to all attendees. They are used to
+        announce upcoming challenges, boost energy, or create urgency.
+
+        Uses 3-layer fallback: Sonnet -> Haiku -> Templates
+
+        Args:
+            session_context: Session metadata (name, topic, etc.)
+            anomaly_type: Type of anomaly detected
+            engagement_score: Current engagement score (0-1)
+
+        Returns:
+            Dict with 'broadcast' (message dict), 'generation_method', 'metadata'
+        """
+        self.logger.info(f"Generating broadcast for {anomaly_type}")
+
+        urgency = 'HIGH' if engagement_score < 0.3 else 'MODERATE' if engagement_score < 0.5 else 'LOW'
+
+        user_prompt = f"""Write a broadcast banner message for this live session:
+
+SESSION: {session_context.get('name', 'Live Session')}
+TOPIC: {session_context.get('topic', 'General')}
+ATTENDEES: {session_context.get('attendee_count', 0)}
+ANOMALY: {anomaly_type}
+ENGAGEMENT: {engagement_score:.0%}
+URGENCY: {urgency}
+
+Write a short, exciting broadcast message (max 120 chars) to grab attention."""
+
+        try:
+            result = await self._generate_content_with_llm(
+                system_prompt=self.BROADCAST_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                content_type="broadcast",
+            )
+
+            if result:
+                self.logger.info(
+                    f"Broadcast generated via {result['method']}: "
+                    f"'{result['content'].get('message', '')[:50]}...'"
+                )
+                return {
+                    "broadcast": result["content"],
+                    "generation_method": result["method"],
+                    "metadata": result["metadata"],
+                }
+
+        except Exception as e:
+            self.logger.warning(f"LLM generation failed for broadcast: {e}")
+
+        # Fallback to templates
+        self.logger.info("Using broadcast template (fallback)")
+        template_message = self._get_broadcast_template(anomaly_type)
+        return {
+            "broadcast": {
+                "message": template_message,
+                "tone": "energetic",
+            },
+            "generation_method": "template",
+            "metadata": {"anomaly_type": anomaly_type, "fallback_reason": "llm_unavailable"},
+        }
+
+    def _get_broadcast_template(self, anomaly_type: str) -> str:
+        """Get a random broadcast template for the given anomaly type."""
+        import random
+        templates = BROADCAST_TEMPLATES.get(anomaly_type, BROADCAST_TEMPLATES["default"])
+        return random.choice(templates)
+
+    # =====================
     # Notification Generation
     # =====================
 
@@ -864,18 +1004,20 @@ Generate a clear, actionable notification for the organizer."""
         existing_achievements: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
-        Generate gamification content (achievement, challenge, badge).
+        Generate a gamification action (START_CHALLENGE or POINTS_BOOST).
 
-        Uses 3-layer fallback: Sonnet → Haiku → Templates
+        Uses 3-layer fallback: Sonnet → Haiku → Templates.
+        Returns a structured action dict that maps to real challenge templates
+        in the real-time-service (CHAT_BLITZ, POLL_RUSH, QA_SPRINT, POINTS_RACE).
 
         Args:
             session_context: Session metadata
             anomaly_type: Type of anomaly detected
             engagement_score: Current engagement score
-            existing_achievements: Already awarded achievements to avoid duplicates
+            existing_achievements: Recent interventions to avoid repetition
 
         Returns:
-            Dict with 'gamification', 'generation_method', 'metadata'
+            Dict with 'gamification' (action dict), 'generation_method', 'metadata'
         """
         self.logger.info(f"🎮 Generating gamification for {anomaly_type}")
 
@@ -920,16 +1062,16 @@ Generate a clear, actionable notification for the organizer."""
         engagement_score: float,
         existing_achievements: Optional[list] = None,
     ) -> str:
-        """Build the user prompt for gamification generation."""
-        existing_context = ""
+        """Build the user prompt for gamification action selection."""
+        recent_context = ""
         if existing_achievements:
-            existing_context = "\nAlready awarded in this session (avoid duplicates):\n" + "\n".join(
+            recent_context = "\nRecent interventions in this session (avoid repetition):\n" + "\n".join(
                 f"- {a}" for a in existing_achievements
             )
 
-        goal = 'Re-engage audience' if engagement_score < 0.5 else 'Maintain momentum'
+        urgency = 'HIGH - must re-engage NOW' if engagement_score < 0.3 else 'MODERATE - engagement declining' if engagement_score < 0.5 else 'LOW - maintain momentum'
 
-        return f"""Generate a gamification element for this session:
+        return f"""Select a gamification action for this live session:
 
 SESSION CONTEXT:
 - Name: {session_context.get('name', 'Live Session')}
@@ -938,12 +1080,12 @@ SESSION CONTEXT:
 - Attendee count: {session_context.get('attendee_count', 0)}
 
 ENGAGEMENT STATE:
-- Anomaly type: {anomaly_type}
-- Current engagement score: {engagement_score:.2f}
-- Goal: {goal}
-{existing_context}
+- Anomaly: {anomaly_type}
+- Current score: {engagement_score:.0%}
+- Urgency: {urgency}
+{recent_context}
 
-Generate a gamification element that addresses the {anomaly_type} situation."""
+Choose the best gamification action and customize it for this session's topic and audience."""
 
     def _get_gamification_template(self, anomaly_type: str) -> Dict[str, Any]:
         """Get template gamification for the given anomaly type."""

@@ -5,7 +5,7 @@ Implements multi-armed bandit algorithm to learn which interventions work best
 in different contexts. Uses Bayesian approach with Beta distributions.
 
 Key Concepts:
-- Each intervention type (POLL, CHAT_PROMPT, etc.) is an "arm"
+- Each intervention type (POLL, BROADCAST, etc.) is an "arm"
 - Track successes (α) and failures (β) per intervention type per context
 - Sample from Beta(α, β) to balance exploration vs exploitation
 - Context includes: anomaly type, engagement level, time of day, session size
@@ -29,7 +29,7 @@ THOMPSON_SAMPLING_REDIS_KEY = "agent:thompson_sampling:stats"
 
 class InterventionType(str, Enum):
     POLL = "POLL"
-    CHAT_PROMPT = "CHAT_PROMPT"
+    BROADCAST = "BROADCAST"
     NOTIFICATION = "NOTIFICATION"
     GAMIFICATION = "GAMIFICATION"
 
@@ -201,7 +201,7 @@ class ThompsonSampling:
             context: Current context
             available_interventions: List of available interventions (default: all)
             allowed_types: Set of allowed intervention type strings from EventAgentSettings
-                           (e.g., {"POLL", "CHAT_PROMPT"}). If provided, filters interventions.
+                           (e.g., {"POLL", "BROADCAST"}). If provided, filters interventions.
 
         Returns:
             Tuple of (selected_intervention, sampled_value)

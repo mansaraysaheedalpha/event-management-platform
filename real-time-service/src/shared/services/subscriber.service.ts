@@ -57,6 +57,7 @@ export class SubscriberService implements OnModuleInit {
         'agent.interventions', // Agent intervention commands from engagement conductor
         'engagement:update', // Engagement score updates from agent-service
         'anomaly:detected', // Anomaly detection events from agent-service
+        'agent.intervention.banner', // Intervention banner events for all session attendees
       );
       this.logger.log('Successfully subscribed to all Redis Pub/Sub channels.');
     } catch (err) {

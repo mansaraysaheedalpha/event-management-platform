@@ -126,7 +126,7 @@ class EngagementSignalCollector:
         redis_client: RedisClient,
         tracker: Optional[SessionTracker] = None,
         calculator: Optional[EngagementScoreCalculator] = None,
-        calculation_interval: int = 5,
+        calculation_interval: int = 30,
     ):
         """
         Initialize the signal collector.
