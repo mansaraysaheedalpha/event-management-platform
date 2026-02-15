@@ -326,7 +326,7 @@ class InterventionExecutor:
                 reasoning=recommendation.reason,
                 extra_data={
                     'message': message_text,
-                    'broadcast_data': chat_prompt if isinstance(chat_prompt, dict) else None,
+                    'broadcast_data': broadcast if isinstance(broadcast, dict) else None,
                     'generation_method': generation_method,
                     'anomaly_type': anomaly_type,
                     'estimated_impact': recommendation.estimated_impact,
