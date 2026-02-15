@@ -168,6 +168,7 @@ class EngagementConductorAgent:
     # Redis key prefix for pending approvals
     PENDING_APPROVAL_KEY_PREFIX = "agent:pending_approval:"
     PENDING_APPROVAL_INDEX_KEY = "agent:pending_approvals:index"
+    PENDING_REWARD_KEY_PREFIX = "agent:pending_reward:"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -240,8 +241,9 @@ class EngagementConductorAgent:
     async def start_cleanup_task(self):
         """Start the background cleanup task for expired pending approvals."""
         if self._cleanup_task is None or self._cleanup_task.done():
-            # Load existing pending approvals from Redis on startup
+            # Load existing pending approvals and rewards from Redis on startup
             await self._load_pending_approvals_from_redis()
+            await self._load_pending_rewards_from_redis()
             self._cleanup_task = asyncio.create_task(self._cleanup_expired_approvals())
             logger.info("Started pending approvals cleanup task")
 
@@ -300,10 +302,11 @@ class EngagementConductorAgent:
                                 logger.warning(f"Reward measurement expired for {intervention_id}, removing")
                                 completed.append(intervention_id)
 
-                # Remove completed measurements
+                # Remove completed measurements from memory and Redis
                 for intervention_id in completed:
                     if intervention_id in self._pending_rewards:
                         del self._pending_rewards[intervention_id]
+                    await self._remove_pending_reward_from_redis(intervention_id)
 
             except asyncio.CancelledError:
                 break
@@ -596,11 +599,18 @@ class EngagementConductorAgent:
                 )
 
         except Exception as e:
-            logger.error(f"Failed to write agent performance record: {e}")
+            # HIGH-10 FIX: Handle rare PK collision (same timestamp + agent_id)
+            # This is a metrics record - safe to skip on collision
+            if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+                logger.debug(f"Agent performance PK collision (duplicate timestamp), skipping")
+            else:
+                logger.error(f"Failed to write agent performance record: {e}")
 
-    def _schedule_reward_measurement(self, state: AgentState):
+    async def _schedule_reward_measurement(self, state: AgentState):
         """
         Schedule delayed reward measurement for an intervention.
+
+        CRIT-5 FIX: Persists to Redis so pending rewards survive service restarts.
 
         Args:
             state: Agent state after intervention execution
@@ -617,7 +627,11 @@ class EngagementConductorAgent:
         scheduled_time = datetime.now(timezone.utc) + timedelta(
             seconds=self.REWARD_MEASUREMENT_DELAY_SECONDS
         )
-        self._pending_rewards[intervention_id] = (state.copy(), scheduled_time)
+        state_copy = state.copy()
+        self._pending_rewards[intervention_id] = (state_copy, scheduled_time)
+
+        # Persist to Redis for crash recovery
+        await self._save_pending_reward_to_redis(intervention_id, state_copy, scheduled_time)
 
         logger.info(
             f"[REWARD] Scheduled reward measurement for intervention {intervention_id[:8]}... "
@@ -631,9 +645,19 @@ class EngagementConductorAgent:
                 logger.warning("Redis client not available, skipping pending approvals recovery")
                 return
 
-            # Get all pending approval keys
-            keys = await redis_module.redis_client.client.keys(f"{self.PENDING_APPROVAL_KEY_PREFIX}*")
+            # HIGH-4 FIX: Use SCAN instead of KEYS to avoid O(N) blocking on large keyspaces
             loaded_count = 0
+            cursor = 0
+            keys = []
+            while True:
+                cursor, batch = await redis_module.redis_client.client.scan(
+                    cursor=cursor,
+                    match=f"{self.PENDING_APPROVAL_KEY_PREFIX}*",
+                    count=100
+                )
+                keys.extend(batch)
+                if cursor == 0:
+                    break
 
             for key in keys:
                 try:
@@ -802,6 +826,98 @@ class EngagementConductorAgent:
 
         except Exception as e:
             logger.error(f"Failed to remove pending approval from Redis: {e}")
+
+    # ==================== PENDING REWARD PERSISTENCE (CRIT-5) ====================
+
+    async def _save_pending_reward_to_redis(
+        self,
+        intervention_id: str,
+        state: AgentState,
+        scheduled_time: datetime
+    ):
+        """Persist pending reward measurement to Redis for crash recovery."""
+        try:
+            if redis_module.redis_client is None:
+                return
+
+            key = f"{self.PENDING_REWARD_KEY_PREFIX}{intervention_id}"
+            data = {
+                "intervention_id": intervention_id,
+                "scheduled_time": scheduled_time.isoformat(),
+                "state": self._serialize_state(state)
+            }
+
+            # TTL = delay + measurement TTL (max lifetime of a pending reward)
+            ttl = self.REWARD_MEASUREMENT_DELAY_SECONDS + self.REWARD_MEASUREMENT_TTL_SECONDS
+            await redis_module.redis_client.client.setex(
+                key,
+                ttl,
+                json.dumps(data, default=str)
+            )
+            logger.debug(f"Persisted pending reward to Redis: {intervention_id[:8]}...")
+
+        except Exception as e:
+            logger.error(f"Failed to persist pending reward to Redis: {e}")
+
+    async def _remove_pending_reward_from_redis(self, intervention_id: str):
+        """Remove pending reward from Redis after measurement completes."""
+        try:
+            if redis_module.redis_client is None:
+                return
+
+            key = f"{self.PENDING_REWARD_KEY_PREFIX}{intervention_id}"
+            await redis_module.redis_client.client.delete(key)
+            logger.debug(f"Removed pending reward from Redis: {intervention_id[:8]}...")
+
+        except Exception as e:
+            logger.error(f"Failed to remove pending reward from Redis: {e}")
+
+    async def _load_pending_rewards_from_redis(self):
+        """Load pending rewards from Redis on startup for crash recovery."""
+        try:
+            if redis_module.redis_client is None:
+                logger.warning("Redis client not available, skipping pending rewards recovery")
+                return
+
+            loaded_count = 0
+            cursor = 0
+            keys = []
+            while True:
+                cursor, batch = await redis_module.redis_client.client.scan(
+                    cursor=cursor,
+                    match=f"{self.PENDING_REWARD_KEY_PREFIX}*",
+                    count=100
+                )
+                keys.extend(batch)
+                if cursor == 0:
+                    break
+
+            for key in keys:
+                try:
+                    data = await redis_module.redis_client.client.get(key)
+                    if data:
+                        reward_data = json.loads(data)
+                        intervention_id = reward_data.get("intervention_id")
+                        scheduled_time = datetime.fromisoformat(reward_data.get("scheduled_time"))
+                        state = self._deserialize_state(reward_data.get("state"))
+
+                        # Check if still within TTL
+                        age = (datetime.now(timezone.utc) - scheduled_time).total_seconds()
+                        if age <= self.REWARD_MEASUREMENT_TTL_SECONDS:
+                            self._pending_rewards[intervention_id] = (state, scheduled_time)
+                            loaded_count += 1
+                        else:
+                            # Expired, delete from Redis
+                            await redis_module.redis_client.client.delete(key)
+
+                except Exception as e:
+                    logger.error(f"Error loading pending reward from Redis key {key}: {e}")
+
+            if loaded_count > 0:
+                logger.info(f"Recovered {loaded_count} pending rewards from Redis")
+
+        except Exception as e:
+            logger.error(f"Error loading pending rewards from Redis: {e}")
 
     async def _get_pending_approval(self, session_id: str) -> Optional[AgentState]:
         """Get a pending approval if it exists and hasn't expired (checks cache first, then Redis)."""
@@ -1267,7 +1383,7 @@ class EngagementConductorAgent:
         if state["success"] and state.get("intervention_id"):
             # Schedule delayed reward measurement for successful interventions
             # The actual Thompson Sampling update happens after the delay
-            self._schedule_reward_measurement(state)
+            await self._schedule_reward_measurement(state)
 
             logger.info(
                 f"[LEARN] Scheduled delayed reward measurement for intervention "
@@ -1409,10 +1525,12 @@ class EngagementConductorAgent:
             logger.info(f"[APPROVAL] Session {session_id}: Intervention approved")
             # Remove from pending before continuing
             await self._remove_pending_approval(session_id)
-            # Continue workflow from wait_approval node
-            config = {"configurable": {"thread_id": session_id}}
-            final_state = await self.app.ainvoke(state, config)
-            return final_state
+            # CRIT-6 FIX: Execute Act and Learn nodes directly instead of re-invoking
+            # the full workflow from the beginning (which would re-run Perceive+Decide)
+            state["approved"] = True
+            state = await self._act_node(state)
+            state = await self._learn_node(state)
+            return state
         else:
             logger.info(f"[APPROVAL] Session {session_id}: Intervention dismissed")
             # Remove from pending
@@ -1586,6 +1704,53 @@ class EngagementConductorAgent:
             )
 
         return " ".join(reasoning_parts)
+
+    # ==================== HEALTH CHECK (HIGH-8) ====================
+
+    async def check_and_restart_background_tasks(self) -> Dict:
+        """
+        HIGH-8 FIX: Check if background tasks are alive and restart if dead.
+
+        Background tasks (_cleanup_task, _reward_measurement_task) can die silently
+        from unhandled exceptions. This method detects dead tasks and restarts them.
+
+        Returns:
+            Dict with health status and any restarted tasks
+        """
+        restarted = []
+
+        if self._cleanup_task is not None and self._cleanup_task.done():
+            exc = None
+            if not self._cleanup_task.cancelled():
+                try:
+                    exc = self._cleanup_task.exception()
+                except Exception:
+                    pass
+            logger.warning(f"Cleanup task died (exception: {exc}), restarting")
+            self._cleanup_task = asyncio.create_task(self._cleanup_expired_approvals())
+            restarted.append("cleanup")
+
+        if self._reward_measurement_task is not None and self._reward_measurement_task.done():
+            exc = None
+            if not self._reward_measurement_task.cancelled():
+                try:
+                    exc = self._reward_measurement_task.exception()
+                except Exception:
+                    pass
+            logger.warning(f"Reward measurement task died (exception: {exc}), restarting")
+            self._reward_measurement_task = asyncio.create_task(self._measure_delayed_rewards())
+            restarted.append("reward_measurement")
+
+        if restarted:
+            logger.info(f"Restarted background tasks: {', '.join(restarted)}")
+
+        return {
+            "cleanup_task_alive": self._cleanup_task is not None and not self._cleanup_task.done(),
+            "reward_task_alive": self._reward_measurement_task is not None and not self._reward_measurement_task.done(),
+            "restarted": restarted,
+            "pending_approvals": len(self._pending_approvals_cache),
+            "pending_rewards": len(self._pending_rewards),
+        }
 
 
 # Global agent instance

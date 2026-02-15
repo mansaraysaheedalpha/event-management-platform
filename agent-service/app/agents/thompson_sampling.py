@@ -11,9 +11,11 @@ Key Concepts:
 - Context includes: anomaly type, engagement level, time of day, session size
 """
 
+import asyncio
+import threading
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Set, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
 import json
@@ -122,6 +124,11 @@ class ThompsonSampling:
         # Statistics storage: {context_key: {intervention_type: InterventionStats}}
         self.stats: Dict[str, Dict[InterventionType, InterventionStats]] = {}
 
+        # CRIT-4: threading.Lock protects stats dict from concurrent modification
+        # Uses threading.Lock (not asyncio.Lock) because mutation methods are synchronous
+        # and the critical sections are CPU-only (dict ops + numpy sampling), no I/O
+        self._lock = threading.Lock()
+
         logger.info(f"ThompsonSampling initialized with prior α={alpha_prior}, β={beta_prior}")
 
     def create_context(
@@ -217,17 +224,18 @@ class ThompsonSampling:
 
         context_key = context.to_string()
 
-        # Initialize context if first time
-        if context_key not in self.stats:
-            self._initialize_context(context_key, context)
+        with self._lock:
+            # Initialize context if first time
+            if context_key not in self.stats:
+                self._initialize_context(context_key, context)
 
-        # Sample from Beta distributions for each intervention
-        samples = {}
-        for intervention_type in available_interventions:
-            stats = self.stats[context_key][intervention_type]
-            samples[intervention_type] = stats.sample()
+            # Sample from Beta distributions for each intervention
+            samples = {}
+            for intervention_type in available_interventions:
+                stats = self.stats[context_key][intervention_type]
+                samples[intervention_type] = stats.sample()
 
-        # Select intervention with highest sample
+        # Select intervention with highest sample (outside lock - read-only)
         selected = max(samples.items(), key=lambda x: x[1])
 
         logger.info(
@@ -256,29 +264,32 @@ class ThompsonSampling:
         """
         context_key = context.to_string()
 
-        if context_key not in self.stats:
-            self._initialize_context(context_key, context)
+        with self._lock:
+            if context_key not in self.stats:
+                self._initialize_context(context_key, context)
 
-        stats = self.stats[context_key][intervention_type]
+            stats = self.stats[context_key][intervention_type]
 
-        # Update Beta distribution parameters
-        if success:
-            # If reward provided, use it to scale the update
+            # Update Beta distribution parameters
+            # CRIT-3 FIX: When reward is provided (0-1 scale), update both alpha AND beta
+            # proportionally. Previously only alpha was updated on success, causing beta
+            # to stagnate and success rates to inflate over time.
             if reward is not None:
                 stats.alpha += reward
-            else:
+                stats.beta += (1.0 - reward)
+            elif success:
                 stats.alpha += 1.0
-        else:
-            stats.beta += 1.0
+            else:
+                stats.beta += 1.0
 
-        stats.total_attempts += 1
-        stats.last_updated = datetime.now(timezone.utc)
+            stats.total_attempts += 1
+            stats.last_updated = datetime.now(timezone.utc)
 
-        logger.info(
-            f"Updated {intervention_type} in context {context_key}: "
-            f"α={stats.alpha:.2f}, β={stats.beta:.2f}, "
-            f"success_rate={stats.success_rate:.3f}"
-        )
+            logger.info(
+                f"Updated {intervention_type} in context {context_key}: "
+                f"α={stats.alpha:.2f}, β={stats.beta:.2f}, "
+                f"success_rate={stats.success_rate:.3f}"
+            )
 
     def get_stats(
         self,

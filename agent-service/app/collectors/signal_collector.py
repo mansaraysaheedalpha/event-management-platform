@@ -56,7 +56,7 @@ class CollectorMetrics:
         # Log warning if consecutive errors exceed threshold
         if self.consecutive_errors >= 5:
             logger.warning(
-                f"🚨 Signal collector has {self.consecutive_errors} consecutive errors. "
+                f"[ALERT] Signal collector has {self.consecutive_errors} consecutive errors. "
                 f"Last error: {self.last_error}"
             )
 
@@ -155,8 +155,8 @@ class EngagementSignalCollector:
         self._last_status: Dict[str, str] = {}
 
         # Anomaly cooldown: prevent publishing repeated anomaly events for the same condition
-        # Key: "session_id:anomaly_type", Value: datetime of last publish
-        self._anomaly_cooldowns: Dict[str, datetime] = {}
+        # Uses Redis keys with TTL for distributed deduplication across instances
+        # Key format: anomaly:cooldown:{session_id}:{anomaly_type}, TTL = ANOMALY_COOLDOWN_SECONDS
         # Minimum seconds between anomaly events of the same type for the same session
         self.ANOMALY_COOLDOWN_SECONDS = 30
 
@@ -171,7 +171,7 @@ class EngagementSignalCollector:
         self.running = False
         self.tasks = []
 
-        logger.info("🚀 Starting Engagement Signal Collector...")
+        logger.info("Starting Engagement Signal Collector...")
 
         # List of streams to read from
         streams = [
@@ -200,7 +200,7 @@ class EngagementSignalCollector:
                 start_id="$"
             )
 
-            logger.info(f"📡 Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams) + 1} streams")
+            logger.info(f"Set up consumer group '{self.CONSUMER_GROUP}' for {len(streams) + 1} streams")
 
             # Mark as running AFTER successful setup
             self.running = True
@@ -214,7 +214,7 @@ class EngagementSignalCollector:
                 asyncio.create_task(self._listen_to_intervention_outcomes()),
             ]
 
-            logger.info("✅ Signal collector started")
+            logger.info("Signal collector started")
 
         except Exception as e:
             # Reset state on failure to allow retry
@@ -235,7 +235,7 @@ class EngagementSignalCollector:
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks = []
 
-        logger.info("✅ Signal collector stopped")
+        logger.info("Signal collector stopped")
 
     def get_metrics(self) -> Dict:
         """
@@ -268,7 +268,7 @@ class EngagementSignalCollector:
         Listen to Redis Streams and process events.
         Uses consumer groups for reliable message delivery.
         """
-        logger.info("👂 Listening for platform events via Redis Streams...")
+        logger.info("Listening for platform events via Redis Streams...")
 
         streams_to_read = {
             self.CHAT_STREAM: ">",
@@ -296,7 +296,7 @@ class EngagementSignalCollector:
                     # Log when we receive messages (helps debug connectivity)
                     total_messages = sum(len(msgs) for _, msgs in results)
                     if total_messages > 0:
-                        logger.info(f"📨 Received {total_messages} messages from streams")
+                        logger.info(f"Received {total_messages} messages from streams")
 
                     # Process each stream's messages
                     for stream_name, messages in results:
@@ -497,7 +497,7 @@ class EngagementSignalCollector:
         Background loop that calculates engagement scores periodically.
         Stores results in TimescaleDB.
         """
-        logger.info(f"🔄 Starting engagement calculation loop (every {self.calculation_interval}s)")
+        logger.info(f"Starting engagement calculation loop (every {self.calculation_interval}s)")
 
         try:
             while self.running:
@@ -584,7 +584,7 @@ class EngagementSignalCollector:
                     await db.commit()
 
                     logger.debug(
-                        f"✅ Engagement stored: {session_id[:8]}... = {score:.2f} "
+                        f"Engagement stored: {session_id[:8]}... = {score:.2f} "
                         f"({self.calculator.categorize_engagement(score)})"
                     )
             except Exception as db_error:
@@ -594,6 +594,9 @@ class EngagementSignalCollector:
                         f"Database table missing - run migrations. "
                         f"Engagement still works via Redis. Error: {db_error}"
                     )
+                elif "duplicate key" in str(db_error).lower() or "unique" in str(db_error).lower():
+                    # HIGH-10 FIX: Handle rare PK collision (same timestamp + session_id)
+                    logger.debug(f"Engagement metric PK collision (duplicate timestamp), skipping")
                 else:
                     logger.error(f"Failed to store engagement metric: {db_error}")
 
@@ -643,7 +646,7 @@ class EngagementSignalCollector:
                 )
                 self._monitoring_published.add(session_id)
                 self._last_status[session_id] = "MONITORING"
-                logger.info(f"📡 Session {session_id[:8]}... now being monitored")
+                logger.info(f"Session {session_id[:8]}... now being monitored")
 
         except Exception as e:
             logger.error(f"Failed to publish engagement update: {e}")
@@ -681,7 +684,7 @@ class EngagementSignalCollector:
                 json.dumps(status_event)
             )
             self._last_status[session_id] = new_status
-            logger.info(f"📊 Status change: {session_id[:8]}... {current_status} → {new_status}")
+            logger.info(f"Status change: {session_id[:8]}... {current_status} → {new_status}")
         except Exception as e:
             logger.error(f"Failed to publish status change: {e}")
 
@@ -702,28 +705,29 @@ class EngagementSignalCollector:
             signals: Raw signals dictionary
         """
         try:
-            # Run anomaly detection
-            anomaly_event = anomaly_detector.detect(
-                session_id=session_id,
-                event_id=event_id,
-                engagement_score=score,
-                signals=signals
+            # CRIT-1 FIX: Run anomaly detection in thread pool to avoid blocking event loop
+            # anomaly_detector.detect() uses threading.Lock internally for cache safety
+            anomaly_event = await asyncio.to_thread(
+                anomaly_detector.detect,
+                session_id,
+                event_id,
+                score,
+                signals
             )
 
             if not anomaly_event:
                 return
 
             # Anomaly cooldown: skip if we recently published the same type for this session
-            cooldown_key = f"{session_id}:{anomaly_event.anomaly_type}"
-            now = datetime.now(timezone.utc)
-            last_published = self._anomaly_cooldowns.get(cooldown_key)
-            if last_published and (now - last_published).total_seconds() < self.ANOMALY_COOLDOWN_SECONDS:
-                logger.debug(
-                    f"Anomaly cooldown active for {session_id[:8]}... "
-                    f"({anomaly_event.anomaly_type}), skipping publish"
-                )
+            # Uses Redis for distributed deduplication across multiple instances
+            cooldown_key = f"anomaly:cooldown:{session_id}:{anomaly_event.anomaly_type}"
+            # Check if cooldown is active
+            existing = await self.redis.client.get(cooldown_key)
+            if existing:
+                logger.debug(f"Anomaly cooldown active for {session_id[:8]}... ({anomaly_event.anomaly_type})")
                 return
-            self._anomaly_cooldowns[cooldown_key] = now
+            # Set cooldown
+            await self.redis.client.setex(cooldown_key, self.ANOMALY_COOLDOWN_SECONDS, "1")
 
             # Store anomaly in database
             async with AsyncSessionLocal() as db:
@@ -745,7 +749,7 @@ class EngagementSignalCollector:
                 await db.commit()
 
                 logger.info(
-                    f"💾 Anomaly stored: {session_id[:8]}... - {anomaly_event.anomaly_type} ({anomaly_event.severity})"
+                    f"Anomaly stored: {session_id[:8]}... - {anomaly_event.anomaly_type} ({anomaly_event.severity})"
                 )
 
             # Publish anomaly to Redis for frontend
@@ -801,7 +805,7 @@ class EngagementSignalCollector:
             )
 
             logger.info(
-                f"📢 Anomaly published: {anomaly_event.session_id[:8]}... - {anomaly_event.anomaly_type}"
+                f"Anomaly published: {anomaly_event.session_id[:8]}... - {anomaly_event.anomaly_type}"
             )
 
         except Exception as e:
@@ -848,7 +852,7 @@ class EngagementSignalCollector:
 
             if not is_allowed:
                 logger.info(
-                    f"⏳ Intervention rate limited for session {anomaly_event.session_id[:8]}...: "
+                    f"Intervention rate limited for session {anomaly_event.session_id[:8]}...: "
                     f"{rejection_reason}"
                 )
                 return
@@ -872,7 +876,7 @@ class EngagementSignalCollector:
                 event_agent_mode = await self._get_event_agent_mode(anomaly_event.event_id)
 
                 logger.info(
-                    f"📝 Auto-registering session {anomaly_event.session_id[:8]}... "
+                    f"Auto-registering session {anomaly_event.session_id[:8]}... "
                     f"with mode {event_agent_mode}"
                 )
 
@@ -883,7 +887,7 @@ class EngagementSignalCollector:
                 )
 
             logger.info(
-                f"🤖 Triggering Agent Orchestrator for {anomaly_event.session_id[:8]}... "
+                f"Triggering Agent Orchestrator for {anomaly_event.session_id[:8]}... "
                 f"({anomaly_event.anomaly_type} - {anomaly_event.severity})"
             )
 
@@ -899,14 +903,14 @@ class EngagementSignalCollector:
 
             if final_state:
                 logger.info(
-                    f"✅ Agent completed: {anomaly_event.session_id[:8]}... - "
+                    f"Agent completed: {anomaly_event.session_id[:8]}... - "
                     f"Intervention: {final_state.get('selected_intervention')} "
                     f"(confidence: {final_state.get('confidence', 0):.2f}, "
                     f"status: {final_state.get('status')})"
                 )
             else:
                 logger.warning(
-                    f"⚠️ Agent did not run for {anomaly_event.session_id[:8]}... "
+                    f"Agent did not run for {anomaly_event.session_id[:8]}... "
                     f"(session may not be registered or agent disabled)"
                 )
 
@@ -932,7 +936,7 @@ class EngagementSignalCollector:
 
                 if recommendation:
                     logger.info(
-                        f"🎯 Fallback intervention: {recommendation.intervention_type} "
+                        f"Fallback intervention: {recommendation.intervention_type} "
                         f"(confidence: {recommendation.confidence:.2f})"
                     )
                     async with AsyncSessionLocal() as db:
@@ -947,7 +951,7 @@ class EngagementSignalCollector:
                                 intervention_type=recommendation.intervention_type
                             )
                             logger.info(
-                                f"✅ Fallback intervention executed: {recommendation.intervention_type}"
+                                f"Fallback intervention executed: {recommendation.intervention_type}"
                             )
             except Exception as fallback_error:
                 logger.error(f"Fallback intervention also failed: {fallback_error}")
@@ -998,7 +1002,7 @@ class EngagementSignalCollector:
 
     async def _cleanup_loop(self):
         """Background loop that cleans up inactive sessions"""
-        logger.info("🧹 Starting cleanup loop (every 5 minutes)")
+        logger.info("Starting cleanup loop (every 5 minutes)")
 
         try:
             while self.running:
@@ -1056,7 +1060,7 @@ class EngagementSignalCollector:
         The outcome helps the agent learn which interventions work best for
         different anomaly types and contexts.
         """
-        logger.info("🔄 Starting intervention outcome listener")
+        logger.info("Starting intervention outcome listener")
 
         streams_to_read = {self.INTERVENTION_OUTCOME_STREAM: ">"}
 
@@ -1126,7 +1130,7 @@ class EngagementSignalCollector:
             return
 
         logger.info(
-            f"📊 Received outcome for intervention {intervention_id[:8]}...: "
+            f"Received outcome for intervention {intervention_id[:8]}...: "
             f"{'SUCCESS' if success else 'FAILED'}"
         )
 
@@ -1153,12 +1157,12 @@ class EngagementSignalCollector:
 
             if success:
                 logger.info(
-                    f"✅ Outcome recorded for intervention {intervention_id[:8]}... - "
+                    f"Outcome recorded for intervention {intervention_id[:8]}... - "
                     f"Feedback loop complete"
                 )
             else:
                 logger.warning(
-                    f"⚠️ Intervention {intervention_id[:8]}... failed: {error}"
+                    f"Intervention {intervention_id[:8]}... failed: {error}"
                 )
 
         except Exception as e:

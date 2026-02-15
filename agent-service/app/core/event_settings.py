@@ -362,7 +362,9 @@ class NotificationService:
         }
 
         try:
-            response = resend.Emails.send(params)
+            import asyncio as _asyncio
+            # MED-11 FIX: resend.Emails.send() is synchronous - run in thread pool
+            response = await _asyncio.to_thread(resend.Emails.send, params)
             logger.info(f"Anomaly notification sent to {emails} for event {event_id}")
             return {"success": True, "id": response.get("id")}
         except Exception as e:
@@ -509,7 +511,9 @@ class NotificationService:
         }
 
         try:
-            response = resend.Emails.send(params)
+            import asyncio as _asyncio
+            # MED-11 FIX: resend.Emails.send() is synchronous - run in thread pool
+            response = await _asyncio.to_thread(resend.Emails.send, params)
             logger.info(f"Intervention notification sent to {emails} for event {event_id}")
             return {"success": True, "id": response.get("id")}
         except Exception as e:

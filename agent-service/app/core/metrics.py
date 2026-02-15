@@ -171,9 +171,9 @@ class Histogram:
                 "count": count,
                 "sum": sum(sorted_values),
                 "avg": sum(sorted_values) / count,
-                "p50": sorted_values[int(count * 0.5)] if count > 0 else 0,
-                "p95": sorted_values[int(count * 0.95)] if count > 0 else 0,
-                "p99": sorted_values[int(count * 0.99)] if count > 0 else 0,
+                "p50": sorted_values[min(int(count * 0.5), count - 1)] if count > 0 else 0,
+                "p95": sorted_values[min(int(count * 0.95), count - 1)] if count > 0 else 0,
+                "p99": sorted_values[min(int(count * 0.99), count - 1)] if count > 0 else 0,
             }
 
 

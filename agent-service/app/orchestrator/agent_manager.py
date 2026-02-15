@@ -10,6 +10,7 @@ Handles:
 """
 
 import asyncio
+import json
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -601,12 +602,21 @@ class AgentOrchestrator:
         except Exception as e:
             logger.error(f"Failed to save Thompson Sampling state: {e}")
 
-        # Export state (could be saved to database)
+        # MED-13 FIX: Persist orchestrator state to Redis (not just logging it)
         try:
             state = self.export_state()
-            logger.info(f"Exported orchestrator state: {len(state.get('configs', {}))} sessions")
+            from app.core import redis_client as redis_module
+            if redis_module.redis_client is not None:
+                await redis_module.redis_client.client.set(
+                    "agent:orchestrator:state",
+                    json.dumps(state, default=str),
+                    ex=86400  # 24h TTL
+                )
+                logger.info(f"Persisted orchestrator state to Redis: {len(state.get('configs', {}))} sessions")
+            else:
+                logger.info(f"Exported orchestrator state (Redis unavailable): {len(state.get('configs', {}))} sessions")
         except Exception as e:
-            logger.error(f"Failed to export orchestrator state: {e}")
+            logger.error(f"Failed to persist orchestrator state: {e}")
 
         # Clear all data structures
         self.tasks.clear()
@@ -614,6 +624,21 @@ class AgentOrchestrator:
         self.configs.clear()
 
         logger.info("AgentOrchestrator shutdown complete")
+
+    async def restore_state(self):
+        """MED-13 FIX: Restore orchestrator state from Redis on startup."""
+        try:
+            from app.core import redis_client as redis_module
+            if redis_module.redis_client is not None:
+                data = await redis_module.redis_client.client.get("agent:orchestrator:state")
+                if data:
+                    state = json.loads(data)
+                    self.import_state(state)
+                    logger.info(f"Restored orchestrator state from Redis: {len(self.configs)} sessions")
+                else:
+                    logger.info("No orchestrator state found in Redis (fresh start)")
+        except Exception as e:
+            logger.warning(f"Could not restore orchestrator state from Redis: {e}")
 
 
 # Global orchestrator instance

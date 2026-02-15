@@ -98,6 +98,37 @@ async def init_db():
         logger.info("TimescaleDB hypertable setup complete")
 
 
+async def verify_database_connection() -> bool:
+    """
+    MED-14 FIX: Verify database connection is available at startup.
+
+    Call this during application startup to fail fast with a clear error
+    instead of silently running in degraded mode.
+
+    Returns:
+        True if DB is available, False if running in Redis-only mode
+    """
+    if AsyncSessionLocal is None:
+        logger.warning(
+            "DATABASE_URL not configured. Agent service will run in "
+            "Redis-only mode (no persistence for metrics, interventions, or anomalies)."
+        )
+        return False
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+            logger.info("Database connection verified successfully")
+            return True
+    except Exception as e:
+        logger.error(
+            f"Database connection FAILED: {e}. "
+            f"Service will run in Redis-only mode. "
+            f"Fix DATABASE_URL or check database availability."
+        )
+        return False
+
+
 async def get_db():
     """Dependency for getting database session"""
     if AsyncSessionLocal is None:

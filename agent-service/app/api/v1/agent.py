@@ -264,12 +264,12 @@ async def get_agent_status(
 @router.post("/agent/sessions/register", response_model=SessionRegistrationResponse)
 async def register_session(
     request: SessionRegistrationRequest,
-    user: AuthUser = Depends(verify_token)  # 🔒 Authentication required
+    user: AuthUser = Depends(verify_organizer)  # 🔒 Organizer required (HIGH-12 fix)
 ):
     """
     Register a session with the agent orchestrator
 
-    🔒 **Authentication Required**: Must be authenticated user
+    🔒 **Authentication Required**: Must be event organizer
 
     This starts an agent instance for the session that will:
     - Monitor engagement signals

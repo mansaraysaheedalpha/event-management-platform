@@ -335,25 +335,22 @@ class SessionInterventionRateLimiter:
         Returns:
             Tuple of (allowed: bool, rejection_reason: Optional[str])
         """
-        # Check short-term limit
-        if not await self.short_term.is_allowed(session_id):
-            return False, "Rate limit: Max 1 intervention per 30 seconds"
-
-        # Check medium-term limit
-        if not await self.medium_term.is_allowed(session_id):
-            return False, "Rate limit: Max 10 interventions per 5 minutes"
-
-        # Check long-term limit (per event)
-        # Use per-event limit if provided and stricter than global default
-        effective_limit = self.long_term.max_requests  # Default: 100
-        if max_per_hour is not None and max_per_hour < effective_limit:
-            # Check custom per-event limit
-            event_key = f"{event_id}:custom"
+        # FIX: Check custom per-event limit FIRST (read-only count, no slot consumed)
+        # This prevents double-counting when is_allowed() both checks AND records.
+        if max_per_hour is not None and max_per_hour < self.long_term.max_requests:
             current_count = await self._get_hourly_count(event_id)
             if current_count >= max_per_hour:
                 return False, f"Rate limit: Max {max_per_hour} interventions per hour for this event"
 
-        # Always check global limit
+        # Check short-term limit (records slot on success)
+        if not await self.short_term.is_allowed(session_id):
+            return False, "Rate limit: Max 1 intervention per 30 seconds"
+
+        # Check medium-term limit (records slot on success)
+        if not await self.medium_term.is_allowed(session_id):
+            return False, "Rate limit: Max 10 interventions per 5 minutes"
+
+        # Check global long-term limit (records slot on success)
         if not await self.long_term.is_allowed(event_id):
             return False, "Rate limit: Max 100 interventions per hour for this event"
 

@@ -121,6 +121,9 @@ class InterventionExecutor:
                     confidence=recommendation.confidence,
                     auto_approved=recommendation.context.get('auto_approved', False),
                 )
+            except CircuitBreakerError as e:
+                # CRIT-2 FIX: Don't fail intervention if Redis publish fails
+                self.logger.warning(f"Redis circuit breaker open during notification: {e.message}")
             except Exception as e:
                 # Don't fail the intervention if notification fails
                 self.logger.warning(f"Failed to publish intervention notification: {e}")
@@ -214,7 +217,7 @@ class InterventionExecutor:
                 type='POLL',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
-                metadata={
+                extra_data={
                     'poll_question': poll.question,
                     'poll_options': poll.options,
                     'poll_duration': poll.duration,
@@ -322,7 +325,7 @@ class InterventionExecutor:
                 type='CHAT_PROMPT',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
-                metadata={
+                extra_data={
                     'prompt': prompt_text,
                     'chat_prompt_data': chat_prompt if isinstance(chat_prompt, dict) else None,
                     'generation_method': generation_method,
@@ -412,7 +415,7 @@ class InterventionExecutor:
                 type='NOTIFICATION',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
-                metadata={
+                extra_data={
                     'notification': notification,
                     'generation_method': generation_method,
                     'anomaly_type': anomaly_type,
@@ -517,7 +520,7 @@ class InterventionExecutor:
                 type='GAMIFICATION',
                 confidence=recommendation.confidence,
                 reasoning=recommendation.reason,
-                metadata={
+                extra_data={
                     'gamification': gamification_content,
                     'generation_method': generation_method,
                     'anomaly_type': anomaly_type,
@@ -603,8 +606,10 @@ class InterventionExecutor:
                 await self.redis.publish('agent.interventions', json.dumps(message))
             self.logger.info(f"Published poll intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
+            # CRIT-2 FIX: Log but don't raise - intervention already committed to DB
             self.logger.error(f"Redis circuit breaker open, cannot publish poll intervention: {e.message}")
-            raise
+        except Exception as e:
+            self.logger.error(f"Failed to publish poll intervention to Redis: {e}")
 
     async def _publish_chat_intervention(
         self,
@@ -631,8 +636,10 @@ class InterventionExecutor:
                 await self.redis.publish('agent.interventions', json.dumps(message))
             self.logger.info(f"Published chat intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
+            # CRIT-2 FIX: Log but don't raise - intervention already committed to DB
             self.logger.error(f"Redis circuit breaker open, cannot publish chat intervention: {e.message}")
-            raise
+        except Exception as e:
+            self.logger.error(f"Failed to publish chat intervention to Redis: {e}")
 
     async def _publish_notification_intervention(
         self,
@@ -674,8 +681,10 @@ class InterventionExecutor:
                 await self.redis.publish('agent.interventions', json.dumps(message))
             self.logger.info(f"Published notification intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
+            # CRIT-2 FIX: Log but don't raise - intervention already committed to DB
             self.logger.error(f"Redis circuit breaker open, cannot publish notification: {e.message}")
-            raise
+        except Exception as e:
+            self.logger.error(f"Failed to publish notification intervention to Redis: {e}")
 
     async def _publish_gamification_intervention(
         self,
@@ -719,8 +728,10 @@ class InterventionExecutor:
                 await self.redis.publish('agent.interventions', json.dumps(message))
             self.logger.info(f"Published gamification intervention to Redis: {intervention_id[:8]}...")
         except CircuitBreakerError as e:
+            # CRIT-2 FIX: Log but don't raise - intervention already committed to DB
             self.logger.error(f"Redis circuit breaker open, cannot publish gamification: {e.message}")
-            raise
+        except Exception as e:
+            self.logger.error(f"Failed to publish gamification intervention to Redis: {e}")
 
     async def record_outcome(
         self,

@@ -56,6 +56,10 @@ export class EngagementConductorGateway
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 10;
 
+  // MED-8 FIX: Rate limiting for subscribe events
+  private subscribeRateLimit = new Map<string, number>();
+  private readonly SUBSCRIBE_RATE_LIMIT_MS = 2000; // 2 seconds between subscribes
+
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly prisma: PrismaService,
@@ -200,6 +204,20 @@ export class EngagementConductorGateway
       // Unauthenticated client disconnected - no action needed
       this.logger.debug(`Unauthenticated client ${client.id} disconnected`);
     }
+
+    // MED-9 FIX: Decrement subscriber counts for all rooms this client was in
+    // to prevent leaked Redis subscriptions when clients disconnect without unsubscribing
+    const rooms = Array.from(client.rooms || []);
+    for (const room of rooms) {
+      if (room.startsWith('session:') && room.endsWith(':agent')) {
+        const sessionId = room.replace('session:', '').replace(':agent', '');
+        const channel = `session:${sessionId}:events`;
+        await this.cleanupChannelIfEmpty(channel);
+      }
+    }
+
+    // MED-8: Clean up rate limit tracking for disconnected client
+    this.subscribeRateLimit.delete(client.id);
   }
 
   /**
@@ -230,11 +248,19 @@ export class EngagementConductorGateway
         return false;
       }
 
-      // Check if user is a participant in this session
-      // Note: Event organizer authorization should be verified via event-lifecycle-service
-      if (!chatSession.participants.includes(userId)) {
+      // CRIT-7 FIX: Check organization membership instead of chat participant list.
+      // The engagement conductor dashboard is for event organizers, not chat participants.
+      // Verify the user belongs to the organization that owns this session.
+      const orgMember = await this.prisma.organizationMember.findFirst({
+        where: {
+          organizationId: chatSession.organizationId,
+          userId: userId,
+        },
+      });
+
+      if (!orgMember) {
         this.logger.warn(
-          `User ${userId} attempted to access session ${sessionId} without authorization`,
+          `User ${userId} is not an organization member for session ${sessionId}`,
         );
         return false;
       }
@@ -286,6 +312,15 @@ export class EngagementConductorGateway
       this.logger.warn(`Client ${client.id} sent invalid session ID format`);
       return { success: false, error: 'Invalid session ID format' };
     }
+
+    // MED-8 FIX: Rate limit subscribe events per client
+    const now = Date.now();
+    const lastSubscribeTime = this.subscribeRateLimit.get(client.id);
+    if (lastSubscribeTime && now - lastSubscribeTime < this.SUBSCRIBE_RATE_LIMIT_MS) {
+      this.logger.warn(`Client ${client.id} rate limited on agent:subscribe`);
+      return { success: false, error: 'Rate limited. Please wait before subscribing again.' };
+    }
+    this.subscribeRateLimit.set(client.id, now);
 
     // Check Redis connection status
     if (!this.redisConnected) {

@@ -1,5 +1,5 @@
 // src/live/engagement-conductor/engagement-conductor.module.ts
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { EngagementConductorGateway } from './engagement-conductor.gateway';
 import { AgentInterventionListener } from './agent-intervention.listener';
 import { EngagementStreamListener } from './engagement-stream.listener';
@@ -7,7 +7,7 @@ import { CommModule } from '../../comm/comm.module';
 
 @Module({
   imports: [
-    forwardRef(() => CommModule), // For PollsService and ChatService
+    CommModule, // MED-12 FIX: One-way dependency, no forwardRef needed
   ],
   providers: [
     EngagementConductorGateway,
