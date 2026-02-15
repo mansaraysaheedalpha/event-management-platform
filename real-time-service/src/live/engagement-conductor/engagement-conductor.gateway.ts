@@ -230,6 +230,7 @@ export class EngagementConductorGateway
    */
   private async validateSessionAccess(
     userId: string,
+    userOrgId: string,
     sessionId: string,
   ): Promise<boolean> {
     try {
@@ -239,7 +240,6 @@ export class EngagementConductorGateway
         select: {
           id: true,
           organizationId: true,
-          participants: true,
         },
       });
 
@@ -248,19 +248,12 @@ export class EngagementConductorGateway
         return false;
       }
 
-      // CRIT-7 FIX: Check organization membership instead of chat participant list.
+      // CRIT-7 FIX: Check organization ownership instead of chat participant list.
       // The engagement conductor dashboard is for event organizers, not chat participants.
-      // Verify the user belongs to the organization that owns this session.
-      const orgMember = await this.prisma.organizationMember.findFirst({
-        where: {
-          organizationId: chatSession.organizationId,
-          userId: userId,
-        },
-      });
-
-      if (!orgMember) {
+      // Verify the user's active org (from JWT) matches the org that owns this session.
+      if (chatSession.organizationId !== userOrgId) {
         this.logger.warn(
-          `User ${userId} is not an organization member for session ${sessionId}`,
+          `User ${userId} (org: ${userOrgId}) does not belong to org ${chatSession.organizationId} for session ${sessionId}`,
         );
         return false;
       }
@@ -334,7 +327,7 @@ export class EngagementConductorGateway
     }
 
     // Verify user has access to this session
-    const hasAccess = await this.validateSessionAccess(user.sub, sessionId);
+    const hasAccess = await this.validateSessionAccess(user.sub, user.orgId, sessionId);
     if (!hasAccess) {
       this.logger.warn(
         `Client ${client.id} (user: ${user.sub}) denied access to session ${sessionId}`,
