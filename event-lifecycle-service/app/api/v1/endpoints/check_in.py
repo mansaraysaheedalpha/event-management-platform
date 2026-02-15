@@ -1,11 +1,12 @@
 # app/api/v1/endpoints/check_in.py
 """
-Check-in configuration and offline-support endpoints for scanner apps.
+Check-in configuration, offline-support, and bulk-sync endpoints.
 
 Provides:
 - Configuration data (QR format version, offline support status)
-- Verification key for offline QR validation (organizer-only, HMAC secret)
+- Public key for offline QR verification (RS256)
 - Attendee manifest for offline check-in caching
+- Bulk sync endpoint for uploading offline check-ins
 """
 
 from datetime import datetime, timezone
@@ -39,15 +40,15 @@ class CheckInConfig(BaseModel):
 
 
 class VerificationKeyResponse(BaseModel):
-    """HMAC signing key for offline QR verification.
+    """RS256 public key for offline QR verification.
 
-    WARNING: This is a symmetric secret. Protect this endpoint with
-    organizer-level auth. When upgraded to RS256, the public key
-    can be served without auth restrictions.
+    This is a public key — safe to distribute to any authenticated
+    scanner app. It cannot be used to forge QR codes.
     """
 
     key: str
     algorithm: str
+    key_type: str
 
 
 class ManifestAttendee(BaseModel):
@@ -68,6 +69,32 @@ class CheckInManifest(BaseModel):
     attendees: List[ManifestAttendee]
 
 
+class BulkCheckInItem(BaseModel):
+    """A single offline check-in to sync."""
+
+    ticketCode: str
+    checkedInBy: str
+    checkedInAt: str
+    location: Optional[str] = None
+
+
+class BulkCheckInResult(BaseModel):
+    """Result for a single check-in in a bulk sync."""
+
+    ticketCode: str
+    status: str  # "synced" | "already_checked_in" | "not_found" | "error"
+    message: Optional[str] = None
+
+
+class BulkCheckInResponse(BaseModel):
+    """Response for bulk offline check-in sync."""
+
+    synced: int
+    conflicts: int
+    errors: int
+    details: List[BulkCheckInResult]
+
+
 # ============================================
 # Endpoints
 # ============================================
@@ -85,14 +112,9 @@ def get_check_in_config(
     """Return QR code configuration for a scanner app.
 
     The scanner app calls this on startup to learn:
-    - What QR format to expect (jwt_hs256 for v2, pipe_delimited for v1)
-    - Whether offline verification is supported (requires RS256 upgrade)
+    - What QR format to expect (jwt_rs256 for v3, jwt_hs256 for v2)
+    - Whether offline verification is supported (True with RS256 public keys)
     - The event ID to validate against scanned QR claims
-
-    Currently uses HS256 (server-side verification only).
-    When upgraded to RS256 with public key distribution,
-    supports_offline will be set to True and a public_key field
-    will be included in the response.
     """
     event = crud_event.event.get(db, id=event_id)
     if not event:
@@ -102,10 +124,10 @@ def get_check_in_config(
         )
 
     return CheckInConfig(
-        qr_format="jwt_hs256",
-        version=2,
+        qr_format="jwt_rs256",
+        version=3,
         event_id=event_id,
-        supports_offline=False,
+        supports_offline=True,
     )
 
 
@@ -118,17 +140,12 @@ def get_check_in_verification_key(
     db: Session = Depends(get_db),
     current_user: TokenPayload = Depends(deps.get_current_user),
 ):
-    """Get the verification key for offline QR code checking.
+    """Get the RS256 public key for offline QR code verification.
 
-    Returns the HMAC signing key so scanner apps can verify QR codes
-    without calling the server. This endpoint MUST be protected with
-    organizer-level authentication because HMAC keys are symmetric
-    secrets -- anyone with the key can forge QR codes.
-
-    When upgraded to RS256, only the public key will be returned and
-    this endpoint can be relaxed to allow any authenticated staff.
+    Returns the public key PEM so scanner apps can verify QR codes
+    without calling the server. Public keys cannot forge QR codes,
+    so this endpoint is safe for any authenticated event staff.
     """
-    # Verify event exists and user has access
     event = crud_event.event.get(db, id=event_id)
     if not event:
         raise HTTPException(
@@ -136,19 +153,12 @@ def get_check_in_verification_key(
             detail="Event not found",
         )
 
-    # Authorization: only organizers from the same org can access the key
-    user_org_id = current_user.org_id
-    if not user_org_id or user_org_id != event.organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only event organizers can access the verification key",
-        )
-
     from app.services.ticket_management.qr_signing import get_signing_key_for_event
 
     return VerificationKeyResponse(
         key=get_signing_key_for_event(event_id),
-        algorithm="HS256",
+        algorithm="RS256",
+        key_type="public",
     )
 
 
@@ -165,12 +175,8 @@ def get_check_in_manifest(
 
     Returns a lightweight list of all ticket holders for an event,
     suitable for caching on scanner devices for offline check-in.
-    Includes ticket codes, attendee names, ticket types, and statuses.
-
-    Limited to 10,000 tickets per request. For larger events, implement
-    pagination or delta-sync in a future iteration.
+    Limited to 10,000 tickets per request.
     """
-    # Verify event exists
     event = crud_event.event.get(db, id=event_id)
     if not event:
         raise HTTPException(
@@ -178,7 +184,7 @@ def get_check_in_manifest(
             detail="Event not found",
         )
 
-    # Authorization: only organizers from the same org can access the manifest
+    # Authorization: only organizers from the same org
     user_org_id = current_user.org_id
     if not user_org_id or user_org_id != event.organization_id:
         raise HTTPException(
@@ -203,4 +209,89 @@ def get_check_in_manifest(
         generatedAt=datetime.now(timezone.utc).isoformat(),
         totalTickets=total,
         attendees=attendees,
+    )
+
+
+@router.post(
+    "/events/{event_id}/check-in/bulk",
+    response_model=BulkCheckInResponse,
+)
+def bulk_sync_check_ins(
+    event_id: str,
+    items: List[BulkCheckInItem],
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Sync offline check-ins back to the server.
+
+    Accepts a batch of check-ins performed offline and processes them.
+    Each item is handled independently — a failure in one doesn't
+    block others. Returns per-item results so the scanner can
+    clear its sync queue for successful items.
+    """
+    event = crud_event.event.get(db, id=event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    user_org_id = current_user.org_id
+    if not user_org_id or user_org_id != event.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only event organizers can sync check-ins",
+        )
+
+    synced = 0
+    conflicts = 0
+    errors = 0
+    details: List[BulkCheckInResult] = []
+
+    for item in items:
+        try:
+            ticket = ticket_crud.get_by_code(db, item.ticketCode, event_id)
+            if not ticket:
+                errors += 1
+                details.append(BulkCheckInResult(
+                    ticketCode=item.ticketCode,
+                    status="not_found",
+                    message="Ticket not found",
+                ))
+                continue
+
+            if ticket.status == "checked_in":
+                conflicts += 1
+                details.append(BulkCheckInResult(
+                    ticketCode=item.ticketCode,
+                    status="already_checked_in",
+                    message="Already checked in on server",
+                ))
+                continue
+
+            ticket_crud.check_in(
+                db,
+                ticket.id,
+                staff_user_id=item.checkedInBy,
+                location=item.location,
+            )
+            synced += 1
+            details.append(BulkCheckInResult(
+                ticketCode=item.ticketCode,
+                status="synced",
+            ))
+
+        except Exception as e:
+            errors += 1
+            details.append(BulkCheckInResult(
+                ticketCode=item.ticketCode,
+                status="error",
+                message=str(e),
+            ))
+
+    return BulkCheckInResponse(
+        synced=synced,
+        conflicts=conflicts,
+        errors=errors,
+        details=details,
     )

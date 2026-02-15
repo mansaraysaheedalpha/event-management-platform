@@ -31,6 +31,7 @@ from app.api.v1.endpoints import (
     email_preferences,
     demo_requests,
     check_in,
+    sms_webhook,
 )
 
 # This is the main router for the v1 API.
@@ -66,4 +67,5 @@ api_router.include_router(calendar.router, prefix="/calendar", tags=["Calendar"]
 api_router.include_router(email_preferences.router, prefix="/email-preferences", tags=["Email Preferences"])
 api_router.include_router(demo_requests.router, tags=["Demo Requests"])
 api_router.include_router(check_in.router, tags=["Check-in"])
+api_router.include_router(sms_webhook.router, prefix="/webhooks/sms", tags=["SMS Webhook"])
 

@@ -67,6 +67,9 @@ class Ticket(Base):
     # Expiration (for future server-side expiration enforcement)
     expires_at = Column(DateTime(timezone=True), nullable=True)
 
+    # SMS check-in PIN (6-digit numeric, unique per event, for feature-phone users)
+    check_in_pin = Column(String(6), nullable=True, index=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)

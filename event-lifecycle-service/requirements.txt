@@ -20,6 +20,7 @@ email-validator  # Required for Pydantic EmailStr validation
 python-jose[cryptography]
 passlib[bcrypt]
 PyJWT[crypto]>=2.8.0
+cryptography>=41.0  # RSA key generation for RS256 QR signing
 slowapi  # Rate limiting for FastAPI
 
 # For inter-service communication
@@ -31,6 +32,7 @@ resend
 jinja2  # For email template personalization
 anthropic  # For AI-powered message generation
 icalendar  # For ICS calendar file generation
+africastalking  # SMS gateway for check-in PINs (Africa's Talking API)
 
 # For background tasks
 celery

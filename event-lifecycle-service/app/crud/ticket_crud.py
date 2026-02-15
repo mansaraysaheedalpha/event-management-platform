@@ -1,4 +1,5 @@
 # app/crud/ticket_crud.py
+import random
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func, or_
 from typing import List, Optional, Tuple
@@ -119,6 +120,41 @@ class CRUDTicket:
 
         return query.order_by(Ticket.created_at.desc()).all()
 
+    def generate_check_in_pin(self, db: Session, event_id: str) -> str:
+        """Generate a unique 6-digit check-in PIN for an event.
+
+        PINs are unique per event (not globally). Retries up to 10 times
+        on collision, which is extremely rare for events under 100K attendees.
+        """
+        for _ in range(10):
+            pin = str(random.randint(100000, 999999))
+            existing = db.query(Ticket.id).filter(
+                and_(
+                    Ticket.event_id == event_id,
+                    Ticket.check_in_pin == pin,
+                )
+            ).first()
+            if not existing:
+                return pin
+        raise RuntimeError("Could not generate unique PIN after 10 attempts")
+
+    def get_by_pin(
+        self,
+        db: Session,
+        pin: str,
+        event_id: str,
+    ) -> Optional[Ticket]:
+        """Look up a ticket by its check-in PIN within an event."""
+        return db.query(Ticket).options(
+            joinedload(Ticket.ticket_type),
+            joinedload(Ticket.event),
+        ).filter(
+            and_(
+                Ticket.event_id == event_id,
+                Ticket.check_in_pin == pin,
+            )
+        ).first()
+
     def create(
         self,
         db: Session,
@@ -130,7 +166,8 @@ class CRUDTicket:
         attendee_email: str,
         user_id: Optional[str] = None
     ) -> Ticket:
-        """Create a new ticket."""
+        """Create a new ticket with an auto-generated SMS check-in PIN."""
+        pin = self.generate_check_in_pin(db, event_id)
         db_obj = Ticket(
             order_id=order_id,
             order_item_id=order_item_id,
@@ -139,7 +176,8 @@ class CRUDTicket:
             user_id=user_id,
             attendee_email=attendee_email,
             attendee_name=attendee_name,
-            status="valid"
+            status="valid",
+            check_in_pin=pin,
         )
         db.add(db_obj)
         db.commit()
@@ -151,16 +189,18 @@ class CRUDTicket:
         db: Session,
         tickets_data: List[dict]
     ) -> List[Ticket]:
-        """Create multiple tickets at once."""
+        """Create multiple tickets at once, each with a unique PIN."""
         tickets = []
         for data in tickets_data:
+            event_id = data.get("event_id")
+            if event_id and "check_in_pin" not in data:
+                data["check_in_pin"] = self.generate_check_in_pin(db, event_id)
             ticket = Ticket(**data)
             db.add(ticket)
             tickets.append(ticket)
 
         db.commit()
 
-        # Refresh all tickets
         for ticket in tickets:
             db.refresh(ticket)
 
