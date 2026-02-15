@@ -173,46 +173,70 @@ class CRUDTicket:
         checked_in_by: str,
         location: Optional[str] = None
     ) -> Optional[Ticket]:
-        """Check in a ticket."""
-        ticket = self.get(db, ticket_id)
-        if not ticket:
-            return None
+        """Check in a ticket using atomic UPDATE to prevent race conditions."""
+        from sqlalchemy import update
 
-        if not ticket.can_check_in:
+        now = datetime.now(timezone.utc)
+        result = db.execute(
+            update(Ticket).where(
+                and_(
+                    Ticket.id == ticket_id,
+                    Ticket.status == 'valid'
+                )
+            ).values(
+                status='checked_in',
+                checked_in_at=now,
+                checked_in_by=checked_in_by,
+                check_in_location=location,
+                updated_at=now
+            ).returning(Ticket.id)
+        )
+        db.commit()
+
+        updated_id = result.scalar_one_or_none()
+        if not updated_id:
+            # Either ticket not found or already checked in
+            ticket = self.get(db, ticket_id)
+            if not ticket:
+                return None
             raise ValueError(f"Ticket cannot be checked in. Current status: {ticket.status}")
 
-        ticket.status = "checked_in"
-        ticket.checked_in_at = datetime.now(timezone.utc)
-        ticket.checked_in_by = checked_in_by
-        ticket.check_in_location = location
-        ticket.updated_at = datetime.now(timezone.utc)
-
-        db.commit()
-        db.refresh(ticket)
-        return ticket
+        return self.get(db, updated_id)
 
     def reverse_check_in(
         self,
         db: Session,
         ticket_id: str
     ) -> Optional[Ticket]:
-        """Reverse a check-in (undo)."""
-        ticket = self.get(db, ticket_id)
-        if not ticket:
-            return None
+        """Reverse a check-in (undo) using atomic UPDATE to prevent race conditions."""
+        from sqlalchemy import update
 
-        if ticket.status != "checked_in":
+        now = datetime.now(timezone.utc)
+        result = db.execute(
+            update(Ticket).where(
+                and_(
+                    Ticket.id == ticket_id,
+                    Ticket.status == 'checked_in'
+                )
+            ).values(
+                status='valid',
+                checked_in_at=None,
+                checked_in_by=None,
+                check_in_location=None,
+                updated_at=now
+            ).returning(Ticket.id)
+        )
+        db.commit()
+
+        updated_id = result.scalar_one_or_none()
+        if not updated_id:
+            # Either ticket not found or not in checked_in status
+            ticket = self.get(db, ticket_id)
+            if not ticket:
+                return None
             raise ValueError("Ticket is not checked in")
 
-        ticket.status = "valid"
-        ticket.checked_in_at = None
-        ticket.checked_in_by = None
-        ticket.check_in_location = None
-        ticket.updated_at = datetime.now(timezone.utc)
-
-        db.commit()
-        db.refresh(ticket)
-        return ticket
+        return self.get(db, updated_id)
 
     def cancel(
         self,

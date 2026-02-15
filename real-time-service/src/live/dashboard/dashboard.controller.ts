@@ -32,8 +32,9 @@ export class DashboardController {
     @Query('orgId') orgId?: string,
     @Query('totalAttendees') totalAttendeesStr?: string,
   ): Promise<EngagementBreakdownData> {
+    // Clamp totalAttendees to [0, 1_000_000] to prevent abuse via extreme values
     const totalAttendees = totalAttendeesStr
-      ? parseInt(totalAttendeesStr, 10)
+      ? Math.max(0, Math.min(parseInt(totalAttendeesStr, 10) || 0, 1_000_000))
       : 0;
 
     this.logger.log(

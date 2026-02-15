@@ -144,6 +144,7 @@ export class DashboardService {
 
   /**
    * Updates the live check-in feed in Redis.
+   * Anonymizes attendee names to protect PII before broadcasting.
    *
    * @param eventId - The event ID.
    * @param checkInData - Check-in data to add to the feed.
@@ -153,9 +154,35 @@ export class DashboardService {
     eventId: string,
     checkInData: CheckInFeedItem,
   ): Promise<void> {
+    const anonymized = {
+      id: checkInData.id, // Keep ID for dedup
+      name: this.anonymizeName(checkInData.name), // Show initials only
+      timestamp: new Date().toISOString(),
+    };
     const redisKey = `dashboard:feed:check-in:${eventId}`;
-    await this.redis.lpush(redisKey, JSON.stringify(checkInData));
+    await this.redis.lpush(redisKey, JSON.stringify(anonymized));
     await this.redis.ltrim(redisKey, 0, 9);
+  }
+
+  /**
+   * Anonymizes a full name to initials to protect PII.
+   * "John Doe" -> "J. D.", "Alice" -> "A***"
+   *
+   * @param fullName - The full name to anonymize.
+   * @returns Anonymized name string.
+   */
+  private anonymizeName(fullName: string): string {
+    if (!fullName) return 'Attendee';
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length === 1) {
+      return parts[0].charAt(0).toUpperCase() + '***';
+    }
+    return (
+      parts[0].charAt(0).toUpperCase() +
+      '. ' +
+      parts[parts.length - 1].charAt(0).toUpperCase() +
+      '.'
+    );
   }
 
   /**

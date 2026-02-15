@@ -1,5 +1,12 @@
 //src/live/validation/dto/validate-ticket.dto.ts
-import { IsEnum, IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
@@ -37,6 +44,8 @@ export class ValidateTicketDto {
   })
   @IsString()
   @IsNotEmpty()
+  @MinLength(3)
+  @MaxLength(500) // JWT tokens can be ~300-400 chars, plain codes are ~12 chars
   ticketCode: string;
 
   /** The method used to validate (QR, NFC, etc.) */

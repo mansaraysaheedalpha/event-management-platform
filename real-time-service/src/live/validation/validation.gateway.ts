@@ -5,10 +5,12 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import { ForbiddenException, Logger } from '@nestjs/common';
+import { ForbiddenException, Inject, Logger } from '@nestjs/common';
+import { Redis } from 'ioredis';
 import { AuthenticatedSocket } from 'src/common/interfaces/auth.interface';
 import { getAuthenticatedUser } from 'src/common/utils/auth.utils';
 import { getErrorMessage } from 'src/common/utils/error.utils';
+import { REDIS_CLIENT } from 'src/shared/redis.constants';
 import { ValidateTicketDto } from './dto/validate-ticket.dto';
 import { ValidationService } from './validation.service';
 import { ValidationResultDto } from './dto/validation-result.dto';
@@ -37,7 +39,10 @@ type ValidationResponse =
 export class ValidationGateway {
   private readonly logger = new Logger(ValidationGateway.name);
 
-  constructor(private readonly validationService: ValidationService) {}
+  constructor(
+    private readonly validationService: ValidationService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {}
 
   /**
    * Handles a WebSocket ticket validation request from staff.
@@ -59,6 +64,26 @@ export class ValidationGateway {
       throw new ForbiddenException(
         'You do not have permission to validate tickets.',
       );
+    }
+
+    // Verify user has access to this specific event (not just the permission globally)
+    const userOrgId = user.orgId;
+    if (!userOrgId) {
+      return { success: false, error: 'Organization context required' };
+    }
+
+    const eventBelongsToOrg = await this.redis.sismember(
+      `org:active_events:${userOrgId}`,
+      eventId,
+    );
+    if (!eventBelongsToOrg) {
+      this.logger.warn(
+        `Staff ${user.sub} (org: ${userOrgId}) attempted to validate tickets for event ${eventId} outside their organization`,
+      );
+      return {
+        success: false,
+        error: 'You do not have access to this event',
+      };
     }
 
     try {

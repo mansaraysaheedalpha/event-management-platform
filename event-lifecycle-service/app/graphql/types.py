@@ -451,6 +451,11 @@ class RegistrationType:
         return root.ticket_code
 
     @strawberry.field
+    def qrCodeData(self, root: RegistrationModel) -> typing.Optional[str]:
+        """Signed JWT QR code data for the ticket, if available."""
+        return getattr(root, "qr_code_data", None)
+
+    @strawberry.field
     def checkedInAt(self, root: RegistrationModel) -> typing.Optional[datetime]:
         return root.checked_in_at
 
@@ -641,6 +646,11 @@ class MyRegistrationType:
     @strawberry.field
     def ticketCode(self, root: RegistrationModel) -> str:
         return root.ticket_code
+
+    @strawberry.field
+    def qrCodeData(self, root: RegistrationModel) -> Optional[str]:
+        """Signed JWT QR code data for the ticket, if available."""
+        return getattr(root, "qr_code_data", None)
 
     @strawberry.field
     def checkedInAt(self, root: RegistrationModel) -> Optional[datetime]:

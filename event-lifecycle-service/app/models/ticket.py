@@ -3,7 +3,6 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, Text, text
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 import uuid
-import hashlib
 import secrets
 
 
@@ -65,6 +64,9 @@ class Ticket(Base):
     )
     transferred_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Expiration (for future server-side expiration enforcement)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
@@ -90,12 +92,26 @@ class Ticket(Base):
         return f"TKT-{random_hex[:6]}-{random_hex[6:8]}"
 
     def _generate_qr_data(self) -> str:
-        """Generate QR code data for this ticket."""
-        # Include ticket ID and code for verification
-        data = f"{self.id}|{self.ticket_code}|{self.event_id}"
-        # Add a hash for integrity verification
-        hash_part = hashlib.sha256(data.encode()).hexdigest()[:8]
-        return f"{data}|{hash_part}"
+        """Generate signed JWT QR code data for this ticket.
+
+        Uses cryptographic JWT signing (HS256) instead of the old
+        guessable SHA256 checksum. The JWT can be verified server-side
+        to prevent QR code forgery.
+
+        If the ticket has an explicit expires_at, it is passed as the
+        event_end_date hint so the JWT expiration aligns with it.
+        Otherwise the signing service falls back to 30-day default.
+        """
+        from app.services.ticket_management.qr_signing import sign_ticket_qr
+
+        return sign_ticket_qr(
+            ticket_id=self.id,
+            ticket_code=self.ticket_code,
+            event_id=self.event_id,
+            user_id=self.user_id,
+            attendee_name=self.attendee_name,
+            event_end_date=self.expires_at,
+        )
 
     @property
     def is_valid(self) -> bool:

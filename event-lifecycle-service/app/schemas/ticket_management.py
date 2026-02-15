@@ -265,6 +265,7 @@ class CheckInTicketInput(BaseModel):
     ticket_code: str
     event_id: str
     location: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 
 class TransferTicketInput(BaseModel):

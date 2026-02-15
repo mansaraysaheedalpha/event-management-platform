@@ -2,6 +2,8 @@
 """
 GraphQL mutations for Ticket Management System
 """
+import json
+import logging
 import strawberry
 from typing import Optional, List
 from strawberry.types import Info
@@ -28,6 +30,109 @@ from app.schemas.ticket_management import (
     PromoCodeUpdate,
     DiscountType,
 )
+from app.utils.graphql_rate_limit import rate_limit
+
+logger = logging.getLogger(__name__)
+
+
+def _require_auth(info: Info) -> dict:
+    """
+    Require valid authentication. Returns the user dict.
+    Raises Exception if no user or no sub claim.
+    """
+    user = info.context.user
+    if not user or not user.get("sub"):
+        raise Exception("Authentication required to check in tickets")
+    return user
+
+
+def _authorize_ticket_action(info: Info, event_id: str) -> str:
+    """
+    Authorize a ticket action (check-in, reverse, cancel) by verifying
+    the user's org matches the event's org, or the user has
+    'event:validate_tickets' permission.
+
+    Returns the staff_user_id (user sub).
+    Raises Exception if unauthorized.
+    """
+    user = _require_auth(info)
+    staff_user_id = user["sub"]
+    db = info.context.db
+
+    # Query event to get its organization_id
+    from app.models.event import Event
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise Exception("Event not found")
+
+    # Check: user's orgId matches event's organization_id
+    user_org_id = user.get("orgId")
+    user_permissions = user.get("permissions", [])
+
+    if user_org_id and user_org_id == event.organization_id:
+        return staff_user_id
+
+    # Check: user has 'event:validate_tickets' permission
+    if "event:validate_tickets" in user_permissions:
+        return staff_user_id
+
+    raise Exception("You don't have permission to check in tickets for this event")
+
+
+def _authorize_ticket_action_by_ticket_id(info: Info, ticket_id: str) -> str:
+    """
+    Authorize a ticket action when we only have a ticket_id (not event_id).
+    Looks up the ticket to find the event_id, then delegates to
+    _authorize_ticket_action.
+
+    Returns the staff_user_id (user sub).
+    Raises Exception if unauthorized or ticket not found.
+    """
+    db = info.context.db
+    from app.crud.ticket_crud import ticket_crud
+
+    ticket = ticket_crud.get(db, ticket_id)
+    if not ticket:
+        raise Exception("Ticket not found")
+
+    return _authorize_ticket_action(info, ticket.event_id)
+
+
+def _check_idempotency(idempotency_key: Optional[str], user_id: str) -> Optional[dict]:
+    """
+    Check if an idempotency key has already been used.
+    Returns cached result dict if key exists, None otherwise.
+    """
+    if not idempotency_key:
+        return None
+
+    try:
+        from app.db.redis import redis_client
+        cache_key = f"idempotency:checkin:{user_id}:{idempotency_key}"
+        cached = redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning(f"Redis idempotency check failed: {e}")
+
+    return None
+
+
+def _store_idempotency(idempotency_key: Optional[str], user_id: str, ticket_id: str) -> None:
+    """
+    Store an idempotency key with the result ticket ID.
+    Uses SET NX with 60-second TTL.
+    """
+    if not idempotency_key:
+        return
+
+    try:
+        from app.db.redis import redis_client
+        cache_key = f"idempotency:checkin:{user_id}:{idempotency_key}"
+        result_data = json.dumps({"ticket_id": ticket_id})
+        redis_client.set(cache_key, result_data, ex=60, nx=True)
+    except Exception as e:
+        logger.warning(f"Redis idempotency store failed: {e}")
 
 
 @strawberry.type
@@ -197,37 +302,37 @@ class TicketManagementMutations:
         # Build update dict with only provided (non-None) values
         # This ensures exclude_unset=True works correctly in CRUD
         update_dict = {}
-        
+
         if input.description is not None:
             update_dict["description"] = input.description
-            
+
         if input.discountType:
             update_dict["discount_type"] = DiscountType(input.discountType.value)
-            
+
         if input.discountValue is not None:
             update_dict["discount_value"] = input.discountValue
-            
+
         if input.applicableTicketTypeIds is not None:
             update_dict["applicable_ticket_type_ids"] = input.applicableTicketTypeIds
-            
+
         if input.maxUses is not None:
             update_dict["max_uses"] = input.maxUses
-            
+
         if input.maxUsesPerUser is not None:
             update_dict["max_uses_per_user"] = input.maxUsesPerUser
-            
+
         if input.validFrom is not None:
             update_dict["valid_from"] = input.validFrom
-            
+
         if input.validUntil is not None:
             update_dict["valid_until"] = input.validUntil
-            
+
         if input.minimumOrderAmount is not None:
             update_dict["minimum_order_amount"] = input.minimumOrderAmount
-            
+
         if input.minimumTickets is not None:
             update_dict["minimum_tickets"] = input.minimumTickets
-            
+
         if input.isActive is not None:
             update_dict["is_active"] = input.isActive
 
@@ -265,6 +370,7 @@ class TicketManagementMutations:
     # ============================================
 
     @strawberry.mutation
+    @rate_limit(max_calls=60, period_seconds=60)  # 60 check-ins per minute per user
     async def checkInTicket(
         self,
         info: Info,
@@ -272,8 +378,20 @@ class TicketManagementMutations:
     ) -> TicketGQLType:
         """Check in a ticket by code."""
         db = info.context.db
-        user = info.context.user
-        staff_user_id = user.get("sub") if user else "unknown"
+
+        # BUG H3 fix: Require valid authentication (no "unknown" fallback)
+        # BUG C3 fix: Authorize user for this event
+        staff_user_id = _authorize_ticket_action(info, input.eventId)
+
+        # BUG M1 fix: Check idempotency key
+        if input.idempotencyKey:
+            cached = _check_idempotency(input.idempotencyKey, staff_user_id)
+            if cached:
+                # Return the previously checked-in ticket
+                from app.crud.ticket_crud import ticket_crud
+                existing_ticket = ticket_crud.get(db, cached["ticket_id"])
+                if existing_ticket:
+                    return existing_ticket
 
         try:
             ticket = ticket_management_service.check_in_ticket(
@@ -283,11 +401,16 @@ class TicketManagementMutations:
                 staff_user_id=staff_user_id,
                 location=input.location
             )
+
+            # BUG M1 fix: Store idempotency key on success
+            _store_idempotency(input.idempotencyKey, staff_user_id, ticket.id)
+
             return ticket
         except ValueError as e:
             raise Exception(str(e))
 
     @strawberry.mutation
+    @rate_limit(max_calls=10, period_seconds=60)  # 10 reversals per minute per user
     async def reverseCheckIn(
         self,
         info: Info,
@@ -295,6 +418,10 @@ class TicketManagementMutations:
     ) -> TicketGQLType:
         """Reverse a check-in (undo)."""
         db = info.context.db
+
+        # BUG H3 fix: Require valid authentication
+        # BUG C3 fix: Authorize user for this event (lookup event via ticket)
+        _authorize_ticket_action_by_ticket_id(info, ticketId)
 
         try:
             ticket = ticket_management_service.reverse_check_in(db, ticketId)
@@ -314,6 +441,9 @@ class TicketManagementMutations:
     ) -> TicketGQLType:
         """Cancel a ticket."""
         db = info.context.db
+
+        # BUG C3 fix: Authorize user for this event (lookup event via ticket)
+        _authorize_ticket_action_by_ticket_id(info, input.ticketId)
 
         try:
             ticket = ticket_management_service.cancel_ticket(
@@ -350,6 +480,9 @@ class TicketManagementMutations:
     ) -> TicketGQLType:
         """Transfer a ticket to a new attendee."""
         db = info.context.db
+
+        # BUG C3 fix: Authorize user for this event (lookup event via ticket)
+        _authorize_ticket_action_by_ticket_id(info, input.ticketId)
 
         try:
             ticket = ticket_management_service.transfer_ticket(

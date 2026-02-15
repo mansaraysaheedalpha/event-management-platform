@@ -293,8 +293,23 @@ class TicketType:
         return root.check_in_location
 
     @strawberry.field
+    def qrCodeData(self, root: TicketModel) -> Optional[str]:
+        """Signed JWT token for embedding in QR code.
+
+        This is the cryptographically signed payload that should be
+        encoded into the QR code image. Scanner apps verify the JWT
+        signature to prevent forgery.
+        """
+        return root.qr_code_data
+
+    @strawberry.field
     def qrCodeUrl(self, root: TicketModel) -> str:
         return root.qr_code_url
+
+    @strawberry.field
+    def expiresAt(self, root: TicketModel) -> Optional[datetime]:
+        """Ticket expiration timestamp, if set."""
+        return root.expires_at
 
     @strawberry.field
     def createdAt(self, root: TicketModel) -> datetime:
@@ -436,6 +451,7 @@ class CheckInTicketInput:
     ticketCode: str
     eventId: str
     location: Optional[str] = None
+    idempotencyKey: Optional[str] = None
 
 
 @strawberry.input

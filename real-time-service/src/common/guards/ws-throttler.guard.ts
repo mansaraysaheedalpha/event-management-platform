@@ -7,8 +7,9 @@ import { getAuthenticatedUser } from '../utils/auth.utils';
 @Injectable()
 export class WsThrottlerGuard extends ThrottlerGuard {
   /**
-   * ✅ NEW METHOD ✅
-   * This is the main entry point for the guard. We override it to add our custom logic.
+   * Main entry point for the guard. Overrides the default to add custom logic.
+   * Pings are throttled at the normal rate rather than bypassed entirely
+   * to prevent abuse via high-frequency ping flooding.
    */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Skip throttling for HTTP requests - this guard is designed for WebSockets only.
@@ -17,16 +18,8 @@ export class WsThrottlerGuard extends ThrottlerGuard {
       return true;
     }
 
-    const data = context.switchToWs().getData();
-
-    // If the event is an internal 'ping', bypass the throttler entirely.
-    // The `data` check is a safety measure for unexpected message formats.
-    if (data && data[0] === 'ping') {
-      return true;
-    }
-
-    // For all other events, proceed with the original throttler logic,
-    // which will use our custom `getLimit`, `getTTL`, etc., methods below.
+    // All events (including pings) are subject to throttling.
+    // Pings were previously bypassed, which could be abused for DoS.
     return super.canActivate(context);
   }
 

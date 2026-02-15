@@ -19,7 +19,7 @@ email-validator  # Required for Pydantic EmailStr validation
 # Security and JWT
 python-jose[cryptography]
 passlib[bcrypt]
-PyJWT
+PyJWT[crypto]>=2.8.0
 slowapi  # Rate limiting for FastAPI
 
 # For inter-service communication

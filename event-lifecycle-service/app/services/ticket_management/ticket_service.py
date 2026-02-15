@@ -412,8 +412,36 @@ class TicketManagementService:
         staff_user_id: str,
         location: Optional[str] = None
     ) -> Ticket:
-        """Check in a ticket by code."""
-        ticket = ticket_crud.get_by_code(db, ticket_code, event_id)
+        """Check in a ticket by code, JWT QR data, or legacy pipe-delimited QR data.
+
+        Handles three input formats:
+        - JWT (v2): Signed token from QR scan -> verify signature, extract tcode
+        - Legacy pipe-delimited (v1): "{id}|{code}|{event_id}|{hash}" -> extract code
+        - Plain ticket code: "TKT-XXXXXX-XX" -> use directly
+        """
+        from app.services.ticket_management.qr_signing import (
+            verify_ticket_qr,
+            is_jwt_qr,
+        )
+
+        actual_ticket_code = ticket_code
+
+        # If input looks like a JWT (from QR scan), verify signature and extract code
+        if is_jwt_qr(ticket_code):
+            claims = verify_ticket_qr(ticket_code)
+            if not claims:
+                raise ValueError("Invalid or expired QR code")
+            if claims.get("eid") != event_id:
+                raise ValueError("QR code is not for this event")
+            actual_ticket_code = claims["tcode"]
+
+        # If input looks like legacy pipe-delimited format, extract the ticket code
+        elif "|" in ticket_code:
+            parts = ticket_code.split("|")
+            if len(parts) >= 2:
+                actual_ticket_code = parts[1]
+
+        ticket = ticket_crud.get_by_code(db, actual_ticket_code, event_id)
 
         if not ticket:
             raise ValueError("Ticket not found")

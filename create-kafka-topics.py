@@ -132,6 +132,13 @@ TOPICS = [
         'retention_ms': 2592000000,
         'description': 'Waitlist events',
     },
+    {
+        'name': 'payment.emails.v1',
+        'partitions': 3,
+        'replication_factor': 3,
+        'retention_ms': 2592000000,
+        'description': 'Payment-related email events (ticket confirmations, refunds, payouts)',
+    },
 
     # Networking retention topics
     {

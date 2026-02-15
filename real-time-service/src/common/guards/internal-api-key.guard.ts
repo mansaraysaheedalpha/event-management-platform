@@ -15,7 +15,12 @@ export class InternalApiKeyGuard implements CanActivate {
     const request = context
       .switchToHttp()
       .getRequest<{ headers: Record<string, string | undefined> }>();
-    const providedKey = request.headers['x-internal-api-key'];
+    // HTTP headers are case-insensitive per RFC 7230.
+    // Express/NestJS typically lowercases headers, but we check both forms
+    // defensively in case of proxy or middleware variations.
+    const providedKey =
+      request.headers['x-internal-api-key'] ||
+      request.headers['X-Internal-Api-Key'];
     const validKey = this.configService.get<string>('INTERNAL_API_KEY');
 
     if (providedKey && validKey && providedKey === validKey) {

@@ -6,6 +6,7 @@ Provides decorators to prevent abuse of GraphQL mutations by limiting
 the number of requests per user within a time window.
 """
 
+import inspect
 import time
 import functools
 import logging
@@ -38,55 +39,62 @@ def rate_limit(max_calls: int, period_seconds: int):
     Raises:
         HTTPException: When rate limit is exceeded
     """
+    def _check_rate_limit(operation_name: str, args, kwargs):
+        """Shared rate limit check logic. Raises HTTPException if limit exceeded."""
+        # Extract user from info.context
+        info = kwargs.get('info') or (args[2] if len(args) > 2 else None)
+        if not info or not info.context or not info.context.user:
+            return
+        user_id = info.context.user.get('sub')
+        if not user_id:
+            return
+
+        current_time = time.time()
+        key = f"{operation_name}:{user_id}"
+
+        with _store_lock:
+            if key in _rate_limit_store:
+                count, window_start = _rate_limit_store[key]
+
+                # Check if we're still within the rate limit window
+                if current_time - window_start < period_seconds:
+                    if count >= max_calls:
+                        # Rate limit exceeded
+                        reset_time = int(window_start + period_seconds - current_time)
+                        logger.warning(
+                            f"Rate limit exceeded for user {user_id} on {operation_name}. "
+                            f"Limit: {max_calls}/{period_seconds}s"
+                        )
+                        raise HTTPException(
+                            status_code=429,
+                            detail=f"Rate limit exceeded. Try again in {reset_time} seconds."
+                        )
+
+                    # Increment count within current window
+                    _rate_limit_store[key] = (count + 1, window_start)
+                else:
+                    # Window expired - start new window
+                    _rate_limit_store[key] = (1, current_time)
+            else:
+                # First request for this user+operation
+                _rate_limit_store[key] = (1, current_time)
+
     def decorator(func: Callable):
         operation_name = func.__name__
 
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            # Extract user from info.context
-            info = kwargs.get('info') or (args[2] if len(args) > 2 else None)
-            if not info or not info.context or not info.context.user:
-                # No user context - skip rate limiting (unauthenticated requests)
+        if inspect.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                _check_rate_limit(operation_name, args, kwargs)
+                return await func(*args, **kwargs)
+            return async_wrapper
+        else:
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                _check_rate_limit(operation_name, args, kwargs)
                 return func(*args, **kwargs)
+            return wrapper
 
-            user_id = info.context.user.get('sub')
-            if not user_id:
-                return func(*args, **kwargs)
-
-            current_time = time.time()
-            key = f"{operation_name}:{user_id}"
-
-            with _store_lock:
-                if key in _rate_limit_store:
-                    count, window_start = _rate_limit_store[key]
-
-                    # Check if we're still within the rate limit window
-                    if current_time - window_start < period_seconds:
-                        if count >= max_calls:
-                            # Rate limit exceeded
-                            reset_time = int(window_start + period_seconds - current_time)
-                            logger.warning(
-                                f"Rate limit exceeded for user {user_id} on {operation_name}. "
-                                f"Limit: {max_calls}/{period_seconds}s"
-                            )
-                            raise HTTPException(
-                                status_code=429,
-                                detail=f"Rate limit exceeded. Try again in {reset_time} seconds."
-                            )
-
-                        # Increment count within current window
-                        _rate_limit_store[key] = (count + 1, window_start)
-                    else:
-                        # Window expired - start new window
-                        _rate_limit_store[key] = (1, current_time)
-                else:
-                    # First request for this user+operation
-                    _rate_limit_store[key] = (1, current_time)
-
-            # Execute the mutation
-            return func(*args, **kwargs)
-
-        return wrapper
     return decorator
 
 

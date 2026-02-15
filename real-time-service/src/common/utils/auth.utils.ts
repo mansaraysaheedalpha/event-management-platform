@@ -8,27 +8,23 @@ export { AuthenticatedSocket, JwtPayload };
 
 /**
  * Safely extracts the JWT token from a Socket.IO client's handshake.
- * Checks multiple possible locations: `auth.token` header or query string.
+ * Only accepts tokens from the `auth.token` property (set via Socket.IO auth option).
+ * Query string fallback was removed to prevent token exposure in URLs and server logs.
  *
  * @param client - The Socket.IO client instance.
  * @returns The extracted token string, or null if none found.
  */
 export const extractTokenSafely = (client: Socket): string | null => {
-  const authHeader = client.handshake.auth;
-  if (authHeader && typeof authHeader.token === 'string') {
-    return authHeader.token.replace('Bearer', '').trim();
+  try {
+    const auth = client.handshake?.auth;
+    if (auth?.token && typeof auth.token === 'string') {
+      return auth.token.replace('Bearer ', '').trim();
+    }
+    // Query string fallback intentionally removed (security risk - tokens in URLs/logs)
+    return null;
+  } catch {
+    return null;
   }
-
-  const queryToken = client.handshake.query?.token;
-  if (typeof queryToken === 'string') {
-    return queryToken;
-  }
-
-  if (Array.isArray(queryToken) && queryToken.length > 0) {
-    return queryToken[0];
-  }
-
-  return null;
 };
 
 /**
