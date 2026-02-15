@@ -30,14 +30,23 @@ from app.services.sms.sms_gateway import sms_gateway
 
 logger = logging.getLogger(__name__)
 
+
+def _mask_phone(phone: str) -> str:
+    """Mask phone number for logging: +254712345678 -> +254****5678"""
+    if len(phone) <= 4:
+        return "****"
+    return phone[:4] + "****" + phone[-4:]
+
 router = APIRouter()
 
 AT_WEBHOOK_SECRET = os.environ.get("AFRICASTALKING_WEBHOOK_SECRET", "")
 
 # Rate limiting: max 3 attempts per phone number per 10 minutes
-_sms_attempts: dict[str, list[float]] = defaultdict(list)
 SMS_RATE_LIMIT = 3
 SMS_RATE_WINDOW = 600  # 10 minutes
+
+# In-memory fallback (used when Redis is unavailable)
+_sms_attempts: dict[str, list[float]] = defaultdict(list)
 
 # Pattern: CHECK <6-digit PIN> or CHECKIN <6-digit PIN>
 CHECK_IN_PATTERN = re.compile(
@@ -46,11 +55,36 @@ CHECK_IN_PATTERN = re.compile(
 )
 
 
+def _get_redis():
+    """Get Redis client, returning None if unavailable."""
+    try:
+        from app.db.redis import redis_client
+        redis_client.ping()
+        return redis_client
+    except Exception:
+        return None
+
+
 def _check_rate_limit(phone: str) -> bool:
-    """Return True if the phone number is within rate limits."""
+    """Return True if the phone number is within rate limits.
+
+    Uses Redis (shared across workers) when available, falling back
+    to per-process in-memory tracking.
+    """
+    r = _get_redis()
+    if r:
+        key = f"sms_rate:{phone}"
+        try:
+            count = r.incr(key)
+            if count == 1:
+                r.expire(key, SMS_RATE_WINDOW)
+            return count <= SMS_RATE_LIMIT
+        except Exception:
+            pass  # Fall through to in-memory
+
+    # In-memory fallback
     now = time.time()
     attempts = _sms_attempts[phone]
-    # Prune old entries
     _sms_attempts[phone] = [t for t in attempts if now - t < SMS_RATE_WINDOW]
     if len(_sms_attempts[phone]) >= SMS_RATE_LIMIT:
         return False
@@ -83,14 +117,14 @@ async def handle_incoming_sms(
     text = form.get("text", "")
     message_id = form.get("id", "unknown")
 
-    logger.info(f"Incoming SMS [{message_id}] from {sender}: {text!r}")
+    logger.info(f"Incoming SMS [{message_id}] from {_mask_phone(sender)}")
 
     if not sender or not text:
         return {"status": "ignored", "reason": "empty sender or text"}
 
     # Rate limiting
     if not _check_rate_limit(sender):
-        logger.warning(f"SMS rate limit hit for {sender}")
+        logger.warning(f"SMS rate limit hit for {_mask_phone(sender)}")
         sms_gateway.send_check_in_failure(sender, "Too many attempts. Try again later")
         return {"status": "rate_limited"}
 
@@ -128,7 +162,7 @@ async def handle_incoming_sms(
     )
 
     if not ticket:
-        logger.info(f"SMS check-in: PIN {pin} not found for sender {sender}")
+        logger.info(f"SMS check-in: PIN {pin} not found for sender {_mask_phone(sender)}")
         sms_gateway.send_check_in_failure(sender, "Invalid PIN")
         return {"status": "not_found"}
 
@@ -149,12 +183,12 @@ async def handle_incoming_sms(
         event_name = ticket.event.name if ticket.event else "the event"
         logger.info(
             f"SMS check-in success: {ticket.ticket_code} for {event_name} "
-            f"from {sender}"
+            f"from {_mask_phone(sender)}"
         )
         sms_gateway.send_check_in_confirmation(sender, event_name)
         return {"status": "checked_in", "ticketCode": ticket.ticket_code}
 
     except ValueError as e:
         logger.warning(f"SMS check-in failed for {ticket.ticket_code}: {e}")
-        sms_gateway.send_check_in_failure(sender, str(e))
-        return {"status": "error", "reason": str(e)}
+        sms_gateway.send_check_in_failure(sender, "Check-in failed")
+        return {"status": "error"}

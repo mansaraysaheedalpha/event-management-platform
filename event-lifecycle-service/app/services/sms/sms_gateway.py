@@ -48,10 +48,18 @@ class SMSGateway:
                 logger.error(f"Failed to initialize Africa's Talking: {e}")
         return self._client
 
+    @staticmethod
+    def _mask_phone(phone: str) -> str:
+        """Mask phone number for logging: +254712345678 -> +254****5678"""
+        if len(phone) <= 4:
+            return "****"
+        return phone[:4] + "****" + phone[-4:]
+
     def _send(self, phone_number: str, message: str) -> bool:
         """Send an SMS. Returns True on success, False on failure."""
+        masked = self._mask_phone(phone_number)
         if not self.client:
-            logger.debug(f"SMS skipped (gateway not configured): {message[:50]}...")
+            logger.debug(f"SMS skipped (gateway not configured) to {masked}")
             return False
         try:
             response = self.client.send(
@@ -60,12 +68,12 @@ class SMSGateway:
                 sender_id=AT_SHORTCODE or None,
             )
             logger.info(
-                f"SMS sent to {phone_number}: "
+                f"SMS sent to {masked}: "
                 f"status={response.get('SMSMessageData', {}).get('Message', 'unknown')}"
             )
             return True
         except Exception as e:
-            logger.error(f"SMS send failed to {phone_number}: {e}")
+            logger.error(f"SMS send failed to {masked}: {e}")
             return False
 
     def send_check_in_pin(

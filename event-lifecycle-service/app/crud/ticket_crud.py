@@ -121,19 +121,32 @@ class CRUDTicket:
         return query.order_by(Ticket.created_at.desc()).all()
 
     def generate_check_in_pin(self, db: Session, event_id: str) -> str:
-        """Generate a unique 6-digit check-in PIN for an event.
+        """Generate a 6-digit check-in PIN that is unique across all active events.
 
-        PINs are unique per event (not globally). Retries up to 10 times
-        on collision, which is extremely rare for events under 100K attendees.
+        Global uniqueness (not just per-event) is required because SMS check-in
+        searches by PIN across all active events — if two concurrent events shared
+        the same PIN, the wrong ticket could be checked in.
+
+        Retries up to 10 times on collision, which is extremely rare given
+        900,000 possible values.
         """
+        from app.models.event import Event
+
+        now = datetime.now(timezone.utc)
         for _ in range(10):
             pin = str(random.randint(100000, 999999))
-            existing = db.query(Ticket.id).filter(
-                and_(
-                    Ticket.event_id == event_id,
-                    Ticket.check_in_pin == pin,
+            # Check across ALL active events (end_date >= now), not just this one
+            existing = (
+                db.query(Ticket.id)
+                .join(Event, Ticket.event_id == Event.id)
+                .filter(
+                    and_(
+                        Ticket.check_in_pin == pin,
+                        Event.end_date >= now,
+                    )
                 )
-            ).first()
+                .first()
+            )
             if not existing:
                 return pin
         raise RuntimeError("Could not generate unique PIN after 10 attempts")

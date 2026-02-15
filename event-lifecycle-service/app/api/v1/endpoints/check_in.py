@@ -9,6 +9,7 @@ Provides:
 - Bulk sync endpoint for uploading offline check-ins
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -21,6 +22,8 @@ from app.db.session import get_db
 from app.schemas.token import TokenPayload
 from app.crud import crud_event
 from app.crud.ticket_crud import ticket_crud
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Check-in"])
 
@@ -272,7 +275,7 @@ def bulk_sync_check_ins(
             ticket_crud.check_in(
                 db,
                 ticket.id,
-                staff_user_id=item.checkedInBy,
+                checked_in_by=item.checkedInBy,
                 location=item.location,
             )
             synced += 1
@@ -282,11 +285,12 @@ def bulk_sync_check_ins(
             ))
 
         except Exception as e:
+            logger.warning(f"Bulk check-in error for {item.ticketCode}: {e}")
             errors += 1
             details.append(BulkCheckInResult(
                 ticketCode=item.ticketCode,
                 status="error",
-                message=str(e),
+                message="Check-in failed",
             ))
 
     return BulkCheckInResponse(

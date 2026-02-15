@@ -10,6 +10,13 @@ QR format versions:
 v3 enables offline check-in: scanner apps fetch the event's public key once,
 then verify QR codes locally without network. Critical for African venues
 where MTN/Airtel networks drop under crowd load.
+
+Key persistence:
+  RSA keypairs are persisted in Redis so they survive server restarts.
+  An in-memory dict acts as an L1 cache to avoid Redis round-trips on
+  every QR code generation. Keys are stored at:
+    qr_keys:{event_id}:private
+    qr_keys:{event_id}:public
 """
 
 import jwt
@@ -29,9 +36,20 @@ QR_SIGNING_SECRET = os.environ.get(
     "CHANGE-ME-IN-PRODUCTION-use-a-64-char-random-string",
 )
 
-# In-memory cache of per-event RSA key pairs: event_id -> (private_pem, public_pem)
-# In production, private keys should live in a secrets manager (AWS KMS, Vault, etc.)
+# L1 in-memory cache: event_id -> (private_pem, public_pem)
 _event_keys: Dict[str, Tuple[str, str]] = {}
+
+_REDIS_KEY_PREFIX = "qr_keys"
+
+
+def _get_redis():
+    """Get a Redis client, returning None if unavailable."""
+    try:
+        from app.db.redis import redis_client
+        redis_client.ping()
+        return redis_client
+    except Exception:
+        return None
 
 
 def _generate_rsa_keypair() -> Tuple[str, str]:
@@ -58,12 +76,45 @@ def _generate_rsa_keypair() -> Tuple[str, str]:
 def ensure_event_keypair(event_id: str) -> Tuple[str, str]:
     """Get or create an RSA key pair for an event.
 
+    Lookup order:
+      1. In-memory cache (fast, per-process)
+      2. Redis (shared across workers, survives restarts)
+      3. Generate new keypair → store in Redis + memory
+
     Returns:
         Tuple of (private_key_pem, public_key_pem).
     """
-    if event_id not in _event_keys:
-        logger.info(f"Generating RSA keypair for event {event_id}")
-        _event_keys[event_id] = _generate_rsa_keypair()
+    # L1: in-memory cache
+    if event_id in _event_keys:
+        return _event_keys[event_id]
+
+    # L2: Redis
+    r = _get_redis()
+    if r:
+        try:
+            priv = r.get(f"{_REDIS_KEY_PREFIX}:{event_id}:private")
+            pub = r.get(f"{_REDIS_KEY_PREFIX}:{event_id}:public")
+            if priv and pub:
+                _event_keys[event_id] = (priv, pub)
+                logger.debug(f"Loaded RSA keypair from Redis for event {event_id}")
+                return _event_keys[event_id]
+        except Exception as e:
+            logger.warning(f"Redis read failed for event {event_id} keypair: {e}")
+
+    # Generate new keypair
+    logger.info(f"Generating RSA keypair for event {event_id}")
+    private_pem, public_pem = _generate_rsa_keypair()
+
+    # Persist to Redis (no expiry — keys are needed for the lifetime of QR codes)
+    if r:
+        try:
+            r.set(f"{_REDIS_KEY_PREFIX}:{event_id}:private", private_pem)
+            r.set(f"{_REDIS_KEY_PREFIX}:{event_id}:public", public_pem)
+            logger.info(f"Persisted RSA keypair to Redis for event {event_id}")
+        except Exception as e:
+            logger.error(f"Failed to persist keypair to Redis for event {event_id}: {e}")
+
+    _event_keys[event_id] = (private_pem, public_pem)
     return _event_keys[event_id]
 
 
@@ -142,16 +193,27 @@ def verify_ticket_qr(token: str, public_key_pem: Optional[str] = None) -> Option
         except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
             pass
 
-    # Try RS256 with any cached event key by peeking at the unverified payload
+    # Try RS256 with cached event key by peeking at the unverified payload
     try:
         unverified = jwt.decode(token, options={"verify_signature": False})
         event_id = unverified.get("eid")
-        if event_id and event_id in _event_keys:
-            _, pub_pem = _event_keys[event_id]
-            try:
-                return jwt.decode(token, pub_pem, algorithms=["RS256"])
-            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-                pass
+        if event_id:
+            # Check L1 (memory) then L2 (Redis) for the public key
+            pub_pem = None
+            if event_id in _event_keys:
+                _, pub_pem = _event_keys[event_id]
+            else:
+                r = _get_redis()
+                if r:
+                    try:
+                        pub_pem = r.get(f"{_REDIS_KEY_PREFIX}:{event_id}:public")
+                    except Exception:
+                        pass
+            if pub_pem:
+                try:
+                    return jwt.decode(token, pub_pem, algorithms=["RS256"])
+                except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+                    pass
     except Exception:
         pass
 

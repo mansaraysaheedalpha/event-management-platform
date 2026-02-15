@@ -97,9 +97,9 @@ class Ticket(Base):
     def _generate_qr_data(self) -> str:
         """Generate signed JWT QR code data for this ticket.
 
-        Uses cryptographic JWT signing (HS256) instead of the old
-        guessable SHA256 checksum. The JWT can be verified server-side
-        to prevent QR code forgery.
+        Uses RS256 (per-event RSA keypair) for offline-verifiable QR codes.
+        Scanner apps can verify signatures using only the public key,
+        enabling check-in without network connectivity.
 
         If the ticket has an explicit expires_at, it is passed as the
         event_end_date hint so the JWT expiration aligns with it.
