@@ -455,7 +455,7 @@ class TicketManagementMutations:
             raise Exception(str(e))
 
     @strawberry.mutation
-    @rate_limit(max_calls=3, window_seconds=3600)
+    @rate_limit(max_calls=3, period_seconds=3600)
     async def resendTicketEmail(
         self,
         info: Info,
