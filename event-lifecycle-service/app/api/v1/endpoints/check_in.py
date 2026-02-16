@@ -10,7 +10,7 @@ Provides:
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +22,8 @@ from app.db.session import get_db
 from app.schemas.token import TokenPayload
 from app.crud import crud_event
 from app.crud.ticket_crud import ticket_crud
+from app.models.ticket import Ticket
+from app.models.registration import Registration
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +98,14 @@ class BulkCheckInResponse(BaseModel):
     conflicts: int
     errors: int
     details: List[BulkCheckInResult]
+
+
+class LiveQRResponse(BaseModel):
+    """Short-lived QR code data for anti-screenshot protection."""
+
+    qrData: str
+    expiresAt: str
+    refreshAfter: str
 
 
 # ============================================
@@ -298,4 +308,96 @@ def bulk_sync_check_ins(
         conflicts=conflicts,
         errors=errors,
         details=details,
+    )
+
+
+@router.get(
+    "/events/{event_id}/tickets/{ticket_code}/live-qr",
+    response_model=LiveQRResponse,
+)
+def get_live_qr(
+    event_id: str,
+    ticket_code: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Generate a short-lived QR code for anti-screenshot protection.
+
+    Returns an RS256 JWT that expires in 5 minutes. The attendee's app
+    refreshes this every 4 minutes so a screenshotted QR code becomes
+    invalid quickly. Falls back to static QR when offline.
+
+    Auth: caller must own the ticket (user_id match) or be an org admin.
+    """
+    event = crud_event.event.get(db, id=event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    # Look up ticket by code + event — try Ticket model first, then Registration
+    caller_id = current_user.sub
+    user_id: Optional[str] = None
+    attendee_name: str = "Attendee"
+
+    ticket = (
+        db.query(Ticket)
+        .filter(Ticket.ticket_code == ticket_code, Ticket.event_id == event_id)
+        .first()
+    )
+    if ticket:
+        user_id = ticket.user_id
+        attendee_name = ticket.attendee_name or "Attendee"
+    else:
+        reg = (
+            db.query(Registration)
+            .filter(
+                Registration.ticket_code == ticket_code,
+                Registration.event_id == event_id,
+            )
+            .first()
+        )
+        if reg:
+            user_id = reg.user_id
+            attendee_name = reg.guest_name or "Attendee"
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ticket not found",
+            )
+
+    # Authorization: caller must own the ticket OR be an org admin
+    is_owner = caller_id and caller_id == user_id
+    is_org_admin = (
+        hasattr(current_user, "org_id")
+        and current_user.org_id
+        and current_user.org_id == event.organization_id
+    )
+    if not is_owner and not is_org_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this ticket",
+        )
+
+    from app.services.ticket_management.qr_signing import sign_live_qr
+
+    ttl_seconds = 300  # 5 minutes
+    now = datetime.now(timezone.utc)
+
+    qr_data = sign_live_qr(
+        ticket_code=ticket_code,
+        event_id=event_id,
+        user_id=user_id,
+        attendee_name=attendee_name,
+        ttl_seconds=ttl_seconds,
+    )
+
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    refresh_after = now + timedelta(seconds=ttl_seconds - 60)  # refresh 1 min before expiry
+
+    return LiveQRResponse(
+        qrData=qr_data,
+        expiresAt=expires_at.isoformat(),
+        refreshAfter=refresh_after.isoformat(),
     )

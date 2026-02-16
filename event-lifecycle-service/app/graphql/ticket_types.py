@@ -463,6 +463,14 @@ class TransferTicketInput:
 
 
 @strawberry.input
+class TransferMyTicketInput:
+    """Input for an attendee transferring their own ticket by ticket code."""
+    ticketCode: str
+    newAttendeeName: str
+    newAttendeeEmail: str
+
+
+@strawberry.input
 class CancelTicketInput:
     """Input for cancelling a ticket."""
     ticketId: str

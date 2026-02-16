@@ -172,6 +172,47 @@ def sign_ticket_qr(
     return jwt.encode(payload, private_pem, algorithm="RS256")
 
 
+def sign_live_qr(
+    ticket_code: str,
+    event_id: str,
+    user_id: Optional[str],
+    attendee_name: str,
+    ttl_seconds: int = 300,
+) -> str:
+    """Generate a short-lived RS256 JWT for live QR display.
+
+    Same claims as sign_ticket_qr but with a tight expiration (default 5 min).
+    The "live" claim distinguishes this from static QR codes. Screenshots
+    of a live QR expire quickly, preventing replay attacks.
+
+    Args:
+        ticket_code: Human-readable ticket code.
+        event_id: Event the ticket belongs to.
+        user_id: Ticket owner's user ID.
+        attendee_name: For display on scanner UI.
+        ttl_seconds: Seconds until the JWT expires (default 300 = 5 min).
+
+    Returns:
+        Compact JWT string.
+    """
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(seconds=ttl_seconds)
+
+    payload = {
+        "tcode": ticket_code,
+        "eid": event_id,
+        "sub": user_id,
+        "name": attendee_name,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+        "v": 3,
+        "live": True,
+    }
+
+    private_pem, _ = ensure_event_keypair(event_id)
+    return jwt.encode(payload, private_pem, algorithm="RS256")
+
+
 def verify_ticket_qr(token: str, public_key_pem: Optional[str] = None) -> Optional[dict]:
     """Verify a signed QR token and return decoded claims.
 

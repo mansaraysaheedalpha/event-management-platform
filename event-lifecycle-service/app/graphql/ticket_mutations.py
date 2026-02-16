@@ -19,6 +19,7 @@ from app.graphql.ticket_types import (
     UpdatePromoCodeInput,
     CheckInTicketInput,
     TransferTicketInput,
+    TransferMyTicketInput,
     CancelTicketInput,
     DiscountTypeEnum,
 )
@@ -454,12 +455,18 @@ class TicketManagementMutations:
             raise Exception(str(e))
 
     @strawberry.mutation
+    @rate_limit(max_calls=3, window_seconds=3600)
     async def resendTicketEmail(
         self,
         info: Info,
         ticketId: str
     ) -> bool:
-        """Resend ticket confirmation email."""
+        """Resend ticket confirmation email.
+
+        Rate-limited to 3 resends per ticket per hour.
+        Requires authentication: ticket owner or org admin.
+        """
+        user = _require_auth(info)
         db = info.context.db
         from app.crud.ticket_crud import ticket_crud
 
@@ -467,9 +474,46 @@ class TicketManagementMutations:
         if not ticket:
             raise Exception("Ticket not found")
 
-        # Email sending will be handled by notification service integration
-        # For now, return True to indicate the request was accepted
-        # The actual email will be sent when notification service is integrated
+        # Authorize: ticket owner OR org admin
+        is_owner = ticket.user_id and ticket.user_id == user.get("sub")
+        is_org_admin = False
+        if ticket.event:
+            is_org_admin = (
+                user.get("orgId")
+                and user.get("orgId") == ticket.event.organization_id
+            )
+        if not is_owner and not is_org_admin:
+            raise Exception("Not authorized to resend this ticket email")
+
+        # Send the email via existing Resend infrastructure
+        from app.core.email import send_registration_confirmation
+
+        event = ticket.event
+        event_date = ""
+        if event and event.start_date:
+            event_date = event.start_date.strftime("%B %d, %Y at %I:%M %p")
+
+        event_location = None
+        if event and hasattr(event, "venue") and event.venue:
+            event_location = event.venue.name
+
+        result = send_registration_confirmation(
+            to_email=ticket.attendee_email,
+            recipient_name=ticket.attendee_name,
+            event_name=event.name if event else "Your Event",
+            event_date=event_date,
+            ticket_code=ticket.ticket_code,
+            event_location=event_location,
+        )
+
+        if result and result.get("success") is False:
+            logger.warning(
+                f"Failed to resend ticket email for {ticket.ticket_code}: "
+                f"{result.get('error', 'unknown')}"
+            )
+            raise Exception("Failed to send email. Please try again later.")
+
+        logger.info(f"Resent ticket email for {ticket.ticket_code}")
         return True
 
     @strawberry.mutation
@@ -478,7 +522,7 @@ class TicketManagementMutations:
         info: Info,
         input: TransferTicketInput
     ) -> TicketGQLType:
-        """Transfer a ticket to a new attendee."""
+        """Transfer a ticket to a new attendee (org admin action)."""
         db = info.context.db
 
         # BUG C3 fix: Authorize user for this event (lookup event via ticket)
@@ -494,3 +538,74 @@ class TicketManagementMutations:
             return ticket
         except ValueError as e:
             raise Exception(str(e))
+
+    @strawberry.mutation
+    async def transferMyTicket(
+        self,
+        info: Info,
+        input: TransferMyTicketInput
+    ) -> bool:
+        """Transfer an attendee's own ticket to a new person.
+
+        Attendee-facing: looks up by ticket code, verifies the caller
+        is the ticket owner (user_id match). Works with both Ticket
+        and Registration models.
+        """
+        user = _require_auth(info)
+        caller_id = user["sub"]
+        db = info.context.db
+
+        from app.crud.ticket_crud import ticket_crud
+        from app.models.registration import Registration
+
+        # Try Ticket model first (paid events)
+        ticket = ticket_crud.get_by_code(db, input.ticketCode)
+        if ticket:
+            if ticket.user_id != caller_id:
+                raise Exception("You can only transfer your own tickets")
+            if ticket.status != "valid":
+                raise Exception(
+                    f"Ticket cannot be transferred (current status: {ticket.status})"
+                )
+            try:
+                ticket_crud.transfer(
+                    db,
+                    ticket.id,
+                    new_attendee_name=input.newAttendeeName,
+                    new_attendee_email=input.newAttendeeEmail,
+                )
+                logger.info(
+                    f"Attendee transfer: {ticket.ticket_code} -> {input.newAttendeeEmail}"
+                )
+                return True
+            except ValueError as e:
+                raise Exception(str(e))
+
+        # Fall back to Registration model (free events)
+        reg = (
+            db.query(Registration)
+            .filter(Registration.ticket_code == input.ticketCode)
+            .first()
+        )
+        if not reg:
+            raise Exception("Ticket not found")
+
+        if reg.user_id != caller_id:
+            raise Exception("You can only transfer your own tickets")
+
+        if reg.status != "confirmed":
+            raise Exception(
+                f"Ticket cannot be transferred (current status: {reg.status})"
+            )
+
+        # Transfer registration: update to new attendee
+        from datetime import datetime, timezone
+        reg.guest_name = input.newAttendeeName
+        reg.guest_email = input.newAttendeeEmail
+        reg.user_id = None  # Disassociate from current user
+        db.commit()
+
+        logger.info(
+            f"Registration transfer: {reg.ticket_code} -> {input.newAttendeeEmail}"
+        )
+        return True
