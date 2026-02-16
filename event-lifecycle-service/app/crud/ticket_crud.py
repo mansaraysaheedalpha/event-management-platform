@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 
 from app.models.ticket import Ticket
+from app.models.order_item import OrderItem
 from app.schemas.ticket_management import TicketStatus
 
 
@@ -402,52 +403,52 @@ class CRUDTicket:
         db: Session,
         event_id: str
     ) -> dict:
-        """Get sales statistics for an event."""
+        """Get sales statistics for an event.
+
+        Returns ticket counts AND actual revenue (summed from
+        OrderItem.unit_price) for each period — no more avg_price
+        approximation.
+        """
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=now.weekday())
         month_start = today_start.replace(day=1)
 
+        active_filter = and_(
+            Ticket.event_id == event_id,
+            Ticket.status.notin_(["cancelled", "refunded"]),
+        )
+
         # Total sold
         total = db.query(func.count(Ticket.id)).filter(
-            and_(
-                Ticket.event_id == event_id,
-                Ticket.status.notin_(["cancelled", "refunded"])
-            )
+            active_filter
         ).scalar() or 0
 
-        # Sales today
-        sales_today = db.query(func.count(Ticket.id)).filter(
-            and_(
-                Ticket.event_id == event_id,
-                Ticket.created_at >= today_start,
-                Ticket.status.notin_(["cancelled", "refunded"])
+        # Helper: count + revenue for a time period
+        def _period_stats(since: datetime) -> Tuple[int, int]:
+            row = (
+                db.query(
+                    func.count(Ticket.id),
+                    func.coalesce(func.sum(OrderItem.unit_price), 0),
+                )
+                .join(OrderItem, Ticket.order_item_id == OrderItem.id)
+                .filter(active_filter, Ticket.created_at >= since)
+                .one()
             )
-        ).scalar() or 0
+            return int(row[0]), int(row[1])
 
-        # Sales this week
-        sales_this_week = db.query(func.count(Ticket.id)).filter(
-            and_(
-                Ticket.event_id == event_id,
-                Ticket.created_at >= week_start,
-                Ticket.status.notin_(["cancelled", "refunded"])
-            )
-        ).scalar() or 0
-
-        # Sales this month
-        sales_this_month = db.query(func.count(Ticket.id)).filter(
-            and_(
-                Ticket.event_id == event_id,
-                Ticket.created_at >= month_start,
-                Ticket.status.notin_(["cancelled", "refunded"])
-            )
-        ).scalar() or 0
+        sales_today, revenue_today = _period_stats(today_start)
+        sales_this_week, revenue_this_week = _period_stats(week_start)
+        sales_this_month, revenue_this_month = _period_stats(month_start)
 
         return {
             "total": total,
             "sales_today": sales_today,
             "sales_this_week": sales_this_week,
-            "sales_this_month": sales_this_month
+            "sales_this_month": sales_this_month,
+            "revenue_today": revenue_today,
+            "revenue_this_week": revenue_this_week,
+            "revenue_this_month": revenue_this_month,
         }
 
 

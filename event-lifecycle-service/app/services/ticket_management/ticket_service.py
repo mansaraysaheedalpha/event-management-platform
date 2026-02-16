@@ -560,11 +560,10 @@ class TicketManagementService:
         # Get currency from first ticket type or default
         currency = ticket_types[0].currency if ticket_types else "USD"
 
-        # Calculate revenue by period based on average ticket price
-        avg_price = total_revenue // total_sold if total_sold > 0 else 0
-        revenue_today = avg_price * sales_stats["sales_today"]
-        revenue_this_week = avg_price * sales_stats["sales_this_week"]
-        revenue_this_month = avg_price * sales_stats["sales_this_month"]
+        # Actual revenue per period (summed from OrderItem.unit_price)
+        revenue_today = sales_stats["revenue_today"]
+        revenue_this_week = sales_stats["revenue_this_week"]
+        revenue_this_month = sales_stats["revenue_this_month"]
 
         return EventTicketSummary(
             event_id=event_id,
