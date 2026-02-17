@@ -1,7 +1,7 @@
 """venue sourcing models
 
-Revision ID: a1b2c3d4e5f6
-Revises:
+Revision ID: vs001
+Revises: t003_ticket_check_in_pin
 Create Date: 2026-02-16 20:00:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 
 # revision identifiers, used by Alembic.
-revision = "a1b2c3d4e5f6"
+revision = "vs001"
 down_revision = "t003_ticket_check_in_pin"
 branch_labels = None
 depends_on = None
