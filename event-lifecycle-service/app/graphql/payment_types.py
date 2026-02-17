@@ -1,5 +1,6 @@
 # app/graphql/payment_types.py
 import strawberry
+from strawberry.types import Info
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -214,7 +215,7 @@ class PromoCodeType:
         return root.applicable_ticket_type_ids
 
     @strawberry.field
-    def applicableTicketTypes(self, root: PromoCodeModel, info) -> List["TicketTypeType"]:
+    def applicableTicketTypes(self, root: PromoCodeModel, info: Info) -> List["TicketTypeType"]:
         """Get the actual ticket type objects this promo code applies to."""
         if not root.applicable_ticket_type_ids:
             return []
