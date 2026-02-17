@@ -26,7 +26,7 @@ def upgrade() -> None:
         sa.Column("action", sa.String(50), nullable=False),  # 'award', 'decline', 'extend_deadline', etc.
         sa.Column("old_state", sa.String(50), nullable=True),
         sa.Column("new_state", sa.String(50), nullable=True),
-        sa.Column("metadata", JSONB, nullable=True),  # {deadline_old: ..., deadline_new: ..., reason: ...}
+        sa.Column("action_metadata", JSONB, nullable=True),  # {deadline_old: ..., deadline_new: ..., reason: ...}
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
     )
 

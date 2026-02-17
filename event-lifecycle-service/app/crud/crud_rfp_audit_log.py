@@ -28,7 +28,7 @@ def create_audit_entry(
         action=action,
         old_state=old_state,
         new_state=new_state,
-        metadata=metadata,
+        action_metadata=metadata,  # Map parameter 'metadata' to column 'action_metadata'
     )
     db.add(entry)
     db.commit()

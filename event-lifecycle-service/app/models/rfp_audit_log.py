@@ -27,7 +27,7 @@ class RFPAuditLog(Base):
     action = Column(String(50), nullable=False, index=True)
     old_state = Column(String(50), nullable=True)
     new_state = Column(String(50), nullable=True)
-    metadata = Column(JSONB, nullable=True)  # Additional context
+    action_metadata = Column(JSONB, nullable=True)  # Additional context (renamed from 'metadata' to avoid SQLAlchemy reserved name)
 
     # Timestamp
     created_at = Column(
