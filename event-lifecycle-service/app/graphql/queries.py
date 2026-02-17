@@ -103,6 +103,28 @@ from .waitlist_types import (
 )
 from .waitlist_queries import WaitlistQuery
 from .sponsor_queries import SponsorQueries
+from . import venue_queries as vq
+from . import rfp_queries as rq
+from .rfp_types import (
+    RFPType,
+    RFPListResultType,
+    ComparisonDashboardType,
+    PreSendSummaryType,
+    VenueRFPInboxResultType,
+    VenueRFPDetailType,
+    ExchangeRateType,
+)
+from .venue_types import (
+    VenueFullType,
+    VenueDirectoryResultGQL,
+    AmenityCategoryTypeGQL,
+    CountryCountGQL,
+    CityCountGQL,
+    VenueSpaceType,
+    VenueSpacePricingType,
+    VenuePhotoType,
+    VenueAmenityType,
+)
 from .sponsor_types import (
     SponsorTierType,
     SponsorType,
@@ -340,6 +362,87 @@ class Query:
             return None
 
         return venue_obj
+
+    # --- VENUE SOURCING QUERIES ---
+
+    @strawberry.field
+    def venueDirectory(
+        self,
+        info: Info,
+        q: typing.Optional[str] = None,
+        country: typing.Optional[str] = None,
+        city: typing.Optional[str] = None,
+        lat: typing.Optional[float] = None,
+        lng: typing.Optional[float] = None,
+        radiusKm: typing.Optional[float] = None,
+        minCapacity: typing.Optional[int] = None,
+        maxPrice: typing.Optional[float] = None,
+        currency: typing.Optional[str] = None,
+        amenityIds: typing.Optional[typing.List[str]] = None,
+        sort: typing.Optional[str] = None,
+        page: typing.Optional[int] = None,
+        pageSize: typing.Optional[int] = None,
+    ) -> VenueDirectoryResultGQL:
+        """[PUBLIC] Search approved venues in the directory."""
+        return vq.venue_directory_query(
+            info, q=q, country=country, city=city, lat=lat, lng=lng,
+            radiusKm=radiusKm, minCapacity=minCapacity, maxPrice=maxPrice,
+            currency=currency, amenityIds=amenityIds, sort=sort,
+            page=page, pageSize=pageSize,
+        )
+
+    @strawberry.field
+    def venueBySlug(
+        self, slug: str, info: Info
+    ) -> Optional[VenueFullType]:
+        """[PUBLIC] Get full venue profile by slug."""
+        return vq.venue_by_slug_query(slug, info)
+
+    @strawberry.field
+    def venueAmenityCategories(self, info: Info) -> List[AmenityCategoryTypeGQL]:
+        """[PUBLIC] List all amenity categories with their amenities."""
+        return vq.venue_amenity_categories_query(info)
+
+    @strawberry.field
+    def venueCountries(self, info: Info) -> List[CountryCountGQL]:
+        """[PUBLIC] List countries that have approved venues."""
+        return vq.venue_countries_query(info)
+
+    @strawberry.field
+    def venueCities(
+        self, info: Info, country: typing.Optional[str] = None
+    ) -> List[CityCountGQL]:
+        """[PUBLIC] List cities that have approved venues."""
+        return vq.venue_cities_query(info, country=country)
+
+    @strawberry.field
+    def organizationVenuesFull(
+        self, info: Info, status: typing.Optional[str] = None
+    ) -> List[VenueFullType]:
+        """List org's venues with sourcing fields (authenticated)."""
+        return vq.organization_venues_query(info, status=status)
+
+    @strawberry.field
+    def venueDetail(
+        self, id: strawberry.ID, info: Info
+    ) -> Optional[VenueFullType]:
+        """Get full venue detail with relations (owner view)."""
+        return vq.venue_detail_query(str(id), info)
+
+    @strawberry.field
+    def adminVenueQueue(
+        self,
+        info: Info,
+        status: typing.Optional[str] = None,
+        domainMatch: typing.Optional[bool] = None,
+        page: typing.Optional[int] = None,
+        pageSize: typing.Optional[int] = None,
+    ) -> VenueDirectoryResultGQL:
+        """[ADMIN] Get venues pending review."""
+        return vq.admin_venue_queue_query(
+            info, status=status, domainMatch=domainMatch,
+            page=page, pageSize=pageSize,
+        )
 
     @strawberry.field
     def registrationsByEvent(
@@ -1854,3 +1957,57 @@ class Query:
         Auth: OWNER or ADMIN of the organization.
         """
         return connect_queries.get_organization_fees(organizationId, info)
+
+    # --- RFP SYSTEM QUERIES ---
+
+    @strawberry.field
+    def organizationRfps(
+        self,
+        info: Info,
+        status: typing.Optional[str] = None,
+        page: int = 1,
+        pageSize: int = 10,
+    ) -> RFPListResultType:
+        """List RFPs for the current organization."""
+        return rq.organization_rfps_query(info, status=status, page=page, pageSize=pageSize)
+
+    @strawberry.field
+    def rfp(self, id: strawberry.ID, info: Info) -> Optional[RFPType]:
+        """Get a single RFP by ID."""
+        return rq.rfp_query(str(id), info)
+
+    @strawberry.field
+    def rfpComparison(self, rfpId: str, info: Info) -> ComparisonDashboardType:
+        """Get comparison dashboard for an RFP's venue responses."""
+        return rq.rfp_comparison_query(rfpId, info)
+
+    @strawberry.field
+    def rfpPreSendSummary(self, rfpId: str, info: Info) -> PreSendSummaryType:
+        """Get pre-send summary with fit indicators for an RFP."""
+        return rq.rfp_pre_send_summary_query(rfpId, info)
+
+    @strawberry.field
+    def venueRfpInbox(
+        self,
+        venueId: str,
+        info: Info,
+        status: typing.Optional[str] = None,
+        page: int = 1,
+        pageSize: int = 10,
+    ) -> VenueRFPInboxResultType:
+        """Venue owner's RFP inbox."""
+        return rq.venue_rfp_inbox_query(venueId, info, status=status, page=page, pageSize=pageSize)
+
+    @strawberry.field
+    def venueRfpDetail(
+        self, venueId: str, rfpId: str, info: Info
+    ) -> Optional[VenueRFPDetailType]:
+        """Venue owner's RFP detail view (marks as viewed)."""
+        return rq.venue_rfp_detail_query(venueId, rfpId, info)
+
+    @strawberry.field
+    def exchangeRates(
+        self, base: str, info: Info, targets: typing.Optional[typing.List[str]] = None
+    ) -> ExchangeRateType:
+        """Get exchange rates for currency conversion."""
+        return rq.exchange_rates_query(base, info, targets=targets)

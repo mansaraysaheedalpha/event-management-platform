@@ -43,3 +43,14 @@ from .crud_session_reminder import session_reminder
 
 # Demo request CRUD operations
 from .crud_demo_request import demo_request
+
+# Venue sourcing CRUD operations
+from .crud_venue_space import venue_space
+from .crud_venue_photo import venue_photo
+from .crud_amenity import amenity
+from .crud_venue_verification import venue_verification
+
+# RFP system CRUD operations
+from . import crud_rfp
+from . import crud_rfp_venue
+from . import crud_venue_response

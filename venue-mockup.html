@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GlobalConnect — Venue Directory Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f5ff', 100: '#e0eaff', 200: '#c2d5ff', 400: '#6699ff', 500: '#3366cc', 600: '#2952a3', 700: '#1f3d7a', 800: '#152952', 900: '#0b1429' },
+            accent: { 400: '#f59e0b', 500: '#d97706' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .tab-active { border-bottom: 2px solid #3366cc; color: #3366cc; font-weight: 600; }
+    .filter-chip { transition: all 0.15s ease; }
+    .filter-chip:hover { transform: translateY(-1px); }
+    .filter-chip.active { background-color: #3366cc; color: white; border-color: #3366cc; }
+    .venue-card { transition: all 0.2s ease; }
+    .venue-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+    .photo-tab.active { background-color: #3366cc; color: white; }
+    .photo-tab { cursor: pointer; transition: all 0.15s ease; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .status-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .completeness-bar { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
+    .completeness-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #3366cc, #6699ff); transition: width 0.5s ease; }
+    .star { color: #f59e0b; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .map-placeholder { background: linear-gradient(135deg, #e0eaff 0%, #f0f5ff 50%, #e0eaff 100%); }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- ============================================================ -->
+  <!-- TOP NAVIGATION                                                -->
+  <!-- ============================================================ -->
+  <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center gap-8">
+          <div class="flex items-center gap-2 cursor-pointer" onclick="showPage('directory')">
+            <div class="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+              <span class="text-white font-bold text-sm">G</span>
+            </div>
+            <span class="font-bold text-lg text-gray-900">GlobalConnect</span>
+          </div>
+          <div class="hidden md:flex items-center gap-1">
+            <button onclick="showPage('directory')" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-brand-500 hover:bg-brand-50" id="nav-directory">Venue Directory</button>
+            <button onclick="showPage('detail')" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-brand-500 hover:bg-brand-50" id="nav-detail">Venue Detail</button>
+            <button onclick="showPage('dashboard')" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-brand-500 hover:bg-brand-50" id="nav-dashboard">Owner Dashboard</button>
+            <button onclick="showPage('admin')" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-brand-500 hover:bg-brand-50" id="nav-admin">Admin Review</button>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-md hover:bg-gray-100">Log In</button>
+          <button class="text-sm bg-brand-500 text-white px-4 py-1.5 rounded-md hover:bg-brand-600 font-medium">List Your Venue</button>
+        </div>
+      </div>
+    </div>
+    <!-- Mockup page indicator -->
+    <div class="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-center">
+      <span class="text-amber-700 text-xs font-medium">UI MOCKUP — Click navigation tabs above to switch between pages</span>
+    </div>
+  </nav>
+
+  <!-- ============================================================ -->
+  <!-- PAGE 1: PUBLIC VENUE DIRECTORY                                -->
+  <!-- ============================================================ -->
+  <div id="page-directory" class="page active">
+
+    <!-- Hero Search Section -->
+    <div class="bg-gradient-to-br from-brand-700 via-brand-600 to-brand-800 text-white">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <h1 class="text-3xl font-bold mb-2">Find the Perfect Venue</h1>
+        <p class="text-brand-200 mb-8 text-lg">Browse verified event spaces across Africa and beyond</p>
+
+        <!-- Search Bar -->
+        <div class="bg-white rounded-xl shadow-lg p-2 flex flex-col md:flex-row gap-2">
+          <div class="flex-1 flex items-center gap-2 px-3">
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input type="text" placeholder="Search venues by name, city, or keyword..." class="w-full py-2 text-gray-900 placeholder-gray-400 outline-none text-sm">
+          </div>
+          <div class="flex items-center gap-2 border-l border-gray-200 px-3">
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <select class="py-2 text-gray-700 outline-none text-sm bg-transparent min-w-[140px]">
+              <option>All Countries</option>
+              <option>Kenya</option>
+              <option>Nigeria</option>
+              <option>South Africa</option>
+              <option>Tanzania</option>
+              <option>Ghana</option>
+              <option>Rwanda</option>
+              <option>Egypt</option>
+              <option>Morocco</option>
+              <option>United Kingdom</option>
+              <option>United Arab Emirates</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2 border-l border-gray-200 px-3">
+            <select class="py-2 text-gray-700 outline-none text-sm bg-transparent min-w-[120px]">
+              <option>All Cities</option>
+              <option>Nairobi</option>
+              <option>Lagos</option>
+              <option>Cape Town</option>
+              <option>Dar es Salaam</option>
+              <option>Accra</option>
+              <option>Kigali</option>
+              <option>Cairo</option>
+              <option>Casablanca</option>
+            </select>
+          </div>
+          <button class="bg-brand-500 text-white px-6 py-2.5 rounded-lg hover:bg-brand-600 font-medium text-sm whitespace-nowrap">
+            Search Venues
+          </button>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="flex items-center gap-6 mt-6 text-sm text-brand-200">
+          <span><strong class="text-white">2,340</strong> verified venues</span>
+          <span><strong class="text-white">24</strong> countries</span>
+          <span><strong class="text-white">85+</strong> cities</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content: Filters + Results + Map -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div class="flex gap-6">
+
+        <!-- Left Sidebar: Filters -->
+        <div class="w-72 flex-shrink-0 hidden lg:block">
+          <div class="bg-white rounded-xl border border-gray-200 p-5 sticky top-32">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-gray-900">Smart Filters</h3>
+              <button class="text-xs text-brand-500 hover:text-brand-600 font-medium">Clear All</button>
+            </div>
+
+            <!-- Capacity -->
+            <div class="mb-5">
+              <label class="text-sm font-medium text-gray-700 mb-2 block">Minimum Capacity</label>
+              <div class="flex items-center gap-2">
+                <input type="number" placeholder="e.g. 50" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400">
+                <span class="text-xs text-gray-400 whitespace-nowrap">people</span>
+              </div>
+            </div>
+
+            <!-- Price Range -->
+            <div class="mb-5">
+              <label class="text-sm font-medium text-gray-700 mb-2 block">Price Range (per day)</label>
+              <div class="flex items-center gap-2">
+                <input type="text" placeholder="Min" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-400">
+                <span class="text-gray-400">-</span>
+                <input type="text" placeholder="Max" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-400">
+              </div>
+            </div>
+
+            <!-- Accessibility -->
+            <div class="mb-5">
+              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <span>♿</span> Accessibility
+              </h4>
+              <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Wheelchair access
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Elevator
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Accessible restrooms
+                </label>
+              </div>
+            </div>
+
+            <!-- Technology -->
+            <div class="mb-5">
+              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <span>📡</span> Technology
+              </h4>
+              <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" checked class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Wi-Fi available
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Projector
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Sound system
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Video conferencing
+                </label>
+              </div>
+            </div>
+
+            <!-- Catering -->
+            <div class="mb-5">
+              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <span>🍽️</span> Catering
+              </h4>
+              <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> In-house catering
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> External catering allowed
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Halal options
+                </label>
+              </div>
+            </div>
+
+            <!-- Infrastructure -->
+            <div class="mb-5">
+              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <span>🏗️</span> Infrastructure
+              </h4>
+              <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Parking available
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" checked class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Generator / Backup power
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Air conditioning
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Security
+                </label>
+              </div>
+            </div>
+
+            <!-- Outdoor -->
+            <div class="mb-5">
+              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <span>🌳</span> Outdoor
+              </h4>
+              <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Garden / Outdoor space
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Rooftop
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Pool area
+                </label>
+              </div>
+            </div>
+
+            <!-- Payment -->
+            <div class="mb-5">
+              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <span>💳</span> Payment Methods
+              </h4>
+              <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Mobile money (M-Pesa)
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Card payment
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-900">
+                  <input type="checkbox" class="rounded border-gray-300 text-brand-500 focus:ring-brand-400"> Bank transfer
+                </label>
+              </div>
+            </div>
+
+            <button class="w-full bg-brand-500 text-white py-2.5 rounded-lg hover:bg-brand-600 font-medium text-sm mt-2">
+              Apply Filters
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Results + Map Toggle -->
+        <div class="flex-1 min-w-0">
+
+          <!-- Results Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <span class="text-sm text-gray-500">Showing <strong class="text-gray-900">48</strong> venues</span>
+              <span class="text-sm text-gray-400 ml-2">· 2 filters active</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- View Toggle -->
+              <div class="flex items-center bg-white border border-gray-200 rounded-lg p-0.5">
+                <button class="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-500 text-white">Grid</button>
+                <button class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700">List</button>
+                <button class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700" onclick="document.getElementById('map-panel').classList.toggle('hidden')">Map</button>
+              </div>
+              <select class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white">
+                <option>Sort: Recommended</option>
+                <option>Price: Low to High</option>
+                <option>Price: High to Low</option>
+                <option>Capacity: Largest</option>
+                <option>Newest Listings</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Active Filters Chips -->
+          <div class="flex flex-wrap gap-2 mb-4">
+            <span class="filter-chip active inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-brand-500 bg-brand-500 text-white cursor-pointer">
+              Wi-Fi available
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </span>
+            <span class="filter-chip active inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-brand-500 bg-brand-500 text-white cursor-pointer">
+              Generator / Backup power
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </span>
+          </div>
+
+          <!-- Map Panel (toggleable) -->
+          <div id="map-panel" class="hidden mb-4">
+            <div class="map-placeholder rounded-xl border border-gray-200 h-72 flex items-center justify-center">
+              <div class="text-center">
+                <svg class="w-12 h-12 text-brand-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                <p class="text-brand-600 font-medium text-sm">Interactive Map View</p>
+                <p class="text-brand-400 text-xs mt-1">Mapbox / Leaflet map with venue pins goes here</p>
+                <div class="mt-3 flex items-center justify-center gap-2">
+                  <input type="text" placeholder="Search location..." class="border border-brand-200 rounded-lg px-3 py-1.5 text-xs w-48 outline-none">
+                  <select class="border border-brand-200 rounded-lg px-2 py-1.5 text-xs">
+                    <option>Within 5km</option>
+                    <option>Within 10km</option>
+                    <option>Within 25km</option>
+                    <option>Within 50km</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Venue Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+
+            <!-- Venue Card 1 -->
+            <div class="venue-card bg-white rounded-xl border border-gray-200 overflow-hidden cursor-pointer" onclick="showPage('detail')">
+              <div class="relative">
+                <div class="h-44 bg-gradient-to-br from-amber-100 to-amber-50 flex items-center justify-center">
+                  <span class="text-4xl">🏨</span>
+                </div>
+                <div class="absolute top-3 left-3 flex gap-1.5">
+                  <span class="bg-green-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                    Verified
+                  </span>
+                </div>
+                <div class="absolute top-3 right-3">
+                  <button class="w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white shadow-sm">
+                    <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="p-4">
+                <div class="flex items-start justify-between mb-1">
+                  <h3 class="font-semibold text-gray-900 text-sm leading-tight">Kenyatta International Convention Centre</h3>
+                </div>
+                <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  Nairobi, Kenya
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Wi-Fi</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Generator</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Parking</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Catering</span>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div class="flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Up to 6,000
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-500">5 spaces</span>
+                    <span class="text-gray-300">·</span>
+                    <span class="text-sm font-semibold text-brand-600">KES 150,000<span class="text-xs font-normal text-gray-400">/day</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Venue Card 2 -->
+            <div class="venue-card bg-white rounded-xl border border-gray-200 overflow-hidden cursor-pointer" onclick="showPage('detail')">
+              <div class="relative">
+                <div class="h-44 bg-gradient-to-br from-emerald-100 to-emerald-50 flex items-center justify-center">
+                  <span class="text-4xl">🏛️</span>
+                </div>
+                <div class="absolute top-3 left-3 flex gap-1.5">
+                  <span class="bg-green-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                    Verified
+                  </span>
+                </div>
+              </div>
+              <div class="p-4">
+                <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1">Eko Hotels & Suites Convention Centre</h3>
+                <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  Lagos, Nigeria
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Wi-Fi</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Generator</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">A/C</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Security</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">+3</span>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div class="flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Up to 3,000
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-500">8 spaces</span>
+                    <span class="text-gray-300">·</span>
+                    <span class="text-sm font-semibold text-brand-600">NGN 2,500,000<span class="text-xs font-normal text-gray-400">/day</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Venue Card 3 -->
+            <div class="venue-card bg-white rounded-xl border border-gray-200 overflow-hidden cursor-pointer" onclick="showPage('detail')">
+              <div class="relative">
+                <div class="h-44 bg-gradient-to-br from-purple-100 to-purple-50 flex items-center justify-center">
+                  <span class="text-4xl">🌿</span>
+                </div>
+                <span class="absolute top-3 left-3 bg-amber-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">New</span>
+              </div>
+              <div class="p-4">
+                <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1">Kigali Serena Hotel</h3>
+                <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  Kigali, Rwanda
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Wi-Fi</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Garden</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Pool</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Halal</span>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div class="flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Up to 500
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-500">4 spaces</span>
+                    <span class="text-gray-300">·</span>
+                    <span class="text-sm font-semibold text-brand-600">$800<span class="text-xs font-normal text-gray-400">/day</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Venue Card 4 -->
+            <div class="venue-card bg-white rounded-xl border border-gray-200 overflow-hidden cursor-pointer" onclick="showPage('detail')">
+              <div class="relative">
+                <div class="h-44 bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center">
+                  <span class="text-4xl">🏖️</span>
+                </div>
+                <div class="absolute top-3 left-3 flex gap-1.5">
+                  <span class="bg-green-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                    Verified
+                  </span>
+                </div>
+              </div>
+              <div class="p-4">
+                <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1">Cape Town International Convention Centre</h3>
+                <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  Cape Town, South Africa
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Wheelchair</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Wi-Fi</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Generator</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">+5</span>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div class="flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Up to 10,000
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-500">12 spaces</span>
+                    <span class="text-gray-300">·</span>
+                    <span class="text-sm font-semibold text-brand-600">ZAR 85,000<span class="text-xs font-normal text-gray-400">/day</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Venue Card 5 -->
+            <div class="venue-card bg-white rounded-xl border border-gray-200 overflow-hidden cursor-pointer" onclick="showPage('detail')">
+              <div class="relative">
+                <div class="h-44 bg-gradient-to-br from-rose-100 to-rose-50 flex items-center justify-center">
+                  <span class="text-4xl">🕌</span>
+                </div>
+                <div class="absolute top-3 left-3 flex gap-1.5">
+                  <span class="bg-green-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                    Verified
+                  </span>
+                </div>
+              </div>
+              <div class="p-4">
+                <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1">Dar es Salaam Serena Hotel</h3>
+                <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  Dar es Salaam, Tanzania
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Generator</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Halal</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Garden</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">M-Pesa</span>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div class="flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Up to 800
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-500">6 spaces</span>
+                    <span class="text-gray-300">·</span>
+                    <span class="text-sm font-semibold text-brand-600">TZS 1,200,000<span class="text-xs font-normal text-gray-400">/day</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Venue Card 6 -->
+            <div class="venue-card bg-white rounded-xl border border-gray-200 overflow-hidden cursor-pointer" onclick="showPage('detail')">
+              <div class="relative">
+                <div class="h-44 bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
+                  <span class="text-4xl">🏢</span>
+                </div>
+                <span class="absolute top-3 left-3 bg-amber-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">New</span>
+              </div>
+              <div class="p-4">
+                <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1">Accra International Conference Centre</h3>
+                <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                  Accra, Ghana
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Wi-Fi</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">A/C</span>
+                  <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Projector</span>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div class="flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Up to 1,500
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-500">3 spaces</span>
+                    <span class="text-gray-300">·</span>
+                    <span class="text-sm font-semibold text-brand-600">GHS 15,000<span class="text-xs font-normal text-gray-400">/day</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Pagination -->
+          <div class="flex items-center justify-center gap-2 mt-8 mb-8">
+            <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">Previous</button>
+            <button class="px-3 py-1.5 text-sm border border-brand-500 bg-brand-500 text-white rounded-lg font-medium">1</button>
+            <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400">2</button>
+            <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400">3</button>
+            <span class="text-gray-400">...</span>
+            <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400">8</button>
+            <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- PAGE 2: VENUE DETAIL PAGE                                     -->
+  <!-- ============================================================ -->
+  <div id="page-detail" class="page">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+      <!-- Breadcrumb -->
+      <div class="flex items-center gap-2 text-sm text-gray-500 mb-4">
+        <a class="hover:text-brand-500 cursor-pointer" onclick="showPage('directory')">Venues</a>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-gray-400">Kenya</span>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-gray-900 font-medium">Kenyatta International Convention Centre</span>
+      </div>
+
+      <!-- Photo Gallery -->
+      <div class="grid grid-cols-4 grid-rows-2 gap-2 h-80 rounded-2xl overflow-hidden mb-6">
+        <div class="col-span-2 row-span-2 bg-gradient-to-br from-amber-200 to-amber-100 flex items-center justify-center">
+          <div class="text-center">
+            <span class="text-6xl">🏨</span>
+            <p class="text-amber-700 text-xs mt-2 font-medium">Exterior — Cover Photo</p>
+          </div>
+        </div>
+        <div class="bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center">
+          <div class="text-center"><span class="text-2xl">🏛️</span><p class="text-blue-600 text-xs mt-1">Interior</p></div>
+        </div>
+        <div class="bg-gradient-to-br from-green-100 to-green-50 flex items-center justify-center">
+          <div class="text-center"><span class="text-2xl">🎪</span><p class="text-green-600 text-xs mt-1">Event Room</p></div>
+        </div>
+        <div class="bg-gradient-to-br from-purple-100 to-purple-50 flex items-center justify-center">
+          <div class="text-center"><span class="text-2xl">🌳</span><p class="text-purple-600 text-xs mt-1">Amenities</p></div>
+        </div>
+        <div class="bg-gradient-to-br from-rose-100 to-rose-50 flex items-center justify-center relative cursor-pointer">
+          <div class="text-center"><span class="text-2xl">🍽️</span><p class="text-rose-600 text-xs mt-1">Catering</p></div>
+          <div class="absolute inset-0 bg-black/40 flex items-center justify-center"><span class="text-white font-semibold text-sm">+3 more</span></div>
+        </div>
+      </div>
+
+      <!-- Photo Category Tabs -->
+      <div class="flex gap-2 mb-6">
+        <button class="photo-tab active px-3 py-1.5 text-xs rounded-full border border-brand-500 font-medium">All Photos (8)</button>
+        <button class="photo-tab px-3 py-1.5 text-xs rounded-full border border-gray-300 text-gray-600 font-medium">Exterior (2)</button>
+        <button class="photo-tab px-3 py-1.5 text-xs rounded-full border border-gray-300 text-gray-600 font-medium">Interior (2)</button>
+        <button class="photo-tab px-3 py-1.5 text-xs rounded-full border border-gray-300 text-gray-600 font-medium">Event Rooms (3)</button>
+        <button class="photo-tab px-3 py-1.5 text-xs rounded-full border border-gray-300 text-gray-600 font-medium">Catering (1)</button>
+      </div>
+
+      <div class="grid grid-cols-3 gap-8">
+        <!-- Left: Venue Info -->
+        <div class="col-span-2">
+
+          <!-- Header -->
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <h1 class="text-2xl font-bold text-gray-900">Kenyatta International Convention Centre</h1>
+                <span class="bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  Verified
+                </span>
+              </div>
+              <p class="text-sm text-gray-500 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                City Square, Nairobi, Kenya
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="p-2 border border-gray-300 rounded-lg hover:border-brand-400 text-gray-500 hover:text-brand-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+              </button>
+              <button class="p-2 border border-gray-300 rounded-lg hover:border-brand-400 text-gray-500 hover:text-brand-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Description -->
+          <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-2">About</h2>
+            <p class="text-sm text-gray-600 leading-relaxed">
+              The Kenyatta International Convention Centre (KICC) is one of the most iconic buildings in Nairobi and a premier venue for conferences, exhibitions, and events in East Africa. Located in the heart of the city, KICC offers world-class facilities including a plenary hall seating 6,000, multiple breakout rooms, and a helipad with panoramic rooftop views of Nairobi. The venue features modern conferencing technology, dedicated event support staff, and in-house catering from award-winning chefs specializing in both local and international cuisine.
+            </p>
+          </div>
+
+          <!-- Amenities Grid -->
+          <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-3">Amenities & Features</h2>
+            <div class="grid grid-cols-2 gap-x-6 gap-y-1">
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Wi-Fi — High Speed (100+ Mbps)</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Generator / Backup Power</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Wheelchair Accessible</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Parking (500+ cars)</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">In-house Catering</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Air Conditioning</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Sound System + Microphones</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">M-Pesa / Mobile Money</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">Halal Catering Options</span>
+                </div>
+              </div>
+              <div class="py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-green-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg></span>
+                  <span class="text-sm text-gray-700">On-site Security</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spaces / Rooms -->
+          <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-3">Spaces & Rooms</h2>
+            <div class="space-y-3">
+
+              <!-- Space 1 -->
+              <div class="border border-gray-200 rounded-xl p-4 hover:border-brand-300 transition-colors">
+                <div class="flex items-start justify-between">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                      <h3 class="font-semibold text-gray-900">Plenary Hall</h3>
+                      <span class="text-xs bg-brand-50 text-brand-600 px-2 py-0.5 rounded-full">Largest space</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-2">Ground Floor</p>
+                    <div class="flex items-center gap-4 text-xs text-gray-500">
+                      <span class="flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Up to 6,000
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 mt-2">
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Theater</span>
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Banquet</span>
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Cocktail</span>
+                    </div>
+                  </div>
+                  <div class="text-right ml-4">
+                    <div class="text-lg font-bold text-brand-600">KES 150,000</div>
+                    <div class="text-xs text-gray-400">per day</div>
+                    <div class="text-xs text-gray-400 mt-0.5">KES 20,000/hr</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Space 2 -->
+              <div class="border border-gray-200 rounded-xl p-4 hover:border-brand-300 transition-colors">
+                <div class="flex items-start justify-between">
+                  <div class="flex-1">
+                    <h3 class="font-semibold text-gray-900 mb-1">Tsavo Ballroom</h3>
+                    <p class="text-xs text-gray-500 mb-2">2nd Floor</p>
+                    <div class="flex items-center gap-4 text-xs text-gray-500">
+                      <span class="flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Up to 800
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 mt-2">
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Theater</span>
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Classroom</span>
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Banquet</span>
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">U-shape</span>
+                    </div>
+                  </div>
+                  <div class="text-right ml-4">
+                    <div class="text-lg font-bold text-brand-600">KES 80,000</div>
+                    <div class="text-xs text-gray-400">per day</div>
+                    <div class="text-xs text-gray-400 mt-0.5">KES 12,000/hr</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Space 3 -->
+              <div class="border border-gray-200 rounded-xl p-4 hover:border-brand-300 transition-colors">
+                <div class="flex items-start justify-between">
+                  <div class="flex-1">
+                    <h3 class="font-semibold text-gray-900 mb-1">Boardroom A</h3>
+                    <p class="text-xs text-gray-500 mb-2">3rd Floor</p>
+                    <div class="flex items-center gap-4 text-xs text-gray-500">
+                      <span class="flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Up to 30
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 mt-2">
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">Boardroom</span>
+                      <span class="text-xs border border-gray-200 px-2 py-0.5 rounded-full text-gray-500">U-shape</span>
+                    </div>
+                  </div>
+                  <div class="text-right ml-4">
+                    <div class="text-lg font-bold text-brand-600">KES 25,000</div>
+                    <div class="text-xs text-gray-400">per day</div>
+                    <div class="text-xs text-gray-400 mt-0.5">KES 4,000/hr</div>
+                  </div>
+                </div>
+              </div>
+
+              <button class="w-full py-2.5 text-sm text-brand-500 font-medium border border-brand-200 rounded-xl hover:bg-brand-50 transition-colors">
+                View all 5 spaces
+              </button>
+            </div>
+          </div>
+
+          <!-- Map -->
+          <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-3">Location</h2>
+            <div class="map-placeholder rounded-xl border border-gray-200 h-64 flex items-center justify-center">
+              <div class="text-center">
+                <svg class="w-10 h-10 text-brand-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                <p class="text-brand-600 font-medium text-sm">City Square, Nairobi, Kenya</p>
+                <p class="text-brand-400 text-xs mt-1">-1.2864, 36.8172</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Sidebar: Contact + Quick Actions -->
+        <div class="col-span-1">
+          <div class="sticky top-32 space-y-4">
+
+            <!-- Quick Contact Card -->
+            <div class="bg-white border border-gray-200 rounded-xl p-5">
+              <h3 class="font-semibold text-gray-900 mb-3">Contact This Venue</h3>
+              <div class="space-y-3">
+                <a class="flex items-center gap-3 text-sm text-gray-600 hover:text-brand-500 cursor-pointer">
+                  <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                  </div>
+                  <span>+254 20 332 5000</span>
+                </a>
+                <a class="flex items-center gap-3 text-sm text-gray-600 hover:text-brand-500 cursor-pointer">
+                  <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                  </div>
+                  <span>events@kicc.co.ke</span>
+                </a>
+                <a class="flex items-center gap-3 text-sm text-gray-600 hover:text-green-600 cursor-pointer">
+                  <div class="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+                  </div>
+                  <span>WhatsApp: +254 722 123 456</span>
+                </a>
+                <a class="flex items-center gap-3 text-sm text-gray-600 hover:text-brand-500 cursor-pointer">
+                  <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                  </div>
+                  <span>www.kicc.co.ke</span>
+                </a>
+              </div>
+
+              <div class="mt-4 pt-4 border-t border-gray-100">
+                <button class="w-full bg-brand-500 text-white py-2.5 rounded-lg hover:bg-brand-600 font-medium text-sm mb-2">
+                  Request a Quote
+                </button>
+                <button class="w-full bg-white text-brand-500 border border-brand-200 py-2.5 rounded-lg hover:bg-brand-50 font-medium text-sm">
+                  Link to My Event
+                </button>
+              </div>
+            </div>
+
+            <!-- Payment Methods -->
+            <div class="bg-white border border-gray-200 rounded-xl p-5">
+              <h3 class="font-semibold text-gray-900 mb-3">Accepted Payments</h3>
+              <div class="flex flex-wrap gap-2">
+                <span class="text-xs bg-green-50 text-green-700 px-2.5 py-1 rounded-full font-medium">M-Pesa</span>
+                <span class="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">Card</span>
+                <span class="text-xs bg-gray-100 text-gray-700 px-2.5 py-1 rounded-full font-medium">Bank Transfer</span>
+                <span class="text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full font-medium">Invoice</span>
+              </div>
+            </div>
+
+            <!-- Managed by -->
+            <div class="bg-gray-50 border border-gray-200 rounded-xl p-5">
+              <p class="text-xs text-gray-500 mb-2">Listed by</p>
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-brand-100 rounded-full flex items-center justify-center">
+                  <span class="text-brand-600 font-bold text-sm">KI</span>
+                </div>
+                <div>
+                  <p class="text-sm font-medium text-gray-900">KICC Management</p>
+                  <p class="text-xs text-gray-500">Member since Jan 2026</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- PAGE 3: VENUE OWNER DASHBOARD                                 -->
+  <!-- ============================================================ -->
+  <div id="page-dashboard" class="page">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+      <!-- Dashboard Header -->
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">My Venue Listings</h1>
+          <p class="text-sm text-gray-500 mt-1">Manage your venues on GlobalConnect</p>
+        </div>
+        <button class="bg-brand-500 text-white px-4 py-2 rounded-lg hover:bg-brand-600 font-medium text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Add New Venue
+        </button>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Total Listings</p>
+          <p class="text-2xl font-bold text-gray-900 mt-1">3</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Approved</p>
+          <p class="text-2xl font-bold text-green-600 mt-1">1</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Pending Review</p>
+          <p class="text-2xl font-bold text-amber-600 mt-1">1</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Drafts</p>
+          <p class="text-2xl font-bold text-gray-400 mt-1">1</p>
+        </div>
+      </div>
+
+      <!-- Venue Listing Cards -->
+      <div class="space-y-4">
+
+        <!-- Venue 1: Approved -->
+        <div class="bg-white border border-gray-200 rounded-xl p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-28 h-20 bg-gradient-to-br from-amber-100 to-amber-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🏨</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <h3 class="font-semibold text-gray-900">Kenyatta International Convention Centre</h3>
+                <span class="status-badge bg-green-100 text-green-700">Approved</span>
+                <span class="bg-green-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  Verified
+                </span>
+              </div>
+              <p class="text-sm text-gray-500 mb-2">Nairobi, Kenya · 5 spaces · Up to 6,000 capacity</p>
+
+              <!-- Completeness Bar -->
+              <div class="flex items-center gap-3">
+                <div class="completeness-bar w-40">
+                  <div class="completeness-fill" style="width: 95%"></div>
+                </div>
+                <span class="text-xs text-gray-500">95% complete</span>
+                <span class="text-xs text-brand-500 cursor-pointer hover:underline">Add catering photos to reach 100%</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400 hover:text-brand-500">Edit</button>
+              <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400 hover:text-brand-500">View Public</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Venue 2: Pending Review -->
+        <div class="bg-white border border-amber-200 rounded-xl p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-28 h-20 bg-gradient-to-br from-green-100 to-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🏢</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <h3 class="font-semibold text-gray-900">Westlands Business Hub</h3>
+                <span class="status-badge bg-amber-100 text-amber-700">Pending Review</span>
+              </div>
+              <p class="text-sm text-gray-500 mb-2">Nairobi, Kenya · 3 spaces · Up to 200 capacity</p>
+              <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                <strong>Under review</strong> — Your documents are being verified. This usually takes 1-2 business days.
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:border-brand-400 hover:text-brand-500">Edit</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Venue 3: Draft -->
+        <div class="bg-white border border-gray-200 border-dashed rounded-xl p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-28 h-20 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 border-2 border-dashed border-gray-300">
+              <svg class="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <h3 class="font-semibold text-gray-900">Mombasa Beach Resort</h3>
+                <span class="status-badge bg-gray-100 text-gray-500">Draft</span>
+              </div>
+              <p class="text-sm text-gray-500 mb-2">Mombasa, Kenya · No spaces added yet</p>
+              <div class="flex items-center gap-3">
+                <div class="completeness-bar w-40">
+                  <div class="completeness-fill" style="width: 30%"></div>
+                </div>
+                <span class="text-xs text-gray-500">30% complete</span>
+                <span class="text-xs text-amber-600">Add photos, spaces, and pricing to submit for review</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button class="px-3 py-1.5 text-sm bg-brand-500 text-white rounded-lg hover:bg-brand-600 font-medium">Continue Editing</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- PAGE 4: ADMIN REVIEW PANEL                                    -->
+  <!-- ============================================================ -->
+  <div id="page-admin" class="page">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Venue Review Queue</h1>
+          <p class="text-sm text-gray-500 mt-1">Review and verify venue submissions</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white">
+            <option>All Statuses</option>
+            <option selected>Pending Review</option>
+            <option>Approved</option>
+            <option>Rejected</option>
+            <option>Suspended</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="grid grid-cols-5 gap-4 mb-6">
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Pending</p>
+          <p class="text-2xl font-bold text-amber-600 mt-1">12</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Approved</p>
+          <p class="text-2xl font-bold text-green-600 mt-1">234</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Rejected</p>
+          <p class="text-2xl font-bold text-red-500 mt-1">8</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Domain Match</p>
+          <p class="text-2xl font-bold text-blue-600 mt-1">3</p>
+          <p class="text-xs text-blue-500 mt-0.5">fast-track</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Avg Review Time</p>
+          <p class="text-2xl font-bold text-gray-900 mt-1">1.2d</p>
+        </div>
+      </div>
+
+      <!-- Review Queue -->
+      <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-gray-200 bg-gray-50">
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Venue</th>
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Submitted By</th>
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Documents</th>
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</th>
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Submitted</th>
+              <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Row 1: Fast-track -->
+            <tr class="border-b border-gray-100 hover:bg-blue-50/30">
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 bg-gradient-to-br from-green-100 to-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span>🏢</span>
+                  </div>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">Westlands Business Hub</p>
+                    <p class="text-xs text-gray-400">3 spaces · 200 capacity</p>
+                  </div>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-sm text-gray-600">Nairobi, Kenya</td>
+              <td class="px-5 py-3.5">
+                <p class="text-sm text-gray-600">Jane Muthoni</p>
+                <p class="text-xs text-blue-500">jane@westlandshub.co.ke</p>
+              </td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-1">
+                  <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Business Reg</span>
+                  <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Utility Bill</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5">
+                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit">
+                  <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
+                  Fast-track
+                </span>
+                <p class="text-xs text-blue-500 mt-0.5">Domain match</p>
+              </td>
+              <td class="px-5 py-3.5 text-sm text-gray-500">2h ago</td>
+              <td class="px-5 py-3.5 text-right">
+                <div class="flex items-center justify-end gap-2">
+                  <button class="px-3 py-1.5 text-xs bg-green-500 text-white rounded-lg font-medium hover:bg-green-600">Approve</button>
+                  <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:border-red-300 hover:text-red-500">Reject</button>
+                  <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:border-brand-400">Review</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 2: Standard -->
+            <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span>🏖️</span>
+                  </div>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">Lekki Events Centre</p>
+                    <p class="text-xs text-gray-400">2 spaces · 1,000 capacity</p>
+                  </div>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-sm text-gray-600">Lagos, Nigeria</td>
+              <td class="px-5 py-3.5">
+                <p class="text-sm text-gray-600">Chidi Okonkwo</p>
+                <p class="text-xs text-gray-400">chidi.events@gmail.com</p>
+              </td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-1">
+                  <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Business Reg</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5">
+                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">Standard</span>
+              </td>
+              <td class="px-5 py-3.5 text-sm text-gray-500">1d ago</td>
+              <td class="px-5 py-3.5 text-right">
+                <div class="flex items-center justify-end gap-2">
+                  <button class="px-3 py-1.5 text-xs bg-green-500 text-white rounded-lg font-medium hover:bg-green-600">Approve</button>
+                  <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:border-red-300 hover:text-red-500">Reject</button>
+                  <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:border-brand-400">Review</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 3 -->
+            <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 bg-gradient-to-br from-rose-100 to-rose-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span>🌴</span>
+                  </div>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">Garden City Retreat</p>
+                    <p class="text-xs text-gray-400">4 spaces · 300 capacity</p>
+                  </div>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-sm text-gray-600">Accra, Ghana</td>
+              <td class="px-5 py-3.5">
+                <p class="text-sm text-gray-600">Kwame Asante</p>
+                <p class="text-xs text-gray-400">kwame@yahoo.com</p>
+              </td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-1">
+                  <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Awaiting docs</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5">
+                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">Standard</span>
+              </td>
+              <td class="px-5 py-3.5 text-sm text-gray-500">2d ago</td>
+              <td class="px-5 py-3.5 text-right">
+                <div class="flex items-center justify-end gap-2">
+                  <button class="px-3 py-1.5 text-xs border border-amber-300 text-amber-600 rounded-lg font-medium hover:bg-amber-50">Request Docs</button>
+                  <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:border-brand-400">Review</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- JAVASCRIPT: Page Navigation                                   -->
+  <!-- ============================================================ -->
+  <script>
+    function showPage(pageId) {
+      // Hide all pages
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      // Show target page
+      document.getElementById('page-' + pageId).classList.add('active');
+      // Update nav
+      document.querySelectorAll('.nav-link').forEach(l => {
+        l.classList.remove('text-brand-500', 'bg-brand-50', 'font-semibold');
+        l.classList.add('text-gray-600');
+      });
+      const activeNav = document.getElementById('nav-' + pageId);
+      if (activeNav) {
+        activeNav.classList.remove('text-gray-600');
+        activeNav.classList.add('text-brand-500', 'bg-brand-50', 'font-semibold');
+      }
+      window.scrollTo(0, 0);
+    }
+    // Set initial active state
+    showPage('directory');
+  </script>
+
+</body>
+</html>

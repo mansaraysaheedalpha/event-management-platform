@@ -46,6 +46,14 @@ from app.models import (
     # Ticket management models
     promo_code_usage,
     ticket,
+    # Venue sourcing models
+    venue_space,
+    venue_space_pricing,
+    venue_photo,
+    amenity_category,
+    amenity,
+    venue_amenity,
+    venue_verification_document,
 )
 
 from alembic import context

@@ -32,6 +32,15 @@ from app.api.v1.endpoints import (
     demo_requests,
     check_in,
     sms_webhook,
+    venue_directory,
+    venue_spaces,
+    venue_photos,
+    venue_amenities,
+    venue_verification,
+    venue_admin,
+    rfps,
+    venue_rfps,
+    exchange_rates,
 )
 
 # This is the main router for the v1 API.
@@ -68,4 +77,17 @@ api_router.include_router(email_preferences.router, prefix="/email-preferences",
 api_router.include_router(demo_requests.router, tags=["Demo Requests"])
 api_router.include_router(check_in.router, tags=["Check-in"])
 api_router.include_router(sms_webhook.router, prefix="/webhooks/sms", tags=["SMS Webhook"])
+
+# Venue Sourcing — Golden Directory
+api_router.include_router(venue_directory.router, tags=["Venue Directory"])
+api_router.include_router(venue_spaces.router, tags=["Venue Spaces"])
+api_router.include_router(venue_photos.router, tags=["Venue Photos"])
+api_router.include_router(venue_amenities.router, tags=["Venue Amenities"])
+api_router.include_router(venue_verification.router, tags=["Venue Verification"])
+api_router.include_router(venue_admin.router, tags=["Venue Admin"])
+
+# Venue Sourcing — RFP System
+api_router.include_router(rfps.router, tags=["RFPs"])
+api_router.include_router(venue_rfps.router, tags=["Venue RFPs"])
+api_router.include_router(exchange_rates.router, tags=["Exchange Rates"])
 

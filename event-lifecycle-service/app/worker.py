@@ -22,3 +22,19 @@ celery_app = Celery("worker", broker=broker_url, backend=broker_url)
 
 # Tell Celery where to find our tasks
 celery_app.conf.imports = ("app.tasks",)
+
+# Celery Beat schedule for periodic tasks
+celery_app.conf.beat_schedule = {
+    "process-rfp-deadlines": {
+        "task": "app.tasks.process_rfp_deadlines",
+        "schedule": 300.0,  # Every 5 minutes
+    },
+    "send-rfp-deadline-reminders": {
+        "task": "app.tasks.send_rfp_deadline_reminders",
+        "schedule": 3600.0,  # Every hour
+    },
+    "refresh-exchange-rates": {
+        "task": "app.tasks.refresh_exchange_rates",
+        "schedule": 86400.0,  # Daily (24 hours)
+    },
+}

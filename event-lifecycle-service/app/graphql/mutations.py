@@ -99,6 +99,30 @@ from .rsvp_types import (
 )
 from .rsvp_mutations import RsvpMutations
 from . import admin_mutations
+from . import venue_mutations as vm
+from . import rfp_mutations as rm
+from .rfp_types import (
+    RFPType,
+    RFPVenueType,
+    VenueResponseType,
+    RFPCreateInput,
+    RFPUpdateInput,
+    VenueResponseInput,
+)
+from .venue_queries import _venue_model_to_gql
+from .venue_types import (
+    VenueFullType,
+    VenueSpaceType,
+    VenueSpacePricingType,
+    VenuePhotoType,
+    VenueAmenityType,
+    VenueCreateInputGQL,
+    VenueUpdateInputGQL,
+    VenueSpaceCreateInputGQL,
+    VenueSpaceUpdateInputGQL,
+    SpacePricingInputGQL,
+    VenueAmenityInputGQL,
+)
 from .admin_types import (
     DefaultFeeConfig,
     AdminSetOrganizationFeesInput,
@@ -274,12 +298,32 @@ class SessionUpdateInput:
 class VenueCreateInput:
     name: str
     address: Optional[str] = None
+    description: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    whatsapp: Optional[str] = None
+    isPublic: Optional[bool] = True
 
 
 @strawberry.input
 class VenueUpdateInput:
     name: Optional[str] = None
     address: Optional[str] = None
+    description: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    whatsapp: Optional[str] = None
+    isPublic: Optional[bool] = None
 
 
 @strawberry.input
@@ -778,19 +822,34 @@ class Mutation:
         return crud.speaker.archive(db, id=id)
 
     @strawberry.mutation
-    def createVenue(self, venueIn: VenueCreateInput, info: Info) -> VenueType:
+    def createVenue(self, venueIn: VenueCreateInput, info: Info) -> VenueFullType:
         user = info.context.user
         if not user or not user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
         db = info.context.db
         org_id = user["orgId"]
-        venue_schema = VenueCreate(**venueIn.__dict__)
-        return crud.venue.create_with_organization(
+        venue_data = {
+            "name": venueIn.name,
+            "address": venueIn.address,
+            "description": venueIn.description,
+            "city": venueIn.city,
+            "country": venueIn.country,
+            "latitude": venueIn.latitude,
+            "longitude": venueIn.longitude,
+            "website": venueIn.website,
+            "phone": venueIn.phone,
+            "email": venueIn.email,
+            "whatsapp": venueIn.whatsapp,
+            "is_public": venueIn.isPublic if venueIn.isPublic is not None else True,
+        }
+        venue_schema = VenueCreate(**venue_data)
+        venue = crud.venue.create_with_organization(
             db, obj_in=venue_schema, org_id=org_id
         )
+        return _venue_model_to_gql(venue)
 
     @strawberry.mutation
-    def updateVenue(self, id: str, venueIn: VenueUpdateInput, info: Info) -> VenueType:
+    def updateVenue(self, id: str, venueIn: VenueUpdateInput, info: Info) -> VenueFullType:
         user = info.context.user
         if not user or not user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
@@ -800,23 +859,115 @@ class Mutation:
         if not venue or venue.organization_id != org_id:
             raise HTTPException(status_code=404, detail="Venue not found")
 
-        update_schema = VenueUpdate(
-            **{k: v for k, v in venueIn.__dict__.items() if v is not None}
+        update_data = {}
+        for field in ("name", "description", "address", "city", "country",
+                       "latitude", "longitude", "website", "phone", "email", "whatsapp"):
+            val = getattr(venueIn, field)
+            if val is not None:
+                update_data[field] = val
+        if venueIn.isPublic is not None:
+            update_data["is_public"] = venueIn.isPublic
+
+        update_schema = VenueUpdate(**update_data)
+        updated = crud.venue.update(db, db_obj=venue, obj_in=update_schema)
+        return _venue_model_to_gql(updated)
+
+    @strawberry.mutation
+    def archiveVenue(self, id: str, info: Info) -> VenueFullType:
+        user = info.context.user
+        if not user or not user.get("orgId"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db = info.context.db
+        org_id = user["orgId"]
+        venue = crud.venue.get(db, id=id)
+        if not venue or venue.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Venue not found")
+
+        archived = crud.venue.archive(db, id=id)
+        return _venue_model_to_gql(archived)
+
+    # --- VENUE SOURCING MUTATIONS ---
+
+    @strawberry.mutation
+    def submitVenueForReview(self, id: str, info: Info) -> VenueFullType:
+        """Submit a draft/rejected venue for review."""
+        return vm.submit_venue_for_review_mutation(id, info)
+
+    @strawberry.mutation
+    def createVenueSpace(
+        self, spaceIn: VenueSpaceCreateInputGQL, info: Info
+    ) -> VenueSpaceType:
+        """Create a space within a venue."""
+        return vm.create_venue_space_mutation(spaceIn, info)
+
+    @strawberry.mutation
+    def updateVenueSpace(
+        self, id: str, spaceIn: VenueSpaceUpdateInputGQL, info: Info
+    ) -> VenueSpaceType:
+        """Update a venue space."""
+        return vm.update_venue_space_mutation(id, spaceIn, info)
+
+    @strawberry.mutation
+    def deleteVenueSpace(self, id: str, info: Info) -> bool:
+        """Delete a venue space."""
+        return vm.delete_venue_space_mutation(id, info)
+
+    @strawberry.mutation
+    def setSpacePricing(
+        self, spaceId: str, pricing: List[SpacePricingInputGQL], info: Info
+    ) -> List[VenueSpacePricingType]:
+        """Set (replace) pricing for a venue space."""
+        return vm.set_space_pricing_mutation(spaceId, pricing, info)
+
+    @strawberry.mutation
+    def setVenueAmenities(
+        self, venueId: str, amenities: List[VenueAmenityInputGQL], info: Info
+    ) -> List[VenueAmenityType]:
+        """Set (replace) amenities for a venue."""
+        return vm.set_venue_amenities_mutation(venueId, amenities, info)
+
+    @strawberry.mutation
+    def updateVenuePhoto(
+        self,
+        id: str,
+        info: Info,
+        category: Optional[str] = None,
+        caption: Optional[str] = None,
+        sortOrder: Optional[int] = None,
+        isCover: Optional[bool] = None,
+    ) -> VenuePhotoType:
+        """Update venue photo metadata."""
+        return vm.update_venue_photo_mutation(
+            id, info, category=category, caption=caption,
+            sortOrder=sortOrder, isCover=isCover,
         )
-        return crud.venue.update(db, db_obj=venue, obj_in=update_schema)
 
     @strawberry.mutation
-    def archiveVenue(self, id: str, info: Info) -> VenueType:
-        user = info.context.user
-        if not user or not user.get("orgId"):
-            raise HTTPException(status_code=403, detail="Not authorized")
-        db = info.context.db
-        org_id = user["orgId"]
-        venue = crud.venue.get(db, id=id)
-        if not venue or venue.organization_id != org_id:
-            raise HTTPException(status_code=404, detail="Venue not found")
+    def deleteVenuePhoto(self, id: str, info: Info) -> bool:
+        """Delete a venue photo (also deletes from S3)."""
+        return vm.delete_venue_photo_mutation(id, info)
 
-        return crud.venue.archive(db, id=id)
+    @strawberry.mutation
+    def reorderVenuePhotos(
+        self, venueId: str, photoIds: List[str], info: Info
+    ) -> List[VenuePhotoType]:
+        """Reorder venue photos."""
+        return vm.reorder_venue_photos_mutation(venueId, photoIds, info)
+
+    @strawberry.mutation
+    def approveVenue(self, id: str, info: Info) -> VenueFullType:
+        """[ADMIN] Approve a venue."""
+        return vm.approve_venue_mutation(id, info)
+
+    @strawberry.mutation
+    def rejectVenue(self, id: str, reason: str, info: Info) -> VenueFullType:
+        """[ADMIN] Reject a venue with reason."""
+        return vm.reject_venue_mutation(id, reason, info)
+
+    @strawberry.mutation
+    def suspendVenue(self, id: str, reason: str, info: Info) -> VenueFullType:
+        """[ADMIN] Suspend an approved venue."""
+        return vm.suspend_venue_mutation(id, reason, info)
 
     @strawberry.mutation
     def createRegistration(
@@ -2189,3 +2340,80 @@ class Mutation:
         return await connect_mutations.disconnect_stripe_account(
             organizationId, info
         )
+
+    # --- RFP SYSTEM MUTATIONS ---
+
+    @strawberry.mutation
+    def createRfp(self, input: RFPCreateInput, info: Info) -> RFPType:
+        """Create a new RFP (draft)."""
+        return rm.create_rfp_mutation(input, info)
+
+    @strawberry.mutation
+    def updateRfp(self, id: str, input: RFPUpdateInput, info: Info) -> RFPType:
+        """Update a draft RFP."""
+        return rm.update_rfp_mutation(id, input, info)
+
+    @strawberry.mutation
+    def deleteRfp(self, id: str, info: Info) -> bool:
+        """Delete a draft RFP."""
+        return rm.delete_rfp_mutation(id, info)
+
+    @strawberry.mutation
+    def addVenuesToRfp(
+        self, rfpId: str, venueIds: List[str], info: Info
+    ) -> List[RFPVenueType]:
+        """Add venues to a draft RFP (max 10)."""
+        return rm.add_venues_to_rfp_mutation(rfpId, venueIds, info)
+
+    @strawberry.mutation
+    def removeVenueFromRfp(self, rfpId: str, venueId: str, info: Info) -> bool:
+        """Remove a venue from a draft RFP."""
+        return rm.remove_venue_from_rfp_mutation(rfpId, venueId, info)
+
+    @strawberry.mutation
+    def sendRfp(self, id: str, info: Info) -> RFPType:
+        """Send an RFP to selected venues."""
+        return rm.send_rfp_mutation(id, info)
+
+    @strawberry.mutation
+    def extendRfpDeadline(
+        self, id: str, newDeadline: datetime, info: Info
+    ) -> RFPType:
+        """Extend the response deadline for an active RFP."""
+        return rm.extend_rfp_deadline_mutation(id, newDeadline, info)
+
+    @strawberry.mutation
+    def closeRfp(
+        self, id: str, info: Info, reason: Optional[str] = None
+    ) -> RFPType:
+        """Close an active RFP."""
+        return rm.close_rfp_mutation(id, info, reason=reason)
+
+    @strawberry.mutation
+    def duplicateRfp(self, id: str, info: Info) -> RFPType:
+        """Duplicate an existing RFP as a new draft."""
+        return rm.duplicate_rfp_mutation(id, info)
+
+    @strawberry.mutation
+    def shortlistVenue(self, rfpId: str, rfvId: str, info: Info) -> RFPVenueType:
+        """Shortlist a venue that has responded."""
+        return rm.shortlist_venue_mutation(rfpId, rfvId, info)
+
+    @strawberry.mutation
+    def awardVenue(self, rfpId: str, rfvId: str, info: Info) -> RFPVenueType:
+        """Award the RFP to a venue (auto-declines others)."""
+        return rm.award_venue_mutation(rfpId, rfvId, info)
+
+    @strawberry.mutation
+    def declineVenue(
+        self, rfpId: str, rfvId: str, info: Info, reason: Optional[str] = None
+    ) -> RFPVenueType:
+        """Decline a venue's response."""
+        return rm.decline_venue_mutation(rfpId, rfvId, info, reason=reason)
+
+    @strawberry.mutation
+    def submitVenueResponse(
+        self, venueId: str, rfpId: str, input: VenueResponseInput, info: Info
+    ) -> VenueResponseType:
+        """Submit a structured response to an RFP (venue owner)."""
+        return rm.submit_venue_response_mutation(venueId, rfpId, input, info)

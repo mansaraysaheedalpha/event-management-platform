@@ -72,7 +72,8 @@
       "Bash(pnpm test:*)",
       "Bash(pnpm add:*)",
       "Bash(pnpm run build)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "Bash(alembic heads:*)"
     ],
     "deny": [],
     "ask": []

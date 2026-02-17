@@ -85,6 +85,21 @@ class VenueType:
     name: str
     address: Optional[str]
     is_archived: bool
+    # Venue sourcing fields (backward-compatible — defaults for pre-migration rows)
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    whatsapp: Optional[str] = None
+    total_capacity: Optional[int] = None
+    is_public: bool = True
+    status: Optional[str] = None
+    verified: bool = False
 
 
 @strawberry.type

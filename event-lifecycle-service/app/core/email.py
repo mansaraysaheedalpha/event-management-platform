@@ -2109,3 +2109,217 @@ def send_payout_failed_email(
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send payout failed email: {type(e).__name__}")
         return {"success": False, "error": "Failed to send email"}
+
+
+def send_venue_document_request_email(
+    to_email: str,
+    venue_name: str,
+    admin_message: str,
+) -> dict:
+    """
+    Send email to venue owner requesting additional verification documents.
+
+    Args:
+        to_email: Venue contact email address
+        venue_name: Name of the venue
+        admin_message: Custom message from the admin
+
+    Returns:
+        Resend API response
+    """
+    init_resend()
+
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+
+    venue_name = _escape_html(venue_name)
+    admin_message = _escape_html(admin_message)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .header h1 {{ margin: 0 0 10px 0; font-size: 24px; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+            .message-box {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }}
+            .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>Documents Requested</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">{venue_name}</p>
+            </div>
+            <div class="content">
+                <p>Hello,</p>
+                <p>Our review team needs additional documents to complete the verification of <strong>{venue_name}</strong>.</p>
+
+                <div class="message-box">
+                    <h4 style="margin: 0 0 10px 0; color: #667eea;">Message from reviewer</h4>
+                    <p style="margin: 0; color: #555; white-space: pre-wrap;">{admin_message}</p>
+                </div>
+
+                <p>Please log in to your dashboard to upload the requested documents.</p>
+
+                <p>Best regards,<br>The Event Dynamics Team</p>
+            </div>
+            <div class="footer">
+                <p>This email was sent by Event Dynamics Platform</p>
+                <p>Powered by Infinite Dynamics</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Documents requested for {venue_name}",
+        "html": html_content,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Document request sent to {to_email} for venue {venue_name}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send document request email: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+# --- H-14: Venue status change notifications ---
+
+def send_venue_approved_email(to_email: str, venue_name: str) -> dict:
+    """Notify venue owner that their listing has been approved."""
+    init_resend()
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+    venue_name = _escape_html(venue_name)
+    html_content = f"""
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+        .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+        .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+    </style></head>
+    <body><div class="container">
+        <div class="header"><h1>Venue Approved!</h1><p style="margin:10px 0 0;opacity:0.9;">{venue_name}</p></div>
+        <div class="content">
+            <p>Great news!</p>
+            <p>Your venue <strong>{venue_name}</strong> has been reviewed and approved. It is now live on the public directory.</p>
+            <p>Best regards,<br>The Event Dynamics Team</p>
+        </div>
+        <div class="footer"><p>Powered by Infinite Dynamics</p></div>
+    </div></body></html>
+    """
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Your venue {venue_name} is now live!",
+        "html": html_content,
+    }
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Venue approved notification sent for {venue_name}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Venue approved email failed: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_venue_rejected_email(to_email: str, venue_name: str, reason: str) -> dict:
+    """Notify venue owner that their listing has been rejected."""
+    init_resend()
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+    venue_name = _escape_html(venue_name)
+    reason = _escape_html(reason)
+    html_content = f"""
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+        .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+        .reason-box {{ background: white; padding: 15px 20px; border-radius: 8px; border-left: 4px solid #f5576c; margin: 20px 0; }}
+        .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+    </style></head>
+    <body><div class="container">
+        <div class="header"><h1>Venue Not Approved</h1><p style="margin:10px 0 0;opacity:0.9;">{venue_name}</p></div>
+        <div class="content">
+            <p>Hello,</p>
+            <p>Unfortunately, your venue <strong>{venue_name}</strong> was not approved for the public directory.</p>
+            <div class="reason-box"><h4 style="margin:0 0 10px;color:#f5576c;">Reason</h4><p style="margin:0;white-space:pre-wrap;">{reason}</p></div>
+            <p>You can make the suggested changes and resubmit your venue for review.</p>
+            <p>Best regards,<br>The Event Dynamics Team</p>
+        </div>
+        <div class="footer"><p>Powered by Infinite Dynamics</p></div>
+    </div></body></html>
+    """
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Venue review update: {venue_name}",
+        "html": html_content,
+    }
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Venue rejected notification sent for {venue_name}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Venue rejected email failed: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}
+
+
+def send_venue_suspended_email(to_email: str, venue_name: str, reason: str) -> dict:
+    """Notify venue owner that their listing has been suspended."""
+    init_resend()
+    if not _validate_email(to_email):
+        return {"success": False, "error": "Invalid email address format"}
+    venue_name = _escape_html(venue_name)
+    reason = _escape_html(reason)
+    html_content = f"""
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 40px 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+        .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+        .reason-box {{ background: white; padding: 15px 20px; border-radius: 8px; border-left: 4px solid #f5576c; margin: 20px 0; }}
+        .footer {{ text-align: center; color: #888; font-size: 12px; margin-top: 20px; padding: 20px; }}
+    </style></head>
+    <body><div class="container">
+        <div class="header"><h1>Venue Suspended</h1><p style="margin:10px 0 0;opacity:0.9;">{venue_name}</p></div>
+        <div class="content">
+            <p>Hello,</p>
+            <p>Your venue <strong>{venue_name}</strong> has been suspended and removed from the public directory.</p>
+            <div class="reason-box"><h4 style="margin:0 0 10px;color:#f5576c;">Reason</h4><p style="margin:0;white-space:pre-wrap;">{reason}</p></div>
+            <p>If you believe this was in error, please contact our support team.</p>
+            <p>Best regards,<br>The Event Dynamics Team</p>
+        </div>
+        <div class="footer"><p>Powered by Infinite Dynamics</p></div>
+    </div></body></html>
+    """
+    params = {
+        "from": f"Event Dynamics <noreply@{settings.RESEND_FROM_DOMAIN}>",
+        "to": [to_email],
+        "subject": f"Important: Your venue {venue_name} has been suspended",
+        "html": html_content,
+    }
+    try:
+        response = resend.Emails.send(params)
+        print(f"[EMAIL] Venue suspended notification sent for {venue_name}")
+        return {"success": True, "id": response.get("id")}
+    except Exception as e:
+        print(f"[EMAIL ERROR] Venue suspended email failed: {type(e).__name__}")
+        return {"success": False, "error": "Failed to send email"}

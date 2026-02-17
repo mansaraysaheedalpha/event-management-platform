@@ -69,6 +69,21 @@ from app.models.pre_event_email import PreEventEmail
 # Demo request models
 from app.models.demo_request import DemoRequest
 
+# Venue sourcing models
+from app.models.venue_space import VenueSpace
+from app.models.venue_space_pricing import VenueSpacePricing
+from app.models.venue_photo import VenuePhoto
+from app.models.amenity_category import AmenityCategory
+from app.models.amenity import Amenity
+from app.models.venue_amenity import VenueAmenity
+from app.models.venue_verification_document import VenueVerificationDocument
+
+# RFP system models
+from app.models.rfp import RFP
+from app.models.rfp_venue import RFPVenue
+from app.models.venue_response import VenueResponse
+from app.models.negotiation_message import NegotiationMessage
+
 __all__ = [
     "Base",
     "Event",
@@ -122,4 +137,15 @@ __all__ = [
     "EmailPreference",
     "PreEventEmail",
     "DemoRequest",
+    "VenueSpace",
+    "VenueSpacePricing",
+    "VenuePhoto",
+    "AmenityCategory",
+    "Amenity",
+    "VenueAmenity",
+    "VenueVerificationDocument",
+    "RFP",
+    "RFPVenue",
+    "VenueResponse",
+    "NegotiationMessage",
 ]

@@ -131,3 +131,146 @@ def process_presentation(
         db.close()
 
     return {"status": final_status}
+
+
+# ── RFP System Tasks ──────────────────────────────────────────────────
+
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
+def process_rfp_deadlines(self):
+    """
+    Runs every 5 minutes. Checks for RFPs past deadline.
+    - 'sent' with 0 responses → transition to 'expired'
+    - 'collecting_responses' → transition to 'review'
+    - Mark all non-responded venues as 'no_response'
+    - Send deadline_passed notification to organizer
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import func as sa_func
+    from app.models.rfp import RFP
+    from app.models.rfp_venue import RFPVenue
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+
+        # Find RFPs past deadline in 'sent' or 'collecting_responses' state
+        expired_rfps = (
+            db.query(RFP)
+            .filter(
+                RFP.status.in_(("sent", "collecting_responses")),
+                RFP.response_deadline < now,
+            )
+            .all()
+        )
+
+        for rfp in expired_rfps:
+            # Count responses
+            total_venues = (
+                db.query(sa_func.count(RFPVenue.id))
+                .filter(RFPVenue.rfp_id == rfp.id)
+                .scalar()
+            )
+            responded_count = (
+                db.query(sa_func.count(RFPVenue.id))
+                .filter(RFPVenue.rfp_id == rfp.id, RFPVenue.status == "responded")
+                .scalar()
+            )
+
+            # Mark non-responded venues as no_response
+            from app.crud.crud_rfp_venue import mark_no_response
+            mark_no_response(db, rfp_id=rfp.id)
+
+            if rfp.status == "sent" and responded_count == 0:
+                rfp.status = "expired"
+            else:
+                rfp.status = "review"
+
+            db.commit()
+
+            # Send notification
+            try:
+                from app.utils.rfp_notifications import dispatch_deadline_passed_notification
+                dispatch_deadline_passed_notification(rfp, responded_count, total_venues)
+            except Exception as e:
+                logger.warning(f"Failed to send deadline notification for RFP {rfp.id}: {e}")
+
+        if expired_rfps:
+            logger.info(f"Processed {len(expired_rfps)} RFP deadline(s)")
+
+    except Exception as e:
+        logger.error(f"process_rfp_deadlines failed: {e}", exc_info=True)
+        self.retry(exc=e)
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
+def send_rfp_deadline_reminders(self):
+    """
+    Runs every hour. Sends 24h-before reminders to non-responding venues.
+    Uses a Redis key to avoid duplicate reminders.
+    """
+    from datetime import datetime, timezone, timedelta
+    from app.models.rfp import RFP
+
+    db = SessionLocal()
+    redis = get_redis_client()
+    try:
+        now = datetime.now(timezone.utc)
+        window_start = now + timedelta(hours=23)
+        window_end = now + timedelta(hours=25)
+
+        # Find RFPs with deadline in the 23-25 hour window
+        rfps = (
+            db.query(RFP)
+            .filter(
+                RFP.status.in_(("sent", "collecting_responses")),
+                RFP.response_deadline >= window_start,
+                RFP.response_deadline <= window_end,
+            )
+            .all()
+        )
+
+        for rfp in rfps:
+            # Check if reminder already sent (avoid duplicates)
+            reminder_key = f"rfp_reminder_sent:{rfp.id}"
+            if redis.get(reminder_key):
+                continue
+
+            try:
+                from app.utils.rfp_notifications import dispatch_deadline_reminder_notifications
+                dispatch_deadline_reminder_notifications(db, rfp)
+                # Mark as sent with 48h TTL (covers the window plus buffer)
+                redis.setex(reminder_key, 48 * 3600, "1")
+                logger.info(f"Sent deadline reminders for RFP {rfp.id}")
+            except Exception as e:
+                logger.warning(f"Failed to send reminders for RFP {rfp.id}: {e}")
+
+    except Exception as e:
+        logger.error(f"send_rfp_deadline_reminders failed: {e}", exc_info=True)
+        self.retry(exc=e)
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=120)
+def refresh_exchange_rates(self):
+    """
+    Runs daily at 00:00 UTC. Fetches exchange rates for common currencies
+    and caches them in Redis with 25-hour TTL.
+    """
+    from app.utils.exchange_rates import fetch_and_cache_rates
+
+    currencies = ["USD", "KES", "NGN", "SLE", "ZAR", "GHS", "TZS", "UGX", "EUR", "GBP"]
+
+    try:
+        for currency in currencies:
+            result = fetch_and_cache_rates(currency)
+            if result:
+                logger.info(f"Refreshed exchange rates for {currency}")
+            else:
+                logger.warning(f"Failed to refresh exchange rates for {currency}")
+
+    except Exception as e:
+        logger.error(f"refresh_exchange_rates failed: {e}", exc_info=True)
+        self.retry(exc=e)
