@@ -1,6 +1,23 @@
 #app/workers.py
+import os
 from celery import Celery
 from app.core.config import settings
+
+# Integrate Sentry for error tracking
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+
+    if os.getenv("SENTRY_DSN"):
+        sentry_sdk.init(
+            dsn=os.getenv("SENTRY_DSN"),
+            integrations=[CeleryIntegration()],
+            environment=os.getenv("ENV", "production"),
+            traces_sample_rate=0.1,  # 10% of transactions for performance monitoring
+        )
+except ImportError:
+    # Sentry SDK not installed
+    pass
 
 def get_celery_broker_url():
     """
@@ -22,6 +39,16 @@ celery_app = Celery("worker", broker=broker_url, backend=broker_url)
 
 # Tell Celery where to find our tasks
 celery_app.conf.imports = ("app.tasks",)
+
+# Celery configuration for monitoring and reliability
+celery_app.conf.update(
+    result_expires=3600,  # Store task results for 1 hour
+    task_track_started=True,  # Track when tasks start (not just complete)
+    task_send_sent_event=True,  # Send events when tasks are sent to workers
+    worker_send_task_events=True,  # Enable task events for monitoring
+    task_acks_late=True,  # Acknowledge tasks after completion (not before)
+    worker_prefetch_multiplier=1,  # Process one task at a time per worker
+)
 
 # Celery Beat schedule for periodic tasks
 celery_app.conf.beat_schedule = {

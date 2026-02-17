@@ -34,6 +34,24 @@ def count_active_rfps(db: Session, org_id: str) -> int:
 
 
 def create(db: Session, *, org_id: str, data: RFPCreate) -> RFP:
+    from fastapi import HTTPException
+    from app.models.amenity import Amenity
+
+    # Validate amenity IDs exist
+    if data.required_amenity_ids:
+        existing_ids = {
+            row[0] for row in
+            db.query(Amenity.id)
+            .filter(Amenity.id.in_(data.required_amenity_ids))
+            .all()
+        }
+        invalid_ids = set(data.required_amenity_ids) - existing_ids
+        if invalid_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid amenity IDs: {sorted(list(invalid_ids))}",
+            )
+
     obj_data = data.model_dump()
     # Convert Decimal fields to float for JSON-compatible storage
     for field in ("budget_min", "budget_max"):

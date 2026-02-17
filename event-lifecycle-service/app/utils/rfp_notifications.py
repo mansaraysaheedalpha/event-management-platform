@@ -56,6 +56,180 @@ def _publish_inapp(channel: str, payload: dict) -> bool:
         return False
 
 
+# ── Tracked Notification Helpers ──────────────────────────────────────
+
+def _send_email_tracked(
+    db,
+    to: str,
+    subject: str,
+    html: str,
+    text: str,
+    rfp_id: str,
+    recipient_type: str,  # 'organizer' or 'venue_owner'
+    recipient_id: str,
+    event_type: str,
+    rfp_venue_id: Optional[str] = None,
+) -> bool:
+    """Send email with delivery tracking."""
+    from app.crud import crud_notification_log
+
+    # Create notification log
+    notif = crud_notification_log.create_notification_log(
+        db=db,
+        rfp_id=rfp_id,
+        rfp_venue_id=rfp_venue_id,
+        recipient_type=recipient_type,
+        recipient_id=recipient_id,
+        recipient_identifier=to,
+        channel="email",
+        event_type=event_type,
+    )
+
+    # Send email
+    if not settings.RESEND_API_KEY:
+        logger.debug(f"Skipping email to {to} — RESEND_API_KEY not configured")
+        crud_notification_log.update_notification_status(
+            db=db,
+            notif_id=str(notif.id),
+            status="failed",
+            error="RESEND_API_KEY not configured",
+        )
+        return False
+
+    try:
+        params = {
+            "from": f"GlobalConnect <noreply@{settings.RESEND_FROM_DOMAIN}>",
+            "to": [to],
+            "subject": subject,
+            "html": html,
+            "text": text,
+        }
+        response = resend.Emails.send(params)
+        logger.info(f"Sent email to {to}: {subject}")
+
+        # Update status to sent
+        external_id = response.get("id") if isinstance(response, dict) else None
+        crud_notification_log.update_notification_status(
+            db=db,
+            notif_id=str(notif.id),
+            status="sent",
+            external_id=external_id,
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send email to {to}: {e}", exc_info=True)
+        crud_notification_log.update_notification_status(
+            db=db,
+            notif_id=str(notif.id),
+            status="failed",
+            error=str(e),
+        )
+        return False
+
+
+def _send_whatsapp_tracked(
+    db,
+    to: str,
+    message: str,
+    rfp_id: str,
+    recipient_type: str,
+    recipient_id: str,
+    event_type: str,
+    rfp_venue_id: Optional[str] = None,
+) -> bool:
+    """Send WhatsApp with delivery tracking."""
+    from app.crud import crud_notification_log
+
+    # Create notification log
+    notif = crud_notification_log.create_notification_log(
+        db=db,
+        rfp_id=rfp_id,
+        rfp_venue_id=rfp_venue_id,
+        recipient_type=recipient_type,
+        recipient_id=recipient_id,
+        recipient_identifier=to,
+        channel="whatsapp",
+        event_type=event_type,
+    )
+
+    try:
+        # Send WhatsApp via Africa's Talking
+        external_id = send_whatsapp_template(to, message)
+
+        if external_id:
+            crud_notification_log.update_notification_status(
+                db=db,
+                notif_id=str(notif.id),
+                status="sent",
+                external_id=external_id,
+            )
+            return True
+        else:
+            crud_notification_log.update_notification_status(
+                db=db,
+                notif_id=str(notif.id),
+                status="failed",
+                error="WhatsApp send returned no ID",
+            )
+            return False
+
+    except Exception as e:
+        logger.error(f"Failed to send WhatsApp to {to}: {e}", exc_info=True)
+        crud_notification_log.update_notification_status(
+            db=db,
+            notif_id=str(notif.id),
+            status="failed",
+            error=str(e),
+        )
+        return False
+
+
+def _publish_inapp_tracked(
+    db,
+    channel: str,
+    payload: dict,
+    rfp_id: str,
+    recipient_type: str,
+    recipient_id: str,
+    event_type: str,
+    rfp_venue_id: Optional[str] = None,
+) -> bool:
+    """Publish in-app notification with tracking."""
+    from app.crud import crud_notification_log
+
+    # Create notification log
+    notif = crud_notification_log.create_notification_log(
+        db=db,
+        rfp_id=rfp_id,
+        rfp_venue_id=rfp_venue_id,
+        recipient_type=recipient_type,
+        recipient_id=recipient_id,
+        recipient_identifier=None,  # In-app doesn't have identifier
+        channel="inapp",
+        event_type=event_type,
+    )
+
+    try:
+        redis_client.publish(channel, json.dumps(payload))
+        crud_notification_log.update_notification_status(
+            db=db,
+            notif_id=str(notif.id),
+            status="sent",
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to publish in-app notification: {e}", exc_info=True)
+        crud_notification_log.update_notification_status(
+            db=db,
+            notif_id=str(notif.id),
+            status="failed",
+            error=str(e),
+        )
+        return False
+
+
 # ── Event: rfp.new_request ────────────────────────────────────────────
 
 def dispatch_rfp_send_notifications(db, rfp) -> None:
@@ -149,16 +323,36 @@ def dispatch_venue_responded_notification(db, rfv, rfp) -> None:
     text = f"{venue_name} has responded to your RFP: {rfp.title}\n\nView response: {deep_link}"
 
     # In-app
-    _publish_inapp("rfp-notifications", {
-        "event": "rfp.venue_responded",
-        "orgId": rfp.organization_id,
-        "rfpId": rfp.id,
-        "venueName": venue_name,
-    })
+    _publish_inapp_tracked(
+        db=db,
+        channel="rfp-notifications",
+        payload={
+            "event": "rfp.venue_responded",
+            "orgId": rfp.organization_id,
+            "rfpId": rfp.id,
+            "venueName": venue_name,
+        },
+        rfp_id=rfp.id,
+        recipient_type="organizer",
+        recipient_id=rfp.organization_id,
+        event_type="rfp.venue_responded",
+        rfp_venue_id=rfv.id,
+    )
 
-    # Email — we don't have organizer email directly, so this would need
-    # a cross-service call. For now, in-app is the primary channel.
-    # TODO: Fetch organizer email from user service for email delivery
+    # Email to organizer
+    if rfp.organizer_email:
+        _send_email_tracked(
+            db=db,
+            to=rfp.organizer_email,
+            subject=subject,
+            html=html,
+            text=text,
+            rfp_id=rfp.id,
+            recipient_type="organizer",
+            recipient_id=rfp.organization_id,
+            event_type="rfp.venue_responded",
+            rfp_venue_id=rfv.id,
+        )
 
 
 # ── Event: rfp.proposal_accepted ──────────────────────────────────────
@@ -293,11 +487,13 @@ def dispatch_deadline_reminder_notifications(db, rfp) -> None:
     from app.models.venue import Venue
     from app.models.rfp_venue import RFPVenue
 
+    # Find non-responders who haven't received a reminder yet
     non_responders = (
         db.query(RFPVenue)
         .filter(
             RFPVenue.rfp_id == rfp.id,
             RFPVenue.status.in_(("received", "viewed")),
+            RFPVenue.deadline_reminder_sent_at.is_(None),  # Not already reminded
         )
         .all()
     )
@@ -324,42 +520,132 @@ def dispatch_deadline_reminder_notifications(db, rfp) -> None:
         """
         text = f"Reminder: Respond to \"{rfp.title}\"\nDeadline: {deadline_str} ({hours_remaining}h remaining)\n\nRespond now: {deep_link}"
 
+        # Mark as reminded BEFORE sending (idempotency)
+        rv.deadline_reminder_sent_at = now
+        db.commit()
+
+        # Send reminders with tracking
         if venue.email:
-            _send_email(venue.email, subject, html, text)
+            _send_email_tracked(
+                db=db,
+                to=venue.email,
+                subject=subject,
+                html=html,
+                text=text,
+                rfp_id=rfp.id,
+                recipient_type="venue_owner",
+                recipient_id=venue.organization_id,
+                event_type="rfp.deadline_reminder",
+                rfp_venue_id=rv.id,
+            )
 
         if venue.whatsapp:
-            send_whatsapp_template(
-                venue.whatsapp,
-                "rfp_deadline_reminder",
-                [venue.name, rfp.title, deadline_str, f"{hours_remaining} hours", deep_link],
+            whatsapp_msg = f"Reminder: Respond to \"{rfp.title}\". Deadline: {deadline_str} ({hours_remaining}h remaining)"
+            _send_whatsapp_tracked(
+                db=db,
+                to=venue.whatsapp,
+                message=whatsapp_msg,
+                rfp_id=rfp.id,
+                recipient_type="venue_owner",
+                recipient_id=venue.organization_id,
+                event_type="rfp.deadline_reminder",
+                rfp_venue_id=rv.id,
             )
 
 
 # ── Event: rfp.deadline_passed ────────────────────────────────────────
 
-def dispatch_deadline_passed_notification(rfp, response_count: int, venue_count: int) -> None:
+def dispatch_deadline_passed_notification(db, rfp, response_count: int, venue_count: int) -> None:
     """Notify organizer that the RFP deadline has passed."""
     deep_link = f"{FRONTEND_URL}/platform/rfps/{rfp.id}"
 
-    _publish_inapp("rfp-notifications", {
-        "event": "rfp.deadline_passed",
-        "orgId": rfp.organization_id,
-        "rfpId": rfp.id,
-        "title": rfp.title,
-        "responseCount": response_count,
-        "venueCount": venue_count,
-    })
+    _publish_inapp_tracked(
+        db=db,
+        channel="rfp-notifications",
+        payload={
+            "event": "rfp.deadline_passed",
+            "orgId": rfp.organization_id,
+            "rfpId": rfp.id,
+            "title": rfp.title,
+            "responseCount": response_count,
+            "venueCount": venue_count,
+        },
+        rfp_id=rfp.id,
+        recipient_type="organizer",
+        recipient_id=rfp.organization_id,
+        event_type="rfp.deadline_passed",
+    )
 
-    # TODO: Email to organizer (requires cross-service call for email)
+    # Email to organizer
+    if rfp.organizer_email:
+        subject = f"RFP Deadline Passed: {rfp.title}"
+        html = f"""
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Your RFP Deadline Has Passed</h2>
+            <p>The response deadline for your RFP <strong>{rfp.title}</strong> has passed.</p>
+            <p><strong>Summary:</strong></p>
+            <ul>
+                <li>{response_count} of {venue_count} venues responded</li>
+                <li>{venue_count - response_count} venues did not respond</li>
+            </ul>
+            <a href="{deep_link}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 12px;">Review Responses</a>
+        </div>
+        """
+        text = f"Your RFP deadline has passed.\n\n{response_count} of {venue_count} venues responded.\n\nReview responses: {deep_link}"
+        _send_email_tracked(
+            db=db,
+            to=rfp.organizer_email,
+            subject=subject,
+            html=html,
+            text=text,
+            rfp_id=rfp.id,
+            recipient_type="organizer",
+            recipient_id=rfp.organization_id,
+            event_type="rfp.deadline_passed",
+        )
 
 
 # ── Event: rfp.all_responded ─────────────────────────────────────────
 
-def dispatch_all_responded_notification(rfp) -> None:
+def dispatch_all_responded_notification(db, rfp) -> None:
     """Notify organizer that all venues have responded."""
-    _publish_inapp("rfp-notifications", {
-        "event": "rfp.all_responded",
-        "orgId": rfp.organization_id,
-        "rfpId": rfp.id,
-        "title": rfp.title,
-    })
+    deep_link = f"{FRONTEND_URL}/platform/rfps/{rfp.id}"
+
+    _publish_inapp_tracked(
+        db=db,
+        channel="rfp-notifications",
+        payload={
+            "event": "rfp.all_responded",
+            "orgId": rfp.organization_id,
+            "rfpId": rfp.id,
+            "title": rfp.title,
+        },
+        rfp_id=rfp.id,
+        recipient_type="organizer",
+        recipient_id=rfp.organization_id,
+        event_type="rfp.all_responded",
+    )
+
+    # Email to organizer
+    if rfp.organizer_email:
+        subject = f"All Venues Responded: {rfp.title}"
+        html = f"""
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>All Venues Have Responded!</h2>
+            <p>Great news! All venues have submitted their responses to your RFP: <strong>{rfp.title}</strong></p>
+            <p>You can now compare proposals and make your decision.</p>
+            <a href="{deep_link}" style="display: inline-block; background: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 12px;">Compare Proposals</a>
+        </div>
+        """
+        text = f"All venues have responded to your RFP: {rfp.title}\n\nCompare proposals: {deep_link}"
+        _send_email_tracked(
+            db=db,
+            to=rfp.organizer_email,
+            subject=subject,
+            html=html,
+            text=text,
+            rfp_id=rfp.id,
+            recipient_type="organizer",
+            recipient_id=rfp.organization_id,
+            event_type="rfp.all_responded",
+        )

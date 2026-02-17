@@ -1,5 +1,6 @@
 # app/api/v1/endpoints/rfps.py
 """Organizer RFP management + venue decision endpoints."""
+import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.orm import Session
@@ -29,6 +30,8 @@ from app.models.amenity import Amenity
 from app.models.amenity_category import AmenityCategory
 from app.models.venue_photo import VenuePhoto
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/organizations/{orgId}/rfps", tags=["RFPs"])
 
@@ -124,6 +127,7 @@ def _build_rfp_response(db: Session, rfp) -> dict:
         "additional_notes": rfp.additional_notes,
         "response_deadline": rfp.response_deadline,
         "linked_event_id": rfp.linked_event_id,
+        "organizer_email": rfp.organizer_email,
         "status": rfp.status,
         "sent_at": rfp.sent_at,
         "venues": venues_list,
@@ -152,6 +156,18 @@ def create_rfp(
         )
 
     rfp = crud_rfp.create(db, org_id=orgId, data=rfp_in)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfp.id,
+        user_id=current_user.sub,
+        action="create",
+        new_state="draft",
+        metadata={"title": rfp.title},
+    )
+
     rfp = crud_rfp.get(db, rfp.id)  # reload with relations
     return _build_rfp_response(db, rfp)
 
@@ -335,7 +351,20 @@ def send_rfp(
             detail="Response deadline must be in the future.",
         )
 
+    old_status = rfp.status
     rfp = crud_rfp.send(db, rfp=rfp)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfp.id,
+        user_id=current_user.sub,
+        action="send",
+        old_state=old_status,
+        new_state=rfp.status,
+        metadata={"venues_count": len(rfp.venues)},
+    )
 
     # Trigger notifications asynchronously (best-effort)
     try:
@@ -376,7 +405,21 @@ def extend_rfp_deadline(
             detail="New deadline must be after the current deadline.",
         )
 
+    old_deadline = rfp.response_deadline
     rfp = crud_rfp.extend_deadline(db, rfp=rfp, new_deadline=body.new_deadline)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfp.id,
+        user_id=current_user.sub,
+        action="extend_deadline",
+        metadata={
+            "deadline_old": old_deadline.isoformat(),
+            "deadline_new": rfp.response_deadline.isoformat(),
+        },
+    )
 
     # Notify non-responding venues
     try:
@@ -407,7 +450,21 @@ def close_rfp(
             detail=f"Cannot close RFP with status '{rfp.status}'.",
         )
 
+    old_status = rfp.status
     rfp = crud_rfp.close(db, rfp=rfp)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfp.id,
+        user_id=current_user.sub,
+        action="close",
+        old_state=old_status,
+        new_state=rfp.status,
+        metadata={"reason": body.reason if body else None},
+    )
+
     rfp = crud_rfp.get(db, rfp.id)
     return _build_rfp_response(db, rfp)
 
@@ -424,6 +481,18 @@ def duplicate_rfp(
     rfp = _get_rfp_simple_or_404(db, rfpId, orgId)
 
     new_rfp = crud_rfp.duplicate(db, rfp=rfp)
+
+    # Audit log for the new RFP
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=new_rfp.id,
+        user_id=current_user.sub,
+        action="duplicate",
+        new_state="draft",
+        metadata={"source_rfp_id": rfpId, "title": new_rfp.title},
+    )
+
     new_rfp = crud_rfp.get(db, new_rfp.id)
     return _build_rfp_response(db, new_rfp)
 
@@ -459,7 +528,22 @@ def shortlist_venue(
             detail=f"Cannot shortlist venue with status '{rfv.status}'. Must be 'responded'.",
         )
 
+    old_status = rfv.status
     rfv = crud_rfp_venue.shortlist(db, rfv=rfv)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfpId,
+        rfp_venue_id=rfvId,
+        user_id=current_user.sub,
+        action="shortlist",
+        old_state=old_status,
+        new_state=rfv.status,
+        metadata={"venue_id": rfv.venue_id},
+    )
+
     return {
         "id": rfv.id,
         "rfp_id": rfv.rfp_id,
@@ -507,7 +591,21 @@ def award_venue(
             detail="Another venue has already been awarded for this RFP.",
         )
 
+    old_status = rfv.status
     rfv = crud_rfp_venue.award(db, rfv=rfv, rfp=rfp)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfpId,
+        rfp_venue_id=rfvId,
+        user_id=current_user.sub,
+        action="award",
+        old_state=old_status,
+        new_state=rfv.status,
+        metadata={"venue_id": rfv.venue_id},
+    )
 
     # Notify venue of acceptance
     try:
@@ -551,7 +649,21 @@ def decline_venue(
             detail=f"Cannot decline venue with status '{rfv.status}'.",
         )
 
+    old_status = rfv.status
     rfv = crud_rfp_venue.decline(db, rfv=rfv)
+
+    # Audit log
+    from app.crud import crud_rfp_audit_log
+    crud_rfp_audit_log.create_audit_entry(
+        db=db,
+        rfp_id=rfpId,
+        rfp_venue_id=rfvId,
+        user_id=current_user.sub,
+        action="decline",
+        old_state=old_status,
+        new_state=rfv.status,
+        metadata={"venue_id": rfv.venue_id, "reason": body.reason if body else None},
+    )
 
     # Notify venue of decline
     try:
@@ -612,23 +724,37 @@ def get_comparison_dashboard(
 
         # Convert to preferred currency
         total_in_preferred = total_cost
+        can_compare = True  # Track if currency conversion succeeded
+
         if exchange_rate_data and resp.currency != rfp.preferred_currency:
             rates = exchange_rate_data.get("rates", {})
             from_rate = rates.get(resp.currency)
             if from_rate and from_rate > 0:
                 # rates are relative to base (preferred_currency)
                 # To convert FROM resp.currency TO preferred_currency:
-                # amount_in_preferred = amount / rate_of_resp_currency
-                # Actually the rates dict says: 1 base = X target
-                # So to convert target → base: amount / rate
+                # Formula: amount_in_preferred = amount / rate_of_resp_currency
+                # Verified: 1 USD = 129 KES, so 100,000 KES / 129 = 775 USD ✓
                 total_in_preferred = total_cost / from_rate
-            # If the resp.currency IS the base, total_in_preferred = total_cost (already correct)
+
+                # Log conversions for first 2 weeks (remove after 2025-03-03)
+                logger.info(
+                    f"[CURRENCY_CONVERSION] RFP {rfp.id}: "
+                    f"{total_cost} {resp.currency} → {total_in_preferred:.2f} {rfp.preferred_currency} "
+                    f"(rate: 1 {rfp.preferred_currency} = {from_rate} {resp.currency})"
+                )
+            else:
+                # Conversion failed - cannot compare this venue's price
+                can_compare = False
+        # If same currency, can always compare
 
         # Track badges
         amenity_pct = item["amenity_match_pct"]
-        if best_value_cost is None or total_in_preferred < best_value_cost:
+
+        # Only include in best value if currency conversion succeeded
+        if can_compare and (best_value_cost is None or total_in_preferred < best_value_cost):
             best_value_cost = total_in_preferred
             best_value_rfv = item["rfv_id"]
+
         if amenity_pct > best_match_pct:
             best_match_pct = amenity_pct
             best_match_rfv = item["rfv_id"]
@@ -684,4 +810,39 @@ def get_comparison_dashboard(
             "best_value": best_value_rfv,
             "best_match": best_match_rfv,
         },
+    }
+
+
+# ── Audit Trail ────────────────────────────────────────────────────────
+
+@router.get("/{rfpId}/audit-log")
+def get_rfp_audit_log(
+    orgId: str,
+    rfpId: str,
+    db: Session = Depends(get_db),
+    current_user: TokenPayload = Depends(deps.get_current_user),
+):
+    """Get audit trail for an RFP showing all state changes and actions."""
+    _check_org_auth(current_user, orgId)
+    _get_rfp_simple_or_404(db, rfpId, orgId)  # verify org owns RFP
+
+    from app.crud import crud_rfp_audit_log
+
+    entries = crud_rfp_audit_log.get_audit_log_for_rfp(db, rfpId, limit=100)
+
+    return {
+        "rfp_id": rfpId,
+        "entries": [
+            {
+                "id": str(entry.id),
+                "user_id": entry.user_id,
+                "action": entry.action,
+                "old_state": entry.old_state,
+                "new_state": entry.new_state,
+                "metadata": entry.metadata,
+                "rfp_venue_id": entry.rfp_venue_id,
+                "created_at": entry.created_at.isoformat(),
+            }
+            for entry in entries
+        ],
     }

@@ -40,6 +40,12 @@ class RFP(Base):
     status = Column(String, nullable=False, server_default=text("'draft'"))
     sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Organizer contact (for email notifications)
+    organizer_email = Column(String, nullable=True)
+
+    # Idempotency tracking (prevent duplicate notifications)
+    deadline_processed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Template fields (schema-ready, no UI)
     is_template = Column(Boolean, nullable=False, server_default=text("false"))
     template_name = Column(String, nullable=True)

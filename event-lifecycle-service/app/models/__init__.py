@@ -83,6 +83,8 @@ from app.models.rfp import RFP
 from app.models.rfp_venue import RFPVenue
 from app.models.venue_response import VenueResponse
 from app.models.negotiation_message import NegotiationMessage
+from app.models.notification_log import RFPNotification
+from app.models.rfp_audit_log import RFPAuditLog
 
 __all__ = [
     "Base",
@@ -148,4 +150,6 @@ __all__ = [
     "RFPVenue",
     "VenueResponse",
     "NegotiationMessage",
+    "RFPNotification",
+    "RFPAuditLog",
 ]

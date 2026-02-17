@@ -41,11 +41,16 @@ from app.api.v1.endpoints import (
     rfps,
     venue_rfps,
     exchange_rates,
+    rfp_notifications,
+    health,
 )
 
 # This is the main router for the v1 API.
 # It will include all the specific endpoint routers.
 api_router = APIRouter()
+
+# Health checks
+api_router.include_router(health.router)
 
 api_router.include_router(public.router)
 api_router.include_router(events.router)
@@ -90,4 +95,5 @@ api_router.include_router(venue_admin.router, tags=["Venue Admin"])
 api_router.include_router(rfps.router, tags=["RFPs"])
 api_router.include_router(venue_rfps.router, tags=["Venue RFPs"])
 api_router.include_router(exchange_rates.router, tags=["Exchange Rates"])
+api_router.include_router(rfp_notifications.router, tags=["RFP Notifications"])
 

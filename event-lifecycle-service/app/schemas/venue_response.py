@@ -1,5 +1,5 @@
 # app/schemas/venue_response.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
@@ -16,6 +16,13 @@ class ExtraCostAmenity(BaseModel):
     amenity_id: str
     name: str
     price: float
+
+    @field_validator("price")
+    @classmethod
+    def validate_price_non_negative(cls, v):
+        if v < 0:
+            raise ValueError("Extra cost amenity price cannot be negative")
+        return v
 
 
 class VenueResponseCreate(BaseModel):
@@ -36,6 +43,20 @@ class VenueResponseCreate(BaseModel):
     alternative_dates: Optional[List[str]] = None
     quote_valid_until: Optional[date] = None
     notes: Optional[str] = None
+
+    @field_validator(
+        "space_rental_price",
+        "catering_price_per_head",
+        "av_equipment_fees",
+        "setup_cleanup_fees",
+        "other_fees",
+        "deposit_amount",
+    )
+    @classmethod
+    def validate_non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("Price cannot be negative")
+        return v
 
 
 class VenueResponseResponse(BaseModel):

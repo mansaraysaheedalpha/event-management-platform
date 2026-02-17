@@ -54,3 +54,5 @@ from .crud_venue_verification import venue_verification
 from . import crud_rfp
 from . import crud_rfp_venue
 from . import crud_venue_response
+from . import crud_notification_log
+from . import crud_rfp_audit_log

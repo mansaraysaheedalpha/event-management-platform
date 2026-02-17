@@ -31,16 +31,29 @@ def create(
     Create a venue response. Auto-calculates total_estimated_cost and
     denormalizes space name/capacity from VenueSpace record.
     """
+    from fastapi import HTTPException
+
     obj_data = data.model_dump()
 
-    # Denormalize space name and capacity
+    # Denormalize space name and capacity + validate space belongs to venue
     proposed_space_name = "Custom Space"
     proposed_space_capacity = None
     if data.proposed_space_id:
-        space = db.query(VenueSpace).filter(VenueSpace.id == data.proposed_space_id).first()
-        if space:
-            proposed_space_name = space.name
-            proposed_space_capacity = space.capacity
+        space = (
+            db.query(VenueSpace)
+            .filter(
+                VenueSpace.id == data.proposed_space_id,
+                VenueSpace.venue_id == rfp_venue.venue_id,
+            )
+            .first()
+        )
+        if not space:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Space {data.proposed_space_id} does not belong to this venue",
+            )
+        proposed_space_name = space.name
+        proposed_space_capacity = space.capacity
 
     # Calculate total_estimated_cost
     total = Decimal("0")

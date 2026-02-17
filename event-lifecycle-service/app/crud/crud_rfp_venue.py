@@ -1,4 +1,5 @@
 # app/crud/crud_rfp_venue.py
+import logging
 from typing import Optional, List
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session, joinedload
@@ -12,6 +13,63 @@ from app.models.venue_space_pricing import VenueSpacePricing
 from app.models.venue_amenity import VenueAmenity
 from app.models.amenity import Amenity
 from app.models.venue_photo import VenuePhoto
+
+logger = logging.getLogger(__name__)
+
+# Valid state transitions for RFPVenue
+VALID_VENUE_TRANSITIONS = {
+    "received": {"viewed", "no_response"},
+    "viewed": {"responded", "no_response"},
+    "responded": {"shortlisted", "awarded", "declined"},
+    "shortlisted": {"awarded", "declined"},
+    "awarded": set(),  # Terminal state
+    "declined": set(),  # Terminal state
+    "no_response": set(),  # Terminal state
+}
+
+
+def validate_transition(old_status: str, new_status: str) -> bool:
+    """
+    Validate that a status transition is allowed.
+    Returns True if valid, False otherwise.
+    """
+    if old_status not in VALID_VENUE_TRANSITIONS:
+        logger.warning(f"Unknown status: {old_status}")
+        return False
+
+    if new_status not in VALID_VENUE_TRANSITIONS[old_status]:
+        logger.warning(f"Invalid transition: {old_status} → {new_status}")
+        return False
+
+    return True
+
+
+def transition_status(
+    db: Session,
+    rfv: RFPVenue,
+    new_status: str,
+    validate: bool = True,
+) -> bool:
+    """
+    Validate and execute a venue status transition.
+    Returns True on success, False if transition is invalid.
+    """
+    old_status = rfv.status
+
+    if validate and not validate_transition(old_status, new_status):
+        return False
+
+    rfv.status = new_status
+
+    # Update timestamps
+    if new_status == "viewed" and not rfv.viewed_at:
+        rfv.viewed_at = datetime.now(timezone.utc)
+    elif new_status == "responded" and not rfv.responded_at:
+        rfv.responded_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(rfv)
+    return True
 
 
 def get(db: Session, rfv_id: str) -> Optional[RFPVenue]:
@@ -117,24 +175,31 @@ def remove_venue(db: Session, *, rfp_id: str, venue_id: str) -> bool:
 
 
 def mark_viewed(db: Session, *, rfv: RFPVenue) -> RFPVenue:
+    """Mark RFP as viewed by venue owner. Only transitions from 'received'."""
     if rfv.status == "received":
-        rfv.status = "viewed"
-        rfv.viewed_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(rfv)
+        success = transition_status(db, rfv, "viewed", validate=True)
+        if not success:
+            logger.error(f"Failed to mark RFPVenue {rfv.id} as viewed")
     return rfv
 
 
 def shortlist(db: Session, *, rfv: RFPVenue) -> RFPVenue:
-    rfv.status = "shortlisted"
-    db.commit()
-    db.refresh(rfv)
+    """Shortlist a venue. Only transitions from 'responded'."""
+    success = transition_status(db, rfv, "shortlisted", validate=True)
+    if not success:
+        logger.error(f"Failed to shortlist RFPVenue {rfv.id}: invalid transition from {rfv.status}")
     return rfv
 
 
 def award(db: Session, *, rfv: RFPVenue, rfp: RFP) -> RFPVenue:
-    rfv.status = "awarded"
+    """Award RFP to a venue. Only transitions from 'responded' or 'shortlisted'."""
+    success = transition_status(db, rfv, "awarded", validate=True)
+    if not success:
+        logger.error(f"Failed to award RFPVenue {rfv.id}: invalid transition from {rfv.status}")
+        return rfv
+
     rfp.status = "awarded"
+    db.commit()
 
     # Auto-decline all other responded/shortlisted venues
     other_venues = (
@@ -147,17 +212,17 @@ def award(db: Session, *, rfv: RFPVenue, rfp: RFP) -> RFPVenue:
         .all()
     )
     for ov in other_venues:
-        ov.status = "declined"
+        # Skip validation for auto-decline (administrative action)
+        transition_status(db, ov, "declined", validate=False)
 
-    db.commit()
-    db.refresh(rfv)
     return rfv
 
 
 def decline(db: Session, *, rfv: RFPVenue) -> RFPVenue:
-    rfv.status = "declined"
-    db.commit()
-    db.refresh(rfv)
+    """Decline a venue's response. Only transitions from 'responded' or 'shortlisted'."""
+    success = transition_status(db, rfv, "declined", validate=True)
+    if not success:
+        logger.error(f"Failed to decline RFPVenue {rfv.id}: invalid transition from {rfv.status}")
     return rfv
 
 

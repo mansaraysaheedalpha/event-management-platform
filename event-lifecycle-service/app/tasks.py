@@ -153,12 +153,13 @@ def process_rfp_deadlines(self):
     try:
         now = datetime.now(timezone.utc)
 
-        # Find RFPs past deadline in 'sent' or 'collecting_responses' state
+        # Find RFPs past deadline that haven't been processed yet
         expired_rfps = (
             db.query(RFP)
             .filter(
                 RFP.status.in_(("sent", "collecting_responses")),
                 RFP.response_deadline < now,
+                RFP.deadline_processed_at.is_(None),  # NOT already processed
             )
             .all()
         )
@@ -185,12 +186,14 @@ def process_rfp_deadlines(self):
             else:
                 rfp.status = "review"
 
+            # Mark as processed BEFORE notification (idempotency)
+            rfp.deadline_processed_at = now
             db.commit()
 
-            # Send notification
+            # Send notification (if this fails and retries, the query won't pick up the RFP again)
             try:
                 from app.utils.rfp_notifications import dispatch_deadline_passed_notification
-                dispatch_deadline_passed_notification(rfp, responded_count, total_venues)
+                dispatch_deadline_passed_notification(db, rfp, responded_count, total_venues)
             except Exception as e:
                 logger.warning(f"Failed to send deadline notification for RFP {rfp.id}: {e}")
 

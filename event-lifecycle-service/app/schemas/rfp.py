@@ -1,5 +1,5 @@
 # app/schemas/rfp.py
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, EmailStr
 from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
@@ -62,6 +62,7 @@ class RFPCreate(BaseModel):
     additional_notes: Optional[str] = None
     response_deadline: datetime
     linked_event_id: Optional[str] = None
+    organizer_email: Optional[EmailStr] = None  # For email notifications
 
     @model_validator(mode="after")
     def validate_ranges(self):
@@ -95,6 +96,7 @@ class RFPUpdate(BaseModel):
     additional_notes: Optional[str] = None
     response_deadline: Optional[datetime] = None
     linked_event_id: Optional[str] = None
+    organizer_email: Optional[EmailStr] = None
 
 
 # --- Response shapes ---

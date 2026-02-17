@@ -26,6 +26,7 @@ class RFPVenue(Base):
     notified_at = Column(DateTime(timezone=True), nullable=True)
     viewed_at = Column(DateTime(timezone=True), nullable=True)
     responded_at = Column(DateTime(timezone=True), nullable=True)
+    deadline_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     # Pre-computed fit indicators (snapshotted at send time)
     capacity_fit = Column(String, nullable=True)  # good_fit, tight_fit, oversized, poor_fit
