@@ -206,6 +206,14 @@ class CityCountGQL:
     venueCount: int
 
 
+@strawberry.type
+class VenueOwnerStatsType:
+    """Dashboard statistics for venue owners."""
+    pendingRfps: int
+    totalBookings: int
+    waitlistRequests: int
+
+
 # --- Input Types ---
 
 @strawberry.input

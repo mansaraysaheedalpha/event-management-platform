@@ -22,6 +22,7 @@ from .venue_types import (
     VenueVerificationDocType,
     VenueListedByType,
     VenuePriceType,
+    VenueOwnerStatsType,
 )
 
 
@@ -358,4 +359,64 @@ def admin_venue_queue_query(
         page=pagination["page"],
         pageSize=pagination["page_size"],
         totalPages=pagination["total_pages"],
+    )
+
+
+def venue_owner_stats_query(info: Info) -> VenueOwnerStatsType:
+    """Get dashboard statistics for venue owner (organization-wide)."""
+    user = info.context.user
+    if not user or not user.get("orgId"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = info.context.db
+    org_id = user["orgId"]
+
+    # Import models
+    from ..models.venue import Venue
+    from ..models.rfp_venue import RFPVenue
+    from ..models.event import Event
+    from ..models.venue_waitlist_entry import VenueWaitlistEntry
+    from sqlalchemy import func
+
+    # Get all venue IDs owned by this organization
+    venue_ids = db.query(Venue.id).filter(
+        Venue.organization_id == org_id,
+        Venue.is_archived == False
+    ).all()
+    venue_id_list = [v.id for v in venue_ids]
+
+    if not venue_id_list:
+        # No venues, return zeros
+        return VenueOwnerStatsType(
+            pendingRfps=0,
+            totalBookings=0,
+            waitlistRequests=0
+        )
+
+    # 1. Count pending RFPs (received/viewed, not yet responded)
+    # RFPVenue statuses: received, viewed, responded, shortlisted, awarded, declined
+    pending_rfps = db.query(func.count(RFPVenue.id)).filter(
+        RFPVenue.venue_id.in_(venue_id_list),
+        RFPVenue.status.in_(["received", "viewed"])
+    ).scalar() or 0
+
+    # 2. Count total bookings (events that have a venue_id matching owned venues)
+    # Only count confirmed/published events (not draft/cancelled)
+    total_bookings = db.query(func.count(Event.id)).filter(
+        Event.venue_id.in_(venue_id_list),
+        Event.status.in_(["published", "active", "completed"]),
+        Event.is_archived == False
+    ).scalar() or 0
+
+    # 3. Count active waitlist requests (WAITING or OFFERED status)
+    # Status values: waiting, offered, converted, expired, cancelled
+    waitlist_requests = db.query(func.count(VenueWaitlistEntry.id)).filter(
+        VenueWaitlistEntry.venue_id.in_(venue_id_list),
+        VenueWaitlistEntry.status.in_(["waiting", "offered"])
+    ).scalar() or 0
+
+    return VenueOwnerStatsType(
+        pendingRfps=pending_rfps,
+        totalBookings=total_bookings,
+        waitlistRequests=waitlist_requests
     )
