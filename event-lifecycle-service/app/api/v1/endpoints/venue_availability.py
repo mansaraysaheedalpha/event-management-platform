@@ -142,7 +142,7 @@ def set_availability(
             db,
             venue_id=venueId,
             signal_type=signal_type,
-            metadata={"set_by": current_user.sub},
+            signal_metadata={"set_by": current_user.sub},
         )
     except Exception as e:
         logger.error(f"Failed to record signal: {e}")

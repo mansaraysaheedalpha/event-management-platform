@@ -105,11 +105,6 @@ class VenueWaitlistEntry(Base):
             "expires_at",
             postgresql_where=text("status = 'waiting'"),
         ),
-        # Unique constraint: prevent duplicate active entries for same venue
-        UniqueConstraint(
-            "organization_id",
-            "venue_id",
-            name="uq_vwl_org_venue_active",
-            postgresql_where=text("status IN ('waiting', 'offered')"),
-        ),
+        # Partial unique constraint created in migration (ws001)
+        # Prevents duplicate active entries for same org+venue
     )

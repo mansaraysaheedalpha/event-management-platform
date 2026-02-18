@@ -44,7 +44,7 @@ class VenueAvailabilitySignal(Base):
     )
 
     # Additional context (attendance size, event type, etc.)
-    metadata = Column(JSONB, nullable=True)
+    signal_metadata = Column(JSONB, nullable=True)
 
     # NO relationships back to other models — this is an append-only audit log
 

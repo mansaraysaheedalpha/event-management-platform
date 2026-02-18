@@ -32,7 +32,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.now(),
         ),
-        sa.Column("metadata", JSONB, nullable=True),
+        sa.Column("signal_metadata", JSONB, nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
             ["venue_id"], ["venues.id"], ondelete="CASCADE"

@@ -257,7 +257,7 @@ def set_venue_availability(
             db,
             venue_id=venue_id,
             signal_type=signal_type,
-            metadata={"set_by": user.get("sub")},
+            signal_metadata={"set_by": user.get("sub")},
         )
     except Exception as e:
         pass

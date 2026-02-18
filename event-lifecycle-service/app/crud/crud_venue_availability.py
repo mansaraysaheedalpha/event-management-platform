@@ -126,7 +126,7 @@ def record_signal(
     source_rfp_id: Optional[str] = None,
     source_rfp_venue_id: Optional[str] = None,
     signal_date: Optional[str] = None,
-    metadata: Optional[dict] = None,
+    signal_metadata: Optional[dict] = None,
 ) -> VenueAvailabilitySignal:
     """
     Append a new availability signal to the audit log.
@@ -138,7 +138,7 @@ def record_signal(
         source_rfp_id=source_rfp_id,
         source_rfp_venue_id=source_rfp_venue_id,
         signal_date=signal_date,
-        metadata=metadata,
+        signal_metadata=signal_metadata,
     )
 
     db.add(signal)
