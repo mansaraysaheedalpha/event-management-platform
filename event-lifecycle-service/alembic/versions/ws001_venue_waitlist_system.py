@@ -1,7 +1,7 @@
 """venue waitlist system
 
 Revision ID: ws001
-Revises: vs001
+Revises: e5f6a7b8c9d0
 Create Date: 2026-02-18 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
 revision = "ws001"
-down_revision = "vs001"
+down_revision = "e5f6a7b8c9d0"
 branch_labels = None
 depends_on = None
 
