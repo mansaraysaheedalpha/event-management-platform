@@ -769,35 +769,75 @@ export class AuthService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(input.password, salt);
 
-    // Create the venue owner user with userType='VENUE_OWNER'
-    const newUser = await this.prisma.user.create({
-      data: {
-        email: input.email,
-        password: hashedPassword,
-        first_name: input.first_name,
-        last_name: input.last_name,
-        userType: 'VENUE_OWNER', // Mark as venue owner
+    // Create the user, organization, and membership in a transaction
+    const { user, membership } = await this.prisma.$transaction(
+      async (tx) => {
+        // 1. Create the venue owner user with userType='VENUE_OWNER'
+        const newUser = await tx.user.create({
+          data: {
+            email: input.email,
+            password: hashedPassword,
+            first_name: input.first_name,
+            last_name: input.last_name,
+            userType: 'VENUE_OWNER',
+          },
+          select: {
+            id: true,
+            email: true,
+            first_name: true,
+            last_name: true,
+            imageUrl: true,
+            tier: true,
+            preferredLanguage: true,
+            sponsorId: true,
+            isTwoFactorEnabled: true,
+            userType: true,
+          },
+        });
+
+        // 2. Create the organization with venue-specific settings
+        const newOrg = await tx.organization.create({
+          data: {
+            name: input.organization_name,
+            canListVenues: true, // Venue owners can list venues
+            canCreateEvents: false, // By default, venue owners don't create events
+          },
+        });
+
+        // 3. Get the OWNER system role
+        const ownerRole = await tx.role.findFirstOrThrow({
+          where: { name: 'OWNER', isSystemRole: true },
+        });
+
+        // 4. Create membership linking user to organization
+        const newMembership = await tx.membership.create({
+          data: {
+            userId: newUser.id,
+            organizationId: newOrg.id,
+            roleId: ownerRole.id,
+          },
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        });
+
+        return { user: newUser, membership: newMembership };
       },
-      select: {
-        id: true,
-        email: true,
-        first_name: true,
-        last_name: true,
-        imageUrl: true,
-        tier: true,
-        preferredLanguage: true,
-        sponsorId: true,
-        isTwoFactorEnabled: true,
-        userType: true,
-      },
-    });
+    );
 
     await this.auditService.log({
       action: 'USER_REGISTER_VENUE_OWNER',
-      actingUserId: newUser.id,
+      actingUserId: user.id,
+      organizationId: membership.organizationId,
     });
 
-    // Return user (tokens will be generated during login with onboarding flow)
-    return { user: newUser };
+    // Generate tokens for the user with their new organization
+    const tokens = await this.getTokensForUser(user, membership);
+
+    return { user, membership, tokens };
   }
 }

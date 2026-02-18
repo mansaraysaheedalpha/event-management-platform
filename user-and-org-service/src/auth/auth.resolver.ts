@@ -222,28 +222,26 @@ export class AuthResolver {
    * Venue owners need organizations (for team management and venue ownership).
    * Returns onboardingToken for org creation flow, similar to organizers.
    */
-  @Mutation(() => LoginPayload)
+  @Mutation(() => AuthPayload)
   async registerVenueOwner(
     @Args('input') registerVenueOwnerInput: RegisterVenueOwnerInput,
-  ): Promise<LoginPayload> {
-    // 1. Create the user with VENUE_OWNER type
-    const { user: newUser } = await this.authService.registerVenueOwner(registerVenueOwnerInput);
+    @Context() context: { res: Response },
+  ): Promise<AuthPayload> {
+    // Create user, organization, and membership - get tokens back
+    const { user, tokens } = await this.authService.registerVenueOwner(
+      registerVenueOwnerInput,
+    );
 
-    // 2. Log the new user in to get an onboarding token
-    const loginResult = await this.authService.login({
-      email: registerVenueOwnerInput.email,
-      password: registerVenueOwnerInput.password,
+    // Set refresh token cookie
+    context.res.cookie('refresh_token', tokens.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    if ('onboardingToken' in loginResult) {
-      return {
-        onboardingToken: loginResult.onboardingToken,
-        user: newUser,
-        requires2FA: false,
-      };
-    }
-
-    throw new Error('Venue owner registration succeeded but automatic login failed.');
+    // Return access token and user
+    return { token: tokens.access_token, user };
   }
 
   @Mutation(() => Boolean)
