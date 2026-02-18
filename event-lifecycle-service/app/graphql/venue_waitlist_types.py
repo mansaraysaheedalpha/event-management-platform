@@ -178,3 +178,71 @@ class CancelWaitlistEntryInput:
 class SetVenueAvailabilityInput:
     """Input for setting venue availability (manual override)."""
     status: AvailabilityStatusEnum
+
+
+# --- Response Types for Mutations ---
+
+
+@strawberry.type
+class JoinWaitlistResponse:
+    """Response from joining a venue waitlist."""
+    success: bool
+    waitlistEntry: Optional[VenueWaitlistEntryType] = None
+    message: str
+
+
+@strawberry.type
+class ConvertHoldResponse:
+    """Response from converting a hold to an RFP."""
+    success: bool
+    newRfpId: Optional[str] = None
+    waitlistEntryId: str
+    message: str
+
+
+@strawberry.type
+class CancelWaitlistResponse:
+    """Response from cancelling a waitlist entry."""
+    success: bool
+    waitlistEntryId: str
+    message: str
+
+
+@strawberry.type
+class RespondStillInterestedResponse:
+    """Response from responding to still interested nudge."""
+    success: bool
+    waitlistEntryId: str
+    stillInterested: bool
+    message: str
+
+
+@strawberry.type
+class SetAvailabilityResponse:
+    """Response from setting venue availability status."""
+    success: bool
+    venueId: str
+    availabilityStatus: AvailabilityStatusEnum
+    isManualOverride: bool
+    manualOverrideAt: Optional[datetime] = None
+
+
+@strawberry.type
+class ClearOverrideResponse:
+    """Response from clearing manual availability override."""
+    success: bool
+    venueId: str
+    availabilityStatus: AvailabilityStatusEnum
+    isManualOverride: bool
+    revertedToInferred: bool
+
+
+@strawberry.type
+class ResolveCircuitBreakerResponse:
+    """Response from manually resolving circuit breaker."""
+    success: bool
+    venueId: str
+    circuitBreakerResolved: bool
+    cascadeResumed: bool
+    nextEntryOffered: Optional[str] = None
+    message: str
