@@ -124,3 +124,30 @@ export class RegisterAttendeeInput {
   @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
   password: string;
 }
+
+@InputType()
+export class RegisterVenueOwnerInput {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  organization_name: string;
+
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  first_name: string;
+
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  last_name: string;
+
+  @Field()
+  @IsEmail()
+  email: string;
+
+  @Field()
+  @MinLength(8)
+  @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
+  password: string;
+}

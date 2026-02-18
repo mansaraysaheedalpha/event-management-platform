@@ -240,9 +240,9 @@ export class AuthService {
       return this.getTokensForAttendee(existingUser, sponsorStatus);
     }
 
-    // User is an ORGANIZER - check if they have an organization
+    // User is an ORGANIZER or VENUE_OWNER - both need organizations
     if (existingUser.memberships.length === 0) {
-      // Organizer without organization - needs onboarding
+      // User without organization - needs onboarding
       const onboardingToken = await this.getOnboardingToken(existingUser.id);
       return {
         onboardingToken,
@@ -250,7 +250,7 @@ export class AuthService {
       };
     }
 
-    // Organizer with organization - return normal token with orgId
+    // User with organization - return normal token with orgId
     const defaultMembership = existingUser.memberships[0];
     await this.auditService.log({
       action: 'USER_LOGIN',
@@ -742,5 +742,62 @@ export class AuthService {
       user: newUser,
       tokens,
     };
+  }
+
+  /**
+   * Register a new venue owner user.
+   * Venue owners are created with userType='VENUE_OWNER' and need organizations.
+   * Returns user object (onboarding token generated during login).
+   */
+  async registerVenueOwner(input: {
+    email: string;
+    password: string;
+    first_name: string;
+    last_name: string;
+    organization_name: string;
+  }) {
+    // Check if email already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: input.email },
+    });
+
+    if (existingUser) {
+      throw new ForbiddenException('An account with this email already exists.');
+    }
+
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(input.password, salt);
+
+    // Create the venue owner user with userType='VENUE_OWNER'
+    const newUser = await this.prisma.user.create({
+      data: {
+        email: input.email,
+        password: hashedPassword,
+        first_name: input.first_name,
+        last_name: input.last_name,
+        userType: 'VENUE_OWNER', // Mark as venue owner
+      },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        imageUrl: true,
+        tier: true,
+        preferredLanguage: true,
+        sponsorId: true,
+        isTwoFactorEnabled: true,
+        userType: true,
+      },
+    });
+
+    await this.auditService.log({
+      action: 'USER_REGISTER_VENUE_OWNER',
+      actingUserId: newUser.id,
+    });
+
+    // Return user (tokens will be generated during login with onboarding flow)
+    return { user: newUser };
   }
 }

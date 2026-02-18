@@ -17,6 +17,7 @@ enum OrganizationStatus {
 enum UserType {
   ORGANIZER
   ATTENDEE
+  VENUE_OWNER
 }
 // NEW: Stores a master list of all possible permissions in the system.
 model Permission {
@@ -95,6 +96,11 @@ model Organization {
   status                OrganizationStatus @default(ACTIVE)
   deletionScheduledAt   DateTime?
    restoreToken          String?            @unique
+
+  // Hybrid role flags for dual-purpose organizations
+  canCreateEvents       Boolean            @default(true)   // Allows VENUE_OWNERs to also create events
+  canListVenues         Boolean            @default(true)   // Allows ORGANIZERs to also list venues
+
   // Relations
   members               Membership[]
   invitations            Invitation[]

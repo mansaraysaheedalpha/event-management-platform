@@ -7,6 +7,7 @@ import {
   LoginInput,
   RegisterUserInput,
   RegisterAttendeeInput,
+  RegisterVenueOwnerInput,
   Login2FAInput,
   Login2FAEmailInput,
   Send2FAEmailCodeInput,
@@ -214,6 +215,35 @@ export class AuthResolver {
     });
 
     return { token: tokens.access_token, user };
+  }
+
+  /**
+   * Register a new venue owner user.
+   * Venue owners need organizations (for team management and venue ownership).
+   * Returns onboardingToken for org creation flow, similar to organizers.
+   */
+  @Mutation(() => LoginPayload)
+  async registerVenueOwner(
+    @Args('input') registerVenueOwnerInput: RegisterVenueOwnerInput,
+  ): Promise<LoginPayload> {
+    // 1. Create the user with VENUE_OWNER type
+    const { user: newUser } = await this.authService.registerVenueOwner(registerVenueOwnerInput);
+
+    // 2. Log the new user in to get an onboarding token
+    const loginResult = await this.authService.login({
+      email: registerVenueOwnerInput.email,
+      password: registerVenueOwnerInput.password,
+    });
+
+    if ('onboardingToken' in loginResult) {
+      return {
+        onboardingToken: loginResult.onboardingToken,
+        user: newUser,
+        requires2FA: false,
+      };
+    }
+
+    throw new Error('Venue owner registration succeeded but automatic login failed.');
   }
 
   @Mutation(() => Boolean)
