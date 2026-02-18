@@ -258,6 +258,31 @@ def submit_venue_response(
 
     response = crud_venue_response.create(db, rfp_venue=rfv, rfp=rfp, data=body)
 
+    # Record availability signal
+    try:
+        from app.crud import crud_venue_availability
+
+        signal_type_map = {
+            "confirmed": "confirmed",
+            "tentative": "tentative",
+            "unavailable": "unavailable",
+        }
+
+        crud_venue_availability.record_signal(
+            db=db,
+            venue_id=rfv.venue_id,
+            signal_type=signal_type_map[response.availability],
+            source_rfp_id=rfp.id,
+            source_rfp_venue_id=rfv.id,
+            signal_date=rfp.preferred_dates_start,
+            metadata={"attendance": rfp.attendance_max, "event_type": rfp.event_type},
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to record availability signal: {e}")
+        # Don't fail the response submission
+
     # Notify organizer
     try:
         from app.utils.rfp_notifications import dispatch_venue_responded_notification

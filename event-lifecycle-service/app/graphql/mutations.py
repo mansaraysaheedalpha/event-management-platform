@@ -123,6 +123,18 @@ from .venue_types import (
     SpacePricingInputGQL,
     VenueAmenityInputGQL,
 )
+from . import venue_waitlist_mutations as vwm
+from .venue_waitlist_types import (
+    JoinWaitlistResponse,
+    ConvertHoldResponse,
+    CancelWaitlistResponse,
+    RespondStillInterestedResponse,
+    SetAvailabilityResponse,
+    ClearOverrideResponse,
+    ResolveCircuitBreakerResponse,
+    AvailabilityStatusEnum,
+    CancellationReasonEnum,
+)
 from .admin_types import (
     DefaultFeeConfig,
     AdminSetOrganizationFeesInput,
@@ -2417,3 +2429,56 @@ class Mutation:
     ) -> VenueResponseType:
         """Submit a structured response to an RFP (venue owner)."""
         return rm.submit_venue_response_mutation(venueId, rfpId, input, info)
+
+    # ────────────────────────────────────────────────────────────────────
+    # VENUE SOURCING — WAITLIST SYSTEM MUTATIONS
+    # ────────────────────────────────────────────────────────────────────
+
+    @strawberry.mutation
+    def joinVenueWaitlist(
+        self, rfpVenueId: str, info: Info
+    ) -> JoinWaitlistResponse:
+        """Join a waitlist for an unavailable venue."""
+        return vwm.join_venue_waitlist(info, rfp_venue_id=rfpVenueId)
+
+    @strawberry.mutation
+    def convertWaitlistHold(
+        self, waitlistEntryId: str, info: Info
+    ) -> ConvertHoldResponse:
+        """Convert a hold into a new RFP."""
+        return vwm.convert_waitlist_hold(info, waitlist_entry_id=waitlistEntryId)
+
+    @strawberry.mutation
+    def cancelWaitlistEntry(
+        self, waitlistEntryId: str, reason: CancellationReasonEnum, notes: Optional[str] = None, info: Info = None
+    ) -> CancelWaitlistResponse:
+        """Cancel a waitlist entry."""
+        return vwm.cancel_waitlist_entry(info, waitlist_entry_id=waitlistEntryId, reason=reason, notes=notes)
+
+    @strawberry.mutation
+    def respondStillInterested(
+        self, waitlistEntryId: str, stillInterested: bool, info: Info
+    ) -> RespondStillInterestedResponse:
+        """Respond to a 'still interested?' nudge."""
+        return vwm.respond_still_interested(info, waitlist_entry_id=waitlistEntryId, still_interested=stillInterested)
+
+    @strawberry.mutation
+    def setVenueAvailability(
+        self, venueId: str, availabilityStatus: AvailabilityStatusEnum, info: Info
+    ) -> SetAvailabilityResponse:
+        """Manually set venue availability status (creates override)."""
+        return vwm.set_venue_availability(info, venue_id=venueId, availability_status=availabilityStatus)
+
+    @strawberry.mutation
+    def clearVenueAvailabilityOverride(
+        self, venueId: str, info: Info
+    ) -> ClearOverrideResponse:
+        """Clear manual override, revert to inference-driven status."""
+        return vwm.clear_venue_availability_override(info, venue_id=venueId)
+
+    @strawberry.mutation
+    def resolveWaitlistCircuitBreaker(
+        self, venueId: str, info: Info
+    ) -> ResolveCircuitBreakerResponse:
+        """Venue owner confirms waitlist should remain active after circuit breaker pause."""
+        return vwm.resolve_waitlist_circuit_breaker(info, venue_id=venueId)

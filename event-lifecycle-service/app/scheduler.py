@@ -37,6 +37,15 @@ from app.background_tasks.ad_tasks import (
     refresh_ad_analytics,
     cleanup_old_ad_events,
 )
+from app.background_tasks.venue_waitlist_tasks import (
+    process_hold_expiry,
+    send_hold_reminders,
+    process_auto_expiry,
+    send_still_interested_nudges,
+    process_nudge_expiry,
+    run_availability_inference,
+    process_circuit_breaker_expiry,
+)
 from app.utils.graphql_rate_limit import cleanup_expired_entries
 
 logger = logging.getLogger(__name__)
@@ -272,6 +281,85 @@ def init_scheduler():
         replace_existing=True
     )
     logger.info("Scheduled job: cleanup_rate_limits (every 1 hour)")
+
+    # ===== VENUE WAITLIST JOBS =====
+
+    # Job 17: Process expired waitlist holds
+    # Runs every 1 minute to catch expirations quickly
+    scheduler.add_job(
+        func=process_hold_expiry,
+        trigger=IntervalTrigger(minutes=1),
+        id='process_waitlist_hold_expiry',
+        name='Process Waitlist Hold Expiry',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: process_waitlist_hold_expiry (every 1 minute)")
+
+    # Job 18: Send 24h-before hold reminders
+    # Runs every 15 minutes
+    scheduler.add_job(
+        func=send_hold_reminders,
+        trigger=IntervalTrigger(minutes=15),
+        id='send_waitlist_hold_reminders',
+        name='Send Waitlist Hold Reminders',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: send_waitlist_hold_reminders (every 15 minutes)")
+
+    # Job 19: Auto-expire waitlist entries past their expiry date
+    # Runs every 1 hour
+    scheduler.add_job(
+        func=process_auto_expiry,
+        trigger=IntervalTrigger(hours=1),
+        id='process_waitlist_auto_expiry',
+        name='Process Waitlist Auto-Expiry',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: process_waitlist_auto_expiry (every 1 hour)")
+
+    # Job 20: Send "still interested?" nudges at 60 days
+    # Runs daily at 10:00 UTC
+    scheduler.add_job(
+        func=send_still_interested_nudges,
+        trigger=CronTrigger(hour=10, minute=0),
+        id='send_still_interested_nudges',
+        name='Send Waitlist Still Interested Nudges',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: send_still_interested_nudges (daily at 10 AM UTC)")
+
+    # Job 21: Expire entries where nudge was ignored for 7+ days
+    # Runs daily at 10:00 UTC (shortly after nudges are sent)
+    scheduler.add_job(
+        func=process_nudge_expiry,
+        trigger=CronTrigger(hour=10, minute=5),
+        id='process_waitlist_nudge_expiry',
+        name='Process Waitlist Nudge Expiry',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: process_waitlist_nudge_expiry (daily at 10:05 AM UTC)")
+
+    # Job 22: Run availability inference engine
+    # Runs every 6 hours to update venue availability status from signals
+    scheduler.add_job(
+        func=run_availability_inference,
+        trigger=IntervalTrigger(hours=6),
+        id='run_availability_inference',
+        name='Run Venue Availability Inference',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: run_availability_inference (every 6 hours)")
+
+    # Job 23: Process circuit breaker expiry (placeholder)
+    # Runs daily at midnight UTC
+    scheduler.add_job(
+        func=process_circuit_breaker_expiry,
+        trigger=CronTrigger(hour=0, minute=0),
+        id='process_circuit_breaker_expiry',
+        name='Process Waitlist Circuit Breaker Expiry',
+        replace_existing=True
+    )
+    logger.info("Scheduled job: process_circuit_breaker_expiry (daily at midnight UTC)")
 
     # M-OBS3: Listen for job errors and misfires so they don't fail silently
     scheduler.add_listener(_on_job_error, EVENT_JOB_ERROR)

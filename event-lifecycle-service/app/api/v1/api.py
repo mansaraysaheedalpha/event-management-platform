@@ -42,6 +42,8 @@ from app.api.v1.endpoints import (
     venue_rfps,
     exchange_rates,
     rfp_notifications,
+    venue_waitlist,
+    venue_availability,
     health,
 )
 
@@ -96,4 +98,8 @@ api_router.include_router(rfps.router, tags=["RFPs"])
 api_router.include_router(venue_rfps.router, tags=["Venue RFPs"])
 api_router.include_router(exchange_rates.router, tags=["Exchange Rates"])
 api_router.include_router(rfp_notifications.router, tags=["RFP Notifications"])
+
+# Venue Sourcing — Waitlist System
+api_router.include_router(venue_waitlist.router, tags=["Venue Waitlist"])
+api_router.include_router(venue_availability.router, tags=["Venue Availability"])
 

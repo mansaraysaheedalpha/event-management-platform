@@ -114,6 +114,13 @@ from .rfp_types import (
     VenueRFPDetailType,
     ExchangeRateType,
 )
+from . import venue_waitlist_queries as vwq
+from .venue_waitlist_types import (
+    VenueWaitlistEntryType,
+    WaitlistEntryListResult,
+    VenueAvailabilityType,
+    AvailabilityBadge,
+)
 from .venue_types import (
     VenueFullType,
     VenueDirectoryResultGQL,
@@ -2011,3 +2018,34 @@ class Query:
     ) -> ExchangeRateType:
         """Get exchange rates for currency conversion."""
         return rq.exchange_rates_query(base, info, targets=targets)
+
+    # ────────────────────────────────────────────────────────────────────
+    # VENUE SOURCING — WAITLIST SYSTEM QUERIES
+    # ────────────────────────────────────────────────────────────────────
+
+    @strawberry.field
+    def myWaitlistEntries(
+        self,
+        info: Info,
+        status: typing.Optional[str] = None,
+        activeOnly: typing.Optional[bool] = None,
+        page: int = 1,
+        pageSize: int = 10,
+    ) -> WaitlistEntryListResult:
+        """List organizer's waitlist entries."""
+        return vwq.my_waitlist_entries(info, status=status, active_only=activeOnly, page=page, page_size=pageSize)
+
+    @strawberry.field
+    def waitlistEntry(self, id: str, info: Info) -> typing.Optional[VenueWaitlistEntryType]:
+        """Get single waitlist entry detail."""
+        return vwq.waitlist_entry(info, id=id)
+
+    @strawberry.field
+    def venueAvailability(self, venueId: str, info: Info) -> VenueAvailabilityType:
+        """Get venue's availability status and inference data (owner only)."""
+        return vwq.venue_availability(info, venue_id=venueId)
+
+    @strawberry.field
+    def venueAvailabilityBadge(self, venueId: str, info: Info) -> AvailabilityBadge:
+        """Get public availability badge (no auth required)."""
+        return vwq.venue_availability_badge(info, venue_id=venueId)

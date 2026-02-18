@@ -227,7 +227,24 @@ def decline(db: Session, *, rfv: RFPVenue) -> RFPVenue:
 
 
 def mark_no_response(db: Session, *, rfp_id: str) -> int:
-    """Bulk mark all non-responded venues as 'no_response'. Returns count."""
+    """
+    Bulk mark all non-responded venues as 'no_response'. Returns count.
+    Also records availability signals for each venue.
+    """
+    # Get the RFP for signal recording
+    rfp = db.query(RFP).filter(RFP.id == rfp_id).first()
+
+    # Get all venues to mark before update
+    venues_to_mark = (
+        db.query(RFPVenue)
+        .filter(
+            RFPVenue.rfp_id == rfp_id,
+            RFPVenue.status.in_(("received", "viewed")),
+        )
+        .all()
+    )
+
+    # Update status
     count = (
         db.query(RFPVenue)
         .filter(
@@ -237,6 +254,27 @@ def mark_no_response(db: Session, *, rfp_id: str) -> int:
         .update({"status": "no_response"}, synchronize_session="fetch")
     )
     db.commit()
+
+    # Record signals for each no-response venue
+    if rfp:
+        try:
+            from app.crud import crud_venue_availability
+
+            for rfv in venues_to_mark:
+                try:
+                    crud_venue_availability.record_signal(
+                        db=db,
+                        venue_id=rfv.venue_id,
+                        signal_type="no_response",
+                        source_rfp_id=rfp.id,
+                        source_rfp_venue_id=rfv.id,
+                        signal_date=rfp.preferred_dates_start,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to record no_response signal for venue {rfv.venue_id}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to record no_response signals: {e}")
+
     return count
 
 

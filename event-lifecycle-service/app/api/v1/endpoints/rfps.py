@@ -453,6 +453,27 @@ def close_rfp(
     old_status = rfp.status
     rfp = crud_rfp.close(db, rfp=rfp)
 
+    # Record availability signal for all targeted venues (RFP cancelled)
+    try:
+        from app.crud import crud_venue_availability
+        from app.models.rfp_venue import RFPVenue
+
+        targeted_venues = db.query(RFPVenue).filter(RFPVenue.rfp_id == rfp.id).all()
+        for rfv in targeted_venues:
+            try:
+                crud_venue_availability.record_signal(
+                    db=db,
+                    venue_id=rfv.venue_id,
+                    signal_type="rfp_cancelled",
+                    source_rfp_id=rfp.id,
+                    source_rfp_venue_id=rfv.id,
+                    signal_date=rfp.preferred_dates_start,
+                )
+            except Exception as e:
+                logger.error(f"Failed to record signal for venue {rfv.venue_id}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to record cancellation signals: {e}")
+
     # Audit log
     from app.crud import crud_rfp_audit_log
     crud_rfp_audit_log.create_audit_entry(
@@ -593,6 +614,49 @@ def award_venue(
 
     old_status = rfv.status
     rfv = crud_rfp_venue.award(db, rfv=rfv, rfp=rfp)
+
+    # Record availability signals
+    try:
+        from app.crud import crud_venue_availability
+
+        # Signal for the awarded venue
+        crud_venue_availability.record_signal(
+            db=db,
+            venue_id=rfv.venue_id,
+            signal_type="awarded",
+            source_rfp_id=rfp.id,
+            source_rfp_venue_id=rfv.id,
+            signal_date=rfp.preferred_dates_start,
+        )
+
+        # Signal for all other responded/shortlisted venues (they lost)
+        from app.models.rfp_venue import RFPVenue
+
+        losing_venues = (
+            db.query(RFPVenue)
+            .filter(
+                RFPVenue.rfp_id == rfpId,
+                RFPVenue.id != rfvId,
+                RFPVenue.status.in_(["responded", "shortlisted"]),
+            )
+            .all()
+        )
+
+        for losing_rfv in losing_venues:
+            try:
+                crud_venue_availability.record_signal(
+                    db=db,
+                    venue_id=losing_rfv.venue_id,
+                    signal_type="lost_to_competitor",
+                    source_rfp_id=rfp.id,
+                    source_rfp_venue_id=losing_rfv.id,
+                    signal_date=rfp.preferred_dates_start,
+                )
+            except Exception as e:
+                logger.error(f"Failed to record signal for losing venue {losing_rfv.venue_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"Failed to record award signals: {e}")
 
     # Audit log
     from app.crud import crud_rfp_audit_log

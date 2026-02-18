@@ -148,6 +148,12 @@ class VenueFullType:
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
 
+    # Availability status (Tier 1 - Waitlist System)
+    availabilityStatus: str = "not_set"
+    availabilityLastInferredAt: Optional[datetime] = None
+    availabilityInferredStatus: Optional[str] = None
+    availabilityManualOverrideAt: Optional[datetime] = None
+
     # Nested data
     spaces: List[VenueSpaceType] = strawberry.field(default_factory=list)
     photos: List[VenuePhotoType] = strawberry.field(default_factory=list)

@@ -43,6 +43,19 @@ class Venue(Base):
     domain_match = Column(Boolean, nullable=False, server_default=text("false"))
 
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # Availability status (Tier 1 - Waitlist System)
+    availability_status = Column(
+        String, nullable=False, server_default=text("'not_set'")
+    )  # accepting_events, limited_availability, fully_booked, seasonal, not_set
+
+    # Inference tracking
+    availability_last_inferred_at = Column(DateTime(timezone=True), nullable=True)
+    availability_inferred_status = Column(String, nullable=True)
+
+    # Manual override
+    availability_manual_override_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

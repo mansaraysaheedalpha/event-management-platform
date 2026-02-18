@@ -86,6 +86,10 @@ from app.models.negotiation_message import NegotiationMessage
 from app.models.notification_log import RFPNotification
 from app.models.rfp_audit_log import RFPAuditLog
 
+# Waitlist system models
+from app.models.venue_waitlist_entry import VenueWaitlistEntry
+from app.models.venue_availability_signal import VenueAvailabilitySignal
+
 __all__ = [
     "Base",
     "Event",
@@ -152,4 +156,6 @@ __all__ = [
     "NegotiationMessage",
     "RFPNotification",
     "RFPAuditLog",
+    "VenueWaitlistEntry",
+    "VenueAvailabilitySignal",
 ]
