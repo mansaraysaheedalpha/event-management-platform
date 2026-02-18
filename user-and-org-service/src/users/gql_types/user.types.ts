@@ -22,4 +22,7 @@ export class GqlUser {
 
   @Field(() => Boolean)
   isTwoFactorEnabled: boolean;
+
+  @Field(() => String)
+  userType: string;
 }
