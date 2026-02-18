@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_DOMAIN: Optional[str] = "onboarding@resend.dev"
 
+    # Africa's Talking (SMS/WhatsApp)
+    AFRICAS_TALKING_USERNAME: Optional[str] = None
+    AFRICAS_TALKING_API_KEY: Optional[str] = None
+    AFRICAS_TALKING_SENDER_ID: Optional[str] = None
+
     # AI Services
     ANTHROPIC_API_KEY: Optional[str] = None
 
