@@ -94,6 +94,7 @@ export class UsersService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        userType: true,
       },
     });
 
@@ -111,6 +112,7 @@ export class UsersService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        userType: true,
       },
     });
 
@@ -146,6 +148,8 @@ export class UsersService {
         first_name: true,
         last_name: true,
         imageUrl: true,
+        isTwoFactorEnabled: true,
+        userType: true,
       },
     });
     return updatedUser; // <-- Return the updated user object
