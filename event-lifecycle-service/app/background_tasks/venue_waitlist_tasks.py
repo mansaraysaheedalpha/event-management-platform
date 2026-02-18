@@ -299,9 +299,96 @@ def process_circuit_breaker_expiry():
     This is a safety mechanism — if venue owner doesn't respond to circuit breaker
     notification for 7 days, we assume the waitlist is no longer active.
 
-    NOT FULLY IMPLEMENTED YET — placeholder for future enhancement.
+    Steps:
+    1. Find venues with circuit breaker active (>= 3 consecutive no-responses)
+    2. Check if any entries have been waiting 7+ days since the last expired hold
+    3. If so, cancel all remaining "waiting" entries with reason "circuit_breaker_timeout"
+    4. Notify affected organizers
     """
     logger.info("Running process_circuit_breaker_expiry job")
-    # TODO: Implement circuit breaker expiry logic
-    # For now, circuit breakers remain active until manually resolved
-    pass
+    db = SessionLocal()
+
+    try:
+        now = datetime.now(timezone.utc)
+        seven_days_ago = now - timedelta(days=7)
+
+        # Get venues that have waitlist entries
+        venues_with_waitlists = (
+            db.query(VenueWaitlistEntry.venue_id)
+            .filter(VenueWaitlistEntry.status.in_(["waiting", "expired"]))
+            .distinct()
+            .all()
+        )
+
+        for (venue_id,) in venues_with_waitlists:
+            # Check if circuit breaker is active for this venue
+            consecutive = crud_venue_waitlist.get_consecutive_no_responses(db, venue_id=venue_id)
+
+            if consecutive < 3:
+                continue  # No circuit breaker for this venue
+
+            # Get the last expired entry to check when circuit breaker triggered
+            last_expired = (
+                db.query(VenueWaitlistEntry)
+                .filter(
+                    VenueWaitlistEntry.venue_id == venue_id,
+                    VenueWaitlistEntry.status == "expired",
+                    VenueWaitlistEntry.hold_expires_at.isnot(None),
+                )
+                .order_by(VenueWaitlistEntry.hold_expires_at.desc())
+                .first()
+            )
+
+            if not last_expired:
+                continue
+
+            # Check if 7+ days have passed since the last expired hold
+            if last_expired.hold_expires_at and last_expired.hold_expires_at < seven_days_ago:
+                # Circuit breaker has been active for 7+ days with no resolution
+                # Cancel all remaining waiting entries
+                waiting_entries = (
+                    db.query(VenueWaitlistEntry)
+                    .filter(
+                        VenueWaitlistEntry.venue_id == venue_id,
+                        VenueWaitlistEntry.status == "waiting",
+                    )
+                    .all()
+                )
+
+                logger.info(
+                    f"Circuit breaker timeout for venue {venue_id}: "
+                    f"cancelling {len(waiting_entries)} waiting entries"
+                )
+
+                for entry in waiting_entries:
+                    entry.status = "cancelled"
+                    entry.cancellation_reason = "circuit_breaker_timeout"
+                    entry.cancellation_notes = (
+                        "Waitlist deactivated after 7 days of circuit breaker inactivity. "
+                        "The venue owner did not respond to the circuit breaker notification."
+                    )
+                    db.commit()
+
+                    # Notify organizer
+                    try:
+                        venue_waitlist_notifications.notify_auto_expired(entry)
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to send circuit breaker timeout notification for entry {entry.id}: {e}"
+                        )
+
+                # Also set venue availability to "not_set" as a safety measure
+                from app.models.venue import Venue
+                venue = db.query(Venue).filter(Venue.id == venue_id).first()
+                if venue and venue.availability_status == "accepting_events":
+                    venue.availability_status = "not_set"
+                    venue.availability_manual_override_at = now
+                    db.commit()
+                    logger.info(
+                        f"Reset availability status for venue {venue_id} due to circuit breaker timeout"
+                    )
+
+    except Exception as e:
+        logger.error(f"Error in process_circuit_breaker_expiry: {e}", exc_info=True)
+    finally:
+        db.close()
