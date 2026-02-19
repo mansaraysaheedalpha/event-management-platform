@@ -15,9 +15,11 @@ export class CsrfMiddleware implements NestMiddleware {
   ) {}
 
   use(req: Request, res: Response, next: NextFunction) {
-    // Only set CSRF cookie if it doesn't exist or for authenticated requests
-    if (!req.cookies[CSRF_COOKIE_NAME]) {
-      const token = this.csrfService.generateToken();
+    // Get existing token or generate a new one
+    let token = req.cookies[CSRF_COOKIE_NAME];
+
+    if (!token) {
+      token = this.csrfService.generateToken();
 
       res.cookie(CSRF_COOKIE_NAME, token, {
         httpOnly: false, // Must be readable by JavaScript to send in header
@@ -27,6 +29,10 @@ export class CsrfMiddleware implements NestMiddleware {
         path: '/',
       });
     }
+
+    // CRITICAL: Send token in response header for cross-origin setups
+    // Frontend JavaScript can't read cross-domain cookies, so we expose it via header
+    res.setHeader('X-CSRF-Token', token);
 
     next();
   }

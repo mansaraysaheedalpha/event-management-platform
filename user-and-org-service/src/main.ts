@@ -31,6 +31,7 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins.length > 0 ? allowedOrigins : false,
     credentials: true,
+    exposedHeaders: ['X-CSRF-Token'], // Allow frontend to read CSRF token header
   });
 
   app.use(helmet());
