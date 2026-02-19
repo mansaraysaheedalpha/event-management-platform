@@ -1,7 +1,7 @@
 # app/graphql/types.py
 import strawberry
 import typing
-from typing import Optional
+from typing import Optional, List
 import json
 from datetime import datetime, timedelta
 from enum import Enum
@@ -13,6 +13,7 @@ from ..models.registration import Registration as RegistrationModel
 from ..models.session import Session as SessionModel
 from ..crud.crud_session_rsvp import session_rsvp as session_rsvp_crud
 from ..crud.crud_session_capacity import session_capacity_crud
+from .venue_types import VenuePriceType
 
 
 # ==== VIRTUAL EVENT ENUMS (Phase 1) ====
@@ -97,9 +98,16 @@ class VenueType:
     email: Optional[str] = None
     whatsapp: Optional[str] = None
     total_capacity: Optional[int] = None
+    cover_photo_url: Optional[str] = None
     is_public: bool = True
     status: Optional[str] = None
     verified: bool = False
+    availability_status: str = "not_set"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    space_count: int = 0
+    min_price: Optional[VenuePriceType] = None
+    amenity_highlights: List[str] = strawberry.field(default_factory=list)
 
 
 @strawberry.type
