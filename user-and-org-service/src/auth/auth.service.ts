@@ -659,7 +659,20 @@ export class AuthService {
         userId_organizationId: { userId, organizationId: orgId },
       },
       include: {
-        user: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            first_name: true,
+            last_name: true,
+            imageUrl: true,
+            tier: true,
+            preferredLanguage: true,
+            sponsorId: true,
+            isTwoFactorEnabled: true,
+            userType: true,
+          },
+        },
         role: {
           include: {
             permissions: true,
