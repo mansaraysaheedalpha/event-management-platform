@@ -248,7 +248,7 @@ class VenueUpdateInputGQL:
     isPublic: Optional[bool] = None
 
 
-@strawberry.input
+@strawberry.input(name="VenueSpaceCreateInput")
 class VenueSpaceCreateInputGQL:
     venueId: str
     name: str
@@ -259,7 +259,7 @@ class VenueSpaceCreateInputGQL:
     sortOrder: Optional[int] = 0
 
 
-@strawberry.input
+@strawberry.input(name="VenueSpaceUpdateInput")
 class VenueSpaceUpdateInputGQL:
     name: Optional[str] = None
     description: Optional[str] = None
@@ -269,7 +269,7 @@ class VenueSpaceUpdateInputGQL:
     sortOrder: Optional[int] = None
 
 
-@strawberry.input
+@strawberry.input(name="SpacePricingInput")
 class SpacePricingInputGQL:
     rateType: str
     amount: float
