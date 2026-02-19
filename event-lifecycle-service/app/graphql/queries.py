@@ -358,7 +358,7 @@ class Query:
         return crud.venue.get_multi_by_organization(db, org_id=org_id)
 
     @strawberry.field
-    def venue(self, id: strawberry.ID, info: Info) -> Optional[VenueType]:
+    def venue(self, id: strawberry.ID, info: Info) -> Optional[VenueFullType]:
         user = info.context.user
         if not user or not user.get("orgId"):
             raise HTTPException(status_code=403, detail="Not authorized")
@@ -369,7 +369,7 @@ class Query:
         if not venue_obj or venue_obj.organization_id != org_id:
             return None
 
-        return venue_obj
+        return vq._venue_model_to_gql(venue_obj)
 
     # --- VENUE SOURCING QUERIES ---
 
