@@ -22,7 +22,7 @@ export class CsrfMiddleware implements NestMiddleware {
       res.cookie(CSRF_COOKIE_NAME, token, {
         httpOnly: false, // Must be readable by JavaScript to send in header
         secure: this.configService.get('NODE_ENV') !== 'development',
-        sameSite: 'lax', // Changed from 'strict' to allow cross-site requests with cookies
+        sameSite: this.configService.get('NODE_ENV') === 'development' ? 'lax' : 'none', // 'none' required for cross-domain (Vercel→Render)
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         path: '/',
       });
