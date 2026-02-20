@@ -371,7 +371,7 @@ class Query:
         if not venue_obj or venue_obj.organization_id != org_id:
             return None
 
-        return vq._venue_model_to_gql(venue_obj)
+        return vq._venue_model_to_gql(venue_obj, include_relations=True, include_verification=True)
 
     # --- VENUE SOURCING QUERIES ---
 
