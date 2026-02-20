@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from ..crud import crud_venue_waitlist, crud_venue_availability
 from ..models.venue_photo import VenuePhoto
 from ..models.venue import Venue
-from ..models.venue_waitlist import VenueWaitlistEntry
+from ..models.venue_waitlist_entry import VenueWaitlistEntry
 from .venue_waitlist_types import (
     VenueWaitlistEntryType,
     WaitlistEntryListResult,
