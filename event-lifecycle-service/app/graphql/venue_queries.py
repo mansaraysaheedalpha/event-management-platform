@@ -23,6 +23,7 @@ from .venue_types import (
     VenueListedByType,
     VenuePriceType,
     VenueOwnerStatsType,
+    VenueStatsType,
 )
 
 
@@ -430,4 +431,63 @@ def venue_owner_stats_query(info: Info) -> VenueOwnerStatsType:
         pendingRfps=pending_rfps,
         totalBookings=total_bookings,
         waitlistRequests=waitlist_requests
+    )
+
+
+def venue_stats_query(info: Info, venue_id: str) -> VenueStatsType:
+    """Get dashboard statistics for a specific venue."""
+    user = info.context.user
+    if not user or not user.get("orgId"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = info.context.db
+    org_id = user["orgId"]
+
+    # Import models
+    from ..models.venue import Venue
+    from ..models.rfp_venue import RFPVenue
+    from ..models.venue_waitlist_entry import VenueWaitlistEntry
+    from sqlalchemy import func
+
+    # Verify venue ownership
+    venue = crud_venue_obj.get(db, id=venue_id)
+    if not venue or venue.organization_id != org_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this venue's stats")
+
+    # 1. RFPs received: Count all RFPVenue records for this venue
+    rfps_received = db.query(func.count(RFPVenue.id)).filter(
+        RFPVenue.venue_id == venue_id
+    ).scalar() or 0
+
+    # 2. Responses sent: Count RFPVenue records where status is not 'received' or 'viewed'
+    # (meaning the venue owner has responded in some way)
+    responses_sent = db.query(func.count(RFPVenue.id)).filter(
+        RFPVenue.venue_id == venue_id,
+        ~RFPVenue.status.in_(["received", "viewed"])
+    ).scalar() or 0
+
+    # 3. Conversion rate: Calculate percentage of RFPs won
+    # Count RFPs with status 'selected' or 'booked' (won)
+    # Note: Based on the RFP system, successful statuses might be 'awarded' or similar
+    # Let's use common success statuses
+    rfps_won = db.query(func.count(RFPVenue.id)).filter(
+        RFPVenue.venue_id == venue_id,
+        RFPVenue.status.in_(["awarded", "selected", "booked"])
+    ).scalar() or 0
+
+    conversion_rate = None
+    if rfps_received > 0:
+        conversion_rate = round((rfps_won / rfps_received) * 100, 1)
+
+    # 4. Active waitlist: Count entries with status 'waiting' or 'offered'
+    active_waitlist_count = db.query(func.count(VenueWaitlistEntry.id)).filter(
+        VenueWaitlistEntry.venue_id == venue_id,
+        VenueWaitlistEntry.status.in_(["waiting", "offered"])
+    ).scalar() or 0
+
+    return VenueStatsType(
+        rfpsReceived=rfps_received,
+        responsesSent=responses_sent,
+        conversionRate=conversion_rate,
+        activeWaitlistCount=active_waitlist_count
     )

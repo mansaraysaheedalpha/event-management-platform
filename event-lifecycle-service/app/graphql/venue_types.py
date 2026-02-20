@@ -214,6 +214,15 @@ class VenueOwnerStatsType:
     waitlistRequests: int
 
 
+@strawberry.type
+class VenueStatsType:
+    """Statistics for a specific venue's dashboard."""
+    rfpsReceived: int
+    responsesSent: int
+    conversionRate: Optional[float] = None
+    activeWaitlistCount: int
+
+
 # --- Input Types ---
 
 @strawberry.input

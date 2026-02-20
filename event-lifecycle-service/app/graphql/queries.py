@@ -133,6 +133,7 @@ from .venue_types import (
     VenuePhotoType,
     VenueAmenityType,
     VenueOwnerStatsType,
+    VenueStatsType,
 )
 from .sponsor_types import (
     SponsorTierType,
@@ -457,6 +458,11 @@ class Query:
     def venueOwnerStats(self, info: Info) -> VenueOwnerStatsType:
         """Get dashboard statistics for venue owner."""
         return vq.venue_owner_stats_query(info)
+
+    @strawberry.field
+    def venueStats(self, venueId: str, info: Info) -> VenueStatsType:
+        """Get dashboard statistics for a specific venue."""
+        return vq.venue_stats_query(info, venueId)
 
     @strawberry.field
     def registrationsByEvent(
