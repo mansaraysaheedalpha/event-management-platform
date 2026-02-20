@@ -127,9 +127,17 @@ class CRUDVenue(CRUDBase[Venue, VenueCreate, VenueUpdate]):
     def get_multi_by_organization(
         self, db: Session, *, org_id: str, status: str = None, skip: int = 0, limit: int = 100
     ) -> List[Venue]:
-        query = db.query(Venue).filter(
-            Venue.organization_id == org_id,
-            Venue.is_archived == False,
+        query = (
+            db.query(Venue)
+            .options(
+                joinedload(Venue.spaces).joinedload(VenueSpace.pricing),
+                joinedload(Venue.photos),
+                joinedload(Venue.venue_amenities).joinedload(VenueAmenity.amenity).joinedload(Amenity.category),
+            )
+            .filter(
+                Venue.organization_id == org_id,
+                Venue.is_archived == False,
+            )
         )
         if status:
             query = query.filter(Venue.status == status)
@@ -445,7 +453,17 @@ class CRUDVenue(CRUDBase[Venue, VenueCreate, VenueUpdate]):
         self, db: Session, *, status: str = None, domain_match: bool = None,
         sort: str = "submitted_at_asc", page: int = 1, page_size: int = 20,
     ) -> dict:
-        query = db.query(Venue).filter(Venue.is_archived == False)
+        query = (
+            db.query(Venue)
+            .options(
+                joinedload(Venue.spaces).joinedload(VenueSpace.pricing),
+                joinedload(Venue.photos),
+                joinedload(Venue.venue_amenities).joinedload(VenueAmenity.amenity).joinedload(Amenity.category),
+                joinedload(Venue.verification_documents),
+                joinedload(Venue.organization),
+            )
+            .filter(Venue.is_archived == False)
+        )
         if status:
             query = query.filter(Venue.status == status)
         if domain_match is not None:

@@ -120,6 +120,7 @@ from .venue_waitlist_types import (
     WaitlistEntryListResult,
     VenueAvailabilityType,
     AvailabilityBadge,
+    ExistingWaitlistCheck,
 )
 from .venue_types import (
     VenueFullType,
@@ -2055,3 +2056,8 @@ class Query:
     def venueAvailabilityBadge(self, venueId: str, info: Info) -> AvailabilityBadge:
         """Get public availability badge (no auth required)."""
         return vwq.venue_availability_badge(info, venue_id=venueId)
+
+    @strawberry.field
+    def checkExistingWaitlist(self, venueId: str, info: Info) -> ExistingWaitlistCheck:
+        """Check if user already has a waitlist entry for this venue."""
+        return vwq.check_existing_waitlist(info, venue_id=venueId)

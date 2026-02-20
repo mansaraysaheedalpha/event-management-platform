@@ -11,6 +11,8 @@ from .venue_waitlist_types import (
     VenueWaitlistEntryType,
     JoinWaitlistResponse,
     ConvertHoldResponse,
+    WaitlistConversionResult,
+    RFPBasicInfoType,
     CancelWaitlistResponse,
     RespondStillInterestedResponse,
     SetAvailabilityResponse,
@@ -92,7 +94,7 @@ def join_venue_waitlist(
 def convert_waitlist_hold(
     info: Info,
     waitlist_entry_id: str,
-) -> ConvertHoldResponse:
+) -> WaitlistConversionResult:
     """
     Convert a hold into a new RFP.
     Auth: Org member.
@@ -125,11 +127,27 @@ def convert_waitlist_hold(
     # Trigger cascade to next person
     trigger_cascade(db, venue_id)
 
-    return ConvertHoldResponse(
-        success=True,
-        newRfpId=new_rfp.id,
-        waitlistEntryId=waitlist_entry_id,
+    # Refresh entry from DB to get updated status
+    db.refresh(entry)
+
+    # Convert to GraphQL types
+    entry_gql = _entry_to_gql(db, entry)
+
+    # Count venues for new RFP
+    from ..models.rfp_venue import RFPVenue
+    venue_count = db.query(RFPVenue).filter(RFPVenue.rfp_id == new_rfp.id).count()
+
+    new_rfp_gql = RFPBasicInfoType(
+        id=new_rfp.id,
+        title=new_rfp.title,
+        status=new_rfp.status,
+        venueCount=venue_count,
         message="Hold converted to new RFP successfully",
+    )
+
+    return WaitlistConversionResult(
+        waitlistEntry=entry_gql,
+        newRfp=new_rfp_gql,
     )
 
 
@@ -317,6 +335,8 @@ def clear_venue_availability_override(
         availabilityStatus=AvailabilityStatusEnum(venue.availability_status),
         isManualOverride=False,
         revertedToInferred=True,
+        lastInferredAt=venue.availability_last_inferred_at,
+        inferredStatus=venue.availability_inferred_status,
     )
 
 

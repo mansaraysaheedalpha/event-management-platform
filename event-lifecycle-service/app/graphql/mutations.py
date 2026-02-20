@@ -127,6 +127,7 @@ from . import venue_waitlist_mutations as vwm
 from .venue_waitlist_types import (
     JoinWaitlistResponse,
     ConvertHoldResponse,
+    WaitlistConversionResult,
     CancelWaitlistResponse,
     RespondStillInterestedResponse,
     SetAvailabilityResponse,
@@ -2444,7 +2445,7 @@ class Mutation:
     @strawberry.mutation
     def convertWaitlistHold(
         self, waitlistEntryId: str, info: Info
-    ) -> ConvertHoldResponse:
+    ) -> WaitlistConversionResult:
         """Convert a hold into a new RFP."""
         return vwm.convert_waitlist_hold(info, waitlist_entry_id=waitlistEntryId)
 

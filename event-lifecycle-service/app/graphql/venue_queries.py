@@ -36,6 +36,7 @@ def _venue_model_to_gql(venue, *, include_relations=False, include_verification=
     space_count = 0
     min_price = None
     amenity_highlights = []
+    listed_by = None
 
     # L-06: Process photos first so space photos can be populated
     if include_relations and hasattr(venue, "photos"):
@@ -139,6 +140,14 @@ def _venue_model_to_gql(venue, *, include_relations=False, include_verification=
                 )
             )
 
+    if include_relations and hasattr(venue, "organization") and venue.organization:
+        org = venue.organization
+        listed_by = VenueListedByType(
+            name=org.name,
+            email=getattr(org, "email", None),
+            memberSince=org.created_at,
+        )
+
     return VenueFullType(
         id=venue.id,
         slug=venue.slug,
@@ -161,6 +170,7 @@ def _venue_model_to_gql(venue, *, include_relations=False, include_verification=
         rejectionReason=venue.rejection_reason,
         verified=venue.verified,
         domainMatch=venue.domain_match,
+        availabilityStatus=venue.availability_status,
         submittedAt=venue.submitted_at,
         approvedAt=venue.approved_at,
         isArchived=venue.is_archived,
@@ -173,6 +183,7 @@ def _venue_model_to_gql(venue, *, include_relations=False, include_verification=
         spaceCount=space_count,
         minPrice=min_price,
         amenityHighlights=amenity_highlights,
+        listedBy=listed_by,
     )
 
 
@@ -312,7 +323,7 @@ def organization_venues_query(
     db = info.context.db
     org_id = user["orgId"]
     venues = crud_venue_obj.get_multi_by_organization(db, org_id=org_id, status=status)
-    return [_venue_model_to_gql(v) for v in venues]
+    return [_venue_model_to_gql(v, include_relations=True) for v in venues]
 
 
 def venue_detail_query(id: str, info: Info) -> Optional[VenueFullType]:
@@ -352,7 +363,7 @@ def admin_venue_queue_query(
         page_size=pageSize or 20,
     )
     pagination = result["pagination"]
-    venues = [_venue_model_to_gql(v) for v in result["venues"]]
+    venues = [_venue_model_to_gql(v, include_relations=True, include_verification=True) for v in result["venues"]]
     return VenueDirectoryResultGQL(
         venues=venues,
         totalCount=pagination["total_count"],

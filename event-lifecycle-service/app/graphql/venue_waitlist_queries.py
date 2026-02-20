@@ -8,12 +8,14 @@ from fastapi import HTTPException
 from ..crud import crud_venue_waitlist, crud_venue_availability
 from ..models.venue_photo import VenuePhoto
 from ..models.venue import Venue
+from ..models.venue_waitlist import VenueWaitlistEntry
 from .venue_waitlist_types import (
     VenueWaitlistEntryType,
     WaitlistEntryListResult,
     VenueAvailabilityType,
     AvailabilityBadge,
     AvailabilitySignalSummary,
+    ExistingWaitlistCheck,
 )
 
 
@@ -220,4 +222,43 @@ def venue_availability_badge(info: Info, venue_id: str) -> AvailabilityBadge:
         availabilityStatus=status_value,
         badgeColor=colors.get(status_value, "gray"),
         badgeLabel=labels.get(status_value, "Status Unknown"),
+    )
+
+
+def check_existing_waitlist(info: Info, venue_id: str) -> ExistingWaitlistCheck:
+    """
+    Check if the current user's organization already has a waitlist entry for this venue.
+    Auth: Org member.
+    """
+    user, org_id = _get_user_org(info)
+    db = info.context.db
+
+    # Get active waitlist entry for this org and venue
+    ACTIVE_STATUSES = {"waiting", "offered"}
+    entry = (
+        db.query(VenueWaitlistEntry)
+        .filter(
+            VenueWaitlistEntry.organization_id == org_id,
+            VenueWaitlistEntry.venue_id == venue_id,
+            VenueWaitlistEntry.status.in_(ACTIVE_STATUSES),
+        )
+        .first()
+    )
+
+    if not entry:
+        return ExistingWaitlistCheck(
+            alreadyOnWaitlist=False,
+            queuePosition=None,
+            waitlistId=None,
+            status=None,
+        )
+
+    # Calculate queue position
+    queue_position = crud_venue_waitlist.get_queue_position(db, entry=entry)
+
+    return ExistingWaitlistCheck(
+        alreadyOnWaitlist=True,
+        queuePosition=queue_position,
+        waitlistId=entry.id,
+        status=entry.status,
     )

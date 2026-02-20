@@ -158,6 +158,15 @@ class AvailabilityBadge:
     badgeLabel: str
 
 
+@strawberry.type
+class ExistingWaitlistCheck:
+    """Result of checking if user is already on a venue waitlist."""
+    alreadyOnWaitlist: bool
+    queuePosition: Optional[int] = None
+    waitlistId: Optional[str] = None
+    status: Optional[str] = None
+
+
 # --- Input Types ---
 
 
@@ -235,6 +244,8 @@ class ClearOverrideResponse:
     availabilityStatus: AvailabilityStatusEnum
     isManualOverride: bool
     revertedToInferred: bool
+    lastInferredAt: Optional[datetime] = None
+    inferredStatus: Optional[str] = None
 
 
 @strawberry.type
