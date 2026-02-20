@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 class CRUDVenuePhoto:
     def create(self, db: Session, *, venue_id: str, obj_in: dict) -> VenuePhoto:
-        print(f"[CRUD] Creating photo for venue {venue_id}: {obj_in.get('s3_key')}")
         # Build public URL from s3_key
         bucket = settings.AWS_S3_BUCKET_NAME
         region = settings.AWS_S3_REGION
@@ -32,11 +31,8 @@ class CRUDVenuePhoto:
             self._unset_cover(db, venue_id=venue_id)
 
         db.add(db_obj)
-        print(f"[CRUD] About to commit photo {db_obj.id}")
         db.commit()
-        print(f"[CRUD] Photo {db_obj.id} committed successfully")
         db.refresh(db_obj)
-        print(f"[CRUD] Photo {db_obj.id} refreshed from DB")
         return db_obj
 
     def get(self, db: Session, *, id: str) -> Optional[VenuePhoto]:

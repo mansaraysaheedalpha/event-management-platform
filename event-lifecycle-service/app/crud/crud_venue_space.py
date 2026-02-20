@@ -11,14 +11,10 @@ logger = logging.getLogger(__name__)
 
 class CRUDVenueSpace:
     def create(self, db: Session, *, venue_id: str, obj_in: dict) -> VenueSpace:
-        print(f"[CRUD] Creating space for venue {venue_id}: {obj_in.get('name')}")
         db_obj = VenueSpace(venue_id=venue_id, **obj_in)
         db.add(db_obj)
-        print(f"[CRUD] About to commit space {db_obj.id}")
         db.commit()
-        print(f"[CRUD] Space {db_obj.id} committed successfully")
         db.refresh(db_obj)
-        print(f"[CRUD] Space {db_obj.id} refreshed from DB")
         return db_obj
 
     def get(self, db: Session, *, id: str) -> Optional[VenueSpace]:
