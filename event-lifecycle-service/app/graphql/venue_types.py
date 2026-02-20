@@ -225,7 +225,7 @@ class VenueStatsType:
 
 # --- Input Types ---
 
-@strawberry.input
+@strawberry.input(name="VenueCreateInput")
 class VenueCreateInputGQL:
     name: str
     description: Optional[str] = None
@@ -241,7 +241,7 @@ class VenueCreateInputGQL:
     isPublic: Optional[bool] = True
 
 
-@strawberry.input
+@strawberry.input(name="VenueUpdateInput")
 class VenueUpdateInputGQL:
     name: Optional[str] = None
     description: Optional[str] = None
@@ -285,7 +285,7 @@ class SpacePricingInputGQL:
     currency: str
 
 
-@strawberry.input
+@strawberry.input(name="VenueAmenityInput")
 class VenueAmenityInputGQL:
     amenityId: str
     metadata: Optional[JSON] = None
