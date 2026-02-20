@@ -1,17 +1,24 @@
 # app/crud/crud_venue_space.py
 from typing import Optional, List
 from sqlalchemy.orm import Session, joinedload
+import logging
 
 from app.models.venue_space import VenueSpace
 from app.models.venue_space_pricing import VenueSpacePricing
 
+logger = logging.getLogger(__name__)
+
 
 class CRUDVenueSpace:
     def create(self, db: Session, *, venue_id: str, obj_in: dict) -> VenueSpace:
+        logger.info(f"Creating space for venue {venue_id}: {obj_in.get('name')}")
         db_obj = VenueSpace(venue_id=venue_id, **obj_in)
         db.add(db_obj)
+        logger.info(f"About to commit space {db_obj.id}")
         db.commit()
+        logger.info(f"Space {db_obj.id} committed successfully")
         db.refresh(db_obj)
+        logger.info(f"Space {db_obj.id} refreshed from DB")
         return db_obj
 
     def get(self, db: Session, *, id: str) -> Optional[VenueSpace]:
