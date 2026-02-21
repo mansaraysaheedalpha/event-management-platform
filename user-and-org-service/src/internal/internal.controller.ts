@@ -153,6 +153,7 @@ export class InternalController {
         sponsorId: true,
         preferredLanguage: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         userType: true,
       },
     });
@@ -186,6 +187,7 @@ export class InternalController {
       select: {
         id: true,
         email: true,
+        isPlatformAdmin: true,
         first_name: true,
         last_name: true,
         password: true,
@@ -226,6 +228,7 @@ export class InternalController {
         sponsorId: true,
         preferredLanguage: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         userType: true,
       },
     });

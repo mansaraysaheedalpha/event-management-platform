@@ -94,6 +94,7 @@ export class UsersService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         userType: true,
       },
     });
@@ -112,6 +113,7 @@ export class UsersService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         userType: true,
       },
     });
