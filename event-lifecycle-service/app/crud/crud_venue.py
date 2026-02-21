@@ -491,4 +491,36 @@ class CRUDVenue(CRUDBase[Venue, VenueCreate, VenueUpdate]):
         }
 
 
+    def archive(self, db: Session, *, id: str) -> Optional[Venue]:
+        """Archive a venue (soft delete)."""
+        venue = db.query(Venue).filter(Venue.id == id).first()
+        if not venue:
+            return None
+        venue.is_archived = True
+        db.commit()
+        db.refresh(venue)
+        return venue
+
+    def delete(self, db: Session, *, id: str) -> bool:
+        """
+        Permanently delete a venue.
+        Only allows deleting draft or rejected venues for safety.
+        """
+        venue = db.query(Venue).filter(Venue.id == id).first()
+        if not venue:
+            return False
+
+        # Safety check: only allow deleting draft/rejected venues
+        if venue.status not in ("draft", "rejected"):
+            raise ValueError(
+                f"Cannot delete venue with status '{venue.status}'. "
+                "Only draft and rejected venues can be permanently deleted. "
+                "Use archive() for approved venues."
+            )
+
+        db.delete(venue)
+        db.commit()
+        return True
+
+
 venue = CRUDVenue(Venue)
