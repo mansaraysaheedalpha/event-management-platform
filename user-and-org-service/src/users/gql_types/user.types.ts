@@ -23,6 +23,9 @@ export class GqlUser {
   @Field(() => Boolean)
   isTwoFactorEnabled: boolean;
 
+  @Field(() => Boolean)
+  isPlatformAdmin: boolean;
+
   @Field(() => String)
   userType: string;
 }

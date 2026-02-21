@@ -10,4 +10,6 @@ export interface JwtPayload {
   sponsorId?: string;
   orgRequires2FA: boolean;
   is2FAEnabled: boolean;
+  isPlatformAdmin?: boolean; // Platform admin access flag
+  userType?: string; // For attendee JWTs
 }

@@ -41,6 +41,7 @@ type UserForToken = Pick<
   | 'sponsorId'
   | 'isTwoFactorEnabled'
   | 'userType'
+  | 'isPlatformAdmin'
 >;
 
 type RoleWithPermissions = PrismaRole & { permissions: Permission[] };
@@ -153,6 +154,7 @@ export class AuthService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
@@ -270,6 +272,7 @@ export class AuthService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
@@ -322,6 +325,7 @@ export class AuthService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
@@ -373,6 +377,7 @@ export class AuthService {
         last_name: true,
         imageUrl: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         preferredLanguage: true,
         tier: true,
         sponsorId: true,
@@ -468,6 +473,7 @@ export class AuthService {
       sponsorId: user.sponsorId || undefined,
       orgRequires2FA: organization.isTwoFactorRequired ?? false,
       is2FAEnabled: user.isTwoFactorEnabled,
+      isPlatformAdmin: user.isPlatformAdmin || false,
     };
     const refreshTokenPayload = {
       sub: user.id,
@@ -524,6 +530,8 @@ export class AuthService {
       preferredLanguage: user.preferredLanguage || 'en',
       sponsorId: user.sponsorId || undefined,
       is2FAEnabled: user.isTwoFactorEnabled,
+      isPlatformAdmin: user.isPlatformAdmin || false,
+      userType: user.userType,
     };
 
     const refreshTokenPayload = {
@@ -670,6 +678,7 @@ export class AuthService {
             preferredLanguage: true,
             sponsorId: true,
             isTwoFactorEnabled: true,
+            isPlatformAdmin: true,
             userType: true,
           },
         },
@@ -739,6 +748,7 @@ export class AuthService {
         preferredLanguage: true,
         sponsorId: true,
         isTwoFactorEnabled: true,
+        isPlatformAdmin: true,
         userType: true,
       },
     });
@@ -804,6 +814,7 @@ export class AuthService {
             preferredLanguage: true,
             sponsorId: true,
             isTwoFactorEnabled: true,
+            isPlatformAdmin: true,
             userType: true,
           },
         });
